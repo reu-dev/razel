@@ -1,12 +1,12 @@
 # chained commands executor (cce)
 or chained tasks executor (cte)
 
-## Goals
+## Goals / Ideas
 * fast and correct, like Bazel
 * built-in convenience functions
   * parse measurement from stdout of task, aggregate them
   * optionally replace outputs on errors
-  * summary grouped by tasks to make tasks errors understandable
+  * summary grouped by tasks to make task errors understandable
   * JUnit test output, e.g. for GitLab CI
 * simple query language to filter tasks
 * task scheduling and caching depending on resources 
@@ -16,9 +16,18 @@ or chained tasks executor (cte)
 * transparent remote execution
 * data/results down/upload to storage, e.g. Git LFS, MinIO
   * local access to important outputs of remotely executed tasks
+* execute native processes in sandbox, like Bazel
+  * provide specified inputs, check expected outputs
+  * in ramdisk?
+* support wasi
+  * no need to compile tools for Linux, Windows, Apple x64, Apple M1, ...
+  * bit-exact output on all platforms?
+  * wasm provides sandbox
+  * integrate wasi executor to avoid dependency on additional tool
+* support executing single command
+  * for developing/debugging or even for low-level integration in (Python) scripts 
+* support executing batch files containing commands
 
-## Ideas
-* integrate wasi executor
 
 ## Why not ...?
 * Bazel
