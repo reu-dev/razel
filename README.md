@@ -1,43 +1,50 @@
-# chained commands executor (cce)
-or chained tasks executor (cte)
+# razel
+
+## Naming
+
+* cce: chained commands executor
+* cte: chained tasks executor
+* razel: rusty bazel, reu's bazel
 
 ## Goals / Ideas
+
 * fast and correct, like Bazel
 * built-in convenience functions
-  * parse measurement from stdout of task, aggregate them
-  * optionally replace outputs on errors
-  * summary grouped by tasks to make task errors understandable
-  * JUnit test output, e.g. for GitLab CI
+    * parse measurement from stdout of task, aggregate them
+    * concat output files, e.g. jsonl, csv
+    * optionally replace outputs on errors
+    * summary grouped by tasks to make task errors understandable
+    * JUnit test output, e.g. for GitLab CI
 * simple query language to filter tasks
-* task scheduling and caching depending on resources 
-  * automatic disk cleanup locally and for cache
-  * disk usage, RAM, network speed and parallel instances of external tools might be limited
-  * measure/predict task execution time and output size
+* task scheduling and caching depending on resources
+    * automatic disk cleanup locally and for cache
+    * disk usage, RAM, network speed and parallel instances of external tools might be limited
+    * measure/predict task execution time and output size
 * transparent remote execution
 * data/results down/upload to storage, e.g. Git LFS, MinIO
-  * local access to important outputs of remotely executed tasks
+    * local access to important outputs of remotely executed tasks
 * execute native processes in sandbox, like Bazel
-  * provide specified inputs, check expected outputs
-  * in ramdisk?
+    * provide specified inputs, check expected outputs
+    * in ramdisk?
 * support wasi
-  * no need to compile tools for Linux, Windows, Apple x64, Apple M1, ...
-  * bit-exact output on all platforms?
-  * wasm provides sandbox
-  * integrate wasi executor to avoid dependency on additional tool
+    * no need to compile tools for Linux, Windows, Apple x64, Apple M1, ...
+    * bit-exact output on all platforms?
+    * wasm provides sandbox
+    * integrate wasi executor to avoid dependency on additional tool
 * support executing single command
-  * for developing/debugging or even for low-level integration in (Python) scripts 
+    * for developing/debugging or even for low-level integration in (Python) scripts
 * support executing batch files containing commands
 
-
 ## Why not ...?
+
 * Bazel
-  * additional launcher script required for some simple tasks
-    * using stdout of action as input for another action
-    * parsing measurements from stdout of action
-    * CTest features like FAIL_REGULAR_EXPRESSION, WILL_FAIL
-  * difficult to get command lines for debugging
-  * no automatic disk usage limit/cleanup for local cache - all temp output needs to fit on disk 
-  * no native support for response files
-  * resources cannot be reserved to run real-time critical tests 
+    * additional launcher script required for some simple tasks
+        * using stdout of action as input for another action
+        * parsing measurements from stdout of action
+        * CTest features like FAIL_REGULAR_EXPRESSION, WILL_FAIL
+    * difficult to get command lines for debugging
+    * no automatic disk usage limit/cleanup for local cache - all temp output needs to fit on disk
+    * no native support for response files
+    * resources cannot be reserved to run real-time critical tests
 * CTest
-  * no caching / remote execution
+    * no caching / remote execution
