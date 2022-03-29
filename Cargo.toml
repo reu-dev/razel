@@ -3,13 +3,15 @@ name = "razel"
 version = "0.1.0"
 authors = ["Stefan Reuschl <stefan.reuschl@gmail.com>"]
 edition = "2021"
+description = "chained commands/tasks executor with caching"
 publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 anyhow = "1.0.56"
-clap = "3.1.0"
+async-trait = "0.1.53"
+clap = { version = "3.1.6", features = ["derive"] }
 csv = "1.1.6"
 log = "0.4.14"
 simplelog = "0.11.2"

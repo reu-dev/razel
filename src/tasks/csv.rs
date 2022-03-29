@@ -2,7 +2,7 @@ use anyhow::ensure;
 use csv::StringRecord;
 use log::info;
 
-pub fn csv_concat(inputs: Vec<&str>, output: &str) -> Result<(), anyhow::Error> {
+pub async fn csv_concat(inputs: Vec<String>, output: String) -> Result<(), anyhow::Error> {
     info!("{:?} -> {}", inputs, output);
     let mut writer = csv::Writer::from_path(output)?;
     let mut combined_headers: Option<StringRecord> = None;

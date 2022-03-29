@@ -1,9 +1,10 @@
-use clap::{AppSettings, arg, Command};
-use log::{LevelFilter};
+use log::LevelFilter;
 use simplelog::*;
-use razel::tasks::csv_concat;
 
-fn main() {
+use razel::{parse_cli, Scheduler};
+
+#[tokio::main]
+async fn main() -> Result<(), anyhow::Error> {
     TermLogger::init(
         LevelFilter::Info,
         Config::default(),
@@ -12,32 +13,8 @@ fn main() {
     )
         .unwrap();
 
-    let matches = Command::new("razel")
-        .arg_required_else_help(true)
-        .setting(AppSettings::DeriveDisplayOrder)
-        .subcommand(
-            Command::new("command")
-                .about("execute a custom command")
-        )
-        .subcommand(
-            Command::new("script")
-                .about("execute commands in batch file")
-        )
-        .subcommand(
-            Command::new("task")
-                .about("execute a single task")
-                .subcommand(
-                    Command::new("csv-concat")
-                        .args(&[
-                            arg!(<input> ... "input csv files"),
-                            arg!(<output> "concatenated file to create"),
-                        ])
-                ))
-        .get_matches();
-
-    if let Some(matches) = matches.subcommand_matches("task") {
-        if let Some(matches) = matches.subcommand_matches("csv-concat") {
-            csv_concat(matches.values_of("input").unwrap().collect(), matches.value_of("output").unwrap()).unwrap();
-        }
-    }
+    let mut scheduler = Scheduler::new();
+    parse_cli(&mut scheduler, std::env::args_os())?;
+    scheduler.run().await?;
+    Ok(())
 }
