@@ -3,7 +3,9 @@ use tokio::io::AsyncWriteExt;
 
 pub async fn write(file_name: String, lines: Vec<String>) -> Result<(), anyhow::Error> {
     let mut file = File::create(file_name).await?;
-    file.write_all(lines.join("\n").as_bytes()).await?;
+    let mut text = lines.join("\n");
+    text.push('\n');
+    file.write_all(text.as_bytes()).await?;
     file.sync_all().await?;
     Ok(())
 }
