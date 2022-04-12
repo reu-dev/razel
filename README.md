@@ -1,39 +1,50 @@
-# razel
+# razel: rusty bazel, reu's bazel
 
-## Naming
+## Modes
 
-* cce: chained commands executor
-* cte: chained tasks executor
-* razel: rusty bazel, reu's bazel
+* execute single command
+    * for developing/debugging or even for low-level integration in (Python) scripts
+* execute single task (=built-in convenience function)
+* execute batch files containing command lines
+    * input and output files and not specified
+* execute CTest files (low prio)
+    * CTest allows specifying input files, but not output files
+* high level language APIs (Deno, Python)
+    * user defines command chains using his favorite scripting language
+    * razel executes processes
+    * directly or maybe using a custom language/json file in between
 
 ## Goals / Ideas
 
 * fast and correct, like Bazel
-* built-in convenience functions
-    * parse measurement from stdout of task, aggregate them
+* built-in convenience functions/tasks
+    * parse measurement from stdout of processes, aggregate them for reports
+    * optionally replace outputs on errors instead of bailing out
     * concat output files, e.g. jsonl, csv
-    * optionally replace outputs on errors
-    * summary grouped by tasks to make task errors understandable
+    * summary grouped by custom process labels to provide better overview of errors
     * JUnit test output, e.g. for GitLab CI
-* simple query language to filter tasks
-* task scheduling and caching depending on resources
+    * simple query language to filter processes
+* process scheduling and caching depending on resources
     * automatic disk cleanup locally and for cache
-    * disk usage, RAM, network speed and parallel instances of external tools might be limited
     * measure/predict task execution time and output size
+    * consider disk usage, RAM, network speed
+    * schedule network bound tasks in addition to CPU bound ones
+    * allow limiting parallel instances of external tools
 * transparent remote execution
 * data/results down/upload to storage, e.g. Git LFS, MinIO
     * local access to important outputs of remotely executed tasks
-* execute native processes in sandbox, like Bazel
+* execute processes in sandbox, like Bazel
     * provide specified inputs, check expected outputs
     * in ramdisk?
+    * in docker/podman?
 * support wasi
     * no need to compile tools for Linux, Windows, Apple x64, Apple M1, ...
     * bit-exact output on all platforms?
     * wasm provides sandbox
     * integrate wasi executor to avoid dependency on additional tool
-* support executing single command
-    * for developing/debugging or even for low-level integration in (Python) scripts
-* support executing batch files containing commands
+* integration building source code with CMake (low prio)
+    * specify source like `Bazel new_local_repository(), new_git_repository()`
+    * run CMake configure, parse commands to build targets and execute those
 
 ## Why not ...?
 
@@ -46,5 +57,6 @@
     * no automatic disk usage limit/cleanup for local cache - all temp output needs to fit on disk
     * no native support for response files
     * resources cannot be reserved to run real-time critical tests
+    * content of bazel-bin/out directories is not defined (contains mixture of current build and cache)
 * CTest
     * no caching / remote execution
