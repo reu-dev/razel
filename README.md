@@ -6,7 +6,7 @@
     * for developing/debugging or even for low-level integration in (Python) scripts
 * execute single task (=built-in convenience function)
 * execute batch files containing command lines
-    * input and output files and not specified
+    * input and output files are not specified
 * execute CTest files (low prio)
     * CTest allows specifying input files, but not output files
 * high level language APIs (Deno, Python)
@@ -42,9 +42,17 @@
     * bit-exact output on all platforms?
     * wasm provides sandbox
     * integrate wasi executor to avoid dependency on additional tool
-* integration building source code with CMake (low prio)
+* integrate building source code with CMake (low prio)
     * specify source like `Bazel new_local_repository(), new_git_repository()`
     * run CMake configure, parse commands to build targets and execute those
+* ensure correctness
+    * UB check for modified executables: run first commands multiple times to verify that the outputs are consistent
+    * avoid cache poisoning when disk full: missing fwrite/fclose checks in an executable would break cache
+* tools for users to debug errors
+    * show command lines ready for c&p into debugger
+    * UB check of chain until first failing command
+    * if source code of executables available: rebuild with debug and sanitizers and run with those executables
+    * for command with long list of inputs: bisect inputs to create minimal reproducible example
 
 ## Why not ...?
 
