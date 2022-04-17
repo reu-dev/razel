@@ -31,6 +31,9 @@ pub async fn csv_filter(
     cols: Vec<String>,
     fields: Vec<(String, String)>,
 ) -> Result<(), anyhow::Error> {
+    if !fields.is_empty() {
+        todo!();
+    }
     let mut reader = csv::Reader::from_path(input)?;
     let headers = reader.headers()?;
     let indices: Vec<usize> = if !cols.is_empty() {

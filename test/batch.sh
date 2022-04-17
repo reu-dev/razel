@@ -1,4 +1,5 @@
-razel task write tmp/a.csv a,b,xyz 1,2,345
-razel task write tmp/b.csv a,b,xyz 3,4,56 7,8,9
-razel task csv-concat tmp/a.csv tmp/b.csv tmp/c.csv
-razel task csv-filter-cols -i tmp/a.csv -o tmp/a.filtered.csv -c a xyz
+# data/a.csv is data file
+razel task write b.csv a,b,xyz 3,4,56 7,8,9
+razel task csv-concat data/a.csv b.csv c.csv
+razel task csv-filter -i c.csv -o filtered.csv -c a xyz
+razel task ensure-equal filtered.csv data/f.csv

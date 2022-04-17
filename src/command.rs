@@ -2,10 +2,17 @@ use anyhow::bail;
 use async_trait::async_trait;
 use log::{info, warn};
 
+pub struct File {
+    path: String,
+    is_data: bool,
+    creating_command: Option<Box<dyn Command>>,
+}
+
 #[async_trait]
 // TODO add file handling
 pub trait Command {
     async fn exec(&mut self) -> Result<(), anyhow::Error>;
+    //fn get_input_files(&self) -> Vec<&File>;
 }
 
 // TODO how to execute tasks
@@ -52,7 +59,11 @@ impl Command for CustomCommand {
                 if exit_status.success() {
                     Ok(())
                 } else {
-                    bail!("command exit status {:?}\n{}", exit_status.code(), self.program);
+                    bail!(
+                        "command exit status {:?}\n{}",
+                        exit_status.code(),
+                        self.program
+                    );
                 }
             }
             Err(e) => {

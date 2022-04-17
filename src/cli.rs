@@ -3,7 +3,8 @@ use std::ffi::OsString;
 
 use clap::{AppSettings, Args, Parser, Subcommand};
 
-use crate::{parse_batch_file, parse_command, Scheduler, tasks};
+use crate::parse_jsonl::parse_jsonl_file;
+use crate::{parse_batch_file, parse_command, tasks, Scheduler};
 
 #[derive(Parser)]
 #[clap(name = "razel")]
@@ -22,14 +23,16 @@ enum CliCommands {
         #[clap(last = true, required = true)]
         command: Vec<String>,
     },
+    /// Execute a single task
+    #[clap(subcommand)]
+    Task(CliTasks),
     /// Execute commands from a batch file
     Batch {
         /// file with commands to execute
         file: String,
     },
-    /// Execute a single task
-    #[clap(subcommand)]
-    Task(CliTasks),
+    /// Execute commands from a razel.jsonl file
+    Build,
 }
 
 #[derive(Subcommand)]
@@ -81,44 +84,36 @@ struct TwoFilesArgs {
 }
 
 pub async fn parse_cli<I, T>(scheduler: &mut Scheduler, itr: I) -> Result<(), anyhow::Error>
-    where
-        I: IntoIterator<Item=T>,
-        T: Into<OsString> + Clone {
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
     let cli = Cli::try_parse_from(itr)?;
     match cli.command {
-        CliCommands::Command { command } => {
-            parse_command(scheduler, command)
-        }
-        CliCommands::Batch { file } => {
-            parse_batch_file(scheduler, file)
-        }
+        CliCommands::Command { command } => parse_command(scheduler, command),
         CliCommands::Task(task) => match task {
-            CliTasks::CsvConcat(x) => {
-                tasks::csv_concat(x.input, x.output).await
-            }
-            CliTasks::CsvFilter(x) => {
-                tasks::csv_filter(x.input, x.output, x.cols, x.fields).await
-            }
+            CliTasks::CsvConcat(x) => tasks::csv_concat(x.input, x.output).await,
+            CliTasks::CsvFilter(x) => tasks::csv_filter(x.input, x.output, x.cols, x.fields).await,
             CliTasks::EnsureEqual(_x) => {
                 todo!() //tasks::ensure_equal(x.file1, x.file2)
             }
             CliTasks::EnsureNotEqual(_x) => {
                 todo!() //tasks::ensure_not_equal(x.file1, x.file2)
             }
-            CliTasks::Write { file, lines } => {
-                tasks::write(file, lines).await
-            }
+            CliTasks::Write { file, lines } => tasks::write(file, lines).await,
         },
+        CliCommands::Batch { file } => parse_batch_file(scheduler, file),
+        CliCommands::Build => parse_jsonl_file(scheduler, "razel.jsonl".into()),
     }
 }
 
 /// Parse a single key-value pair
 fn parse_key_val<T, U>(s: &str) -> Result<(T, U), Box<dyn Error + Send + Sync + 'static>>
-    where
-        T: std::str::FromStr,
-        T::Err: Error + Send + Sync + 'static,
-        U: std::str::FromStr,
-        U::Err: Error + Send + Sync + 'static,
+where
+    T: std::str::FromStr,
+    T::Err: Error + Send + Sync + 'static,
+    U: std::str::FromStr,
+    U::Err: Error + Send + Sync + 'static,
 {
     let pos = s
         .find('=')
