@@ -3,7 +3,7 @@ use csv::{StringRecord, Writer};
 use log::info;
 use std::io;
 
-pub async fn csv_concat(inputs: Vec<String>, output: String) -> Result<(), anyhow::Error> {
+pub fn csv_concat(inputs: Vec<String>, output: String) -> Result<(), anyhow::Error> {
     info!("csv_concat {:?} -> {}", inputs, output);
     let mut writer = csv::Writer::from_path(output)?;
     let mut combined_headers: Option<StringRecord> = None;
@@ -25,7 +25,7 @@ pub async fn csv_concat(inputs: Vec<String>, output: String) -> Result<(), anyho
     Ok(())
 }
 
-pub async fn csv_filter(
+pub fn csv_filter(
     input: String,
     output: String,
     cols: Vec<String>,

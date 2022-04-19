@@ -1,12 +1,12 @@
-use tokio::fs::File;
-use tokio::io::AsyncWriteExt;
+use std::fs::File;
+use std::io::Write;
 
-pub async fn write(file_name: String, lines: Vec<String>) -> Result<(), anyhow::Error> {
-    let mut file = File::create(file_name).await?;
+pub fn write(file_name: String, lines: Vec<String>) -> Result<(), anyhow::Error> {
+    let mut file = File::create(file_name)?;
     let mut text = lines.join("\n");
     text.push('\n');
-    file.write_all(text.as_bytes()).await?;
-    file.sync_all().await?;
+    file.write_all(text.as_bytes())?;
+    file.sync_all()?;
     Ok(())
 }
 

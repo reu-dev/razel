@@ -11,10 +11,10 @@ async fn main() -> Result<(), anyhow::Error> {
         TerminalMode::Mixed,
         ColorChoice::Auto,
     )
-        .unwrap();
+    .unwrap();
 
     let mut scheduler = Scheduler::new();
-    parse_cli(&mut scheduler, std::env::args_os()).await?;
+    parse_cli(&mut scheduler, std::env::args_os(), None)?;
     scheduler.run().await?;
     Ok(())
 }

@@ -1,15 +1,17 @@
 use crate::Command;
 
 pub struct Scheduler {
-    queue: Vec<Box<dyn Command>>,
+    queue: Vec<Box<Command>>,
 }
 
 impl Scheduler {
     pub fn new() -> Scheduler {
-        Scheduler { queue: Default::default() }
+        Scheduler {
+            queue: Default::default(),
+        }
     }
 
-    pub fn push(&mut self, command: Box<dyn Command>) {
+    pub fn push(&mut self, command: Box<Command>) {
         self.queue.push(command);
     }
 

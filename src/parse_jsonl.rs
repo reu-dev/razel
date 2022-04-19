@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader};
 
 use serde::Deserialize;
 
-use crate::{CustomCommand, Scheduler};
+use crate::{config, parse_cli, Command, Scheduler};
 
 pub fn parse_jsonl_file(scheduler: &mut Scheduler, file_name: String) -> Result<(), anyhow::Error> {
     let file = File::open(file_name)?;
@@ -17,11 +17,14 @@ pub fn parse_jsonl_file(scheduler: &mut Scheduler, file_name: String) -> Result<
         let json: RazelJson = serde_json::from_str(line_trimmed)?;
         match json {
             RazelJson::CustomCommand(c) => {
-                let command = Box::new(CustomCommand::new(c.executable, c.args));
-                scheduler.push(command);
+                let command =
+                    Command::new_custom_command(c.name, c.executable, c.args, c.inputs, c.outputs);
+                scheduler.push(Box::new(command));
             }
-            RazelJson::Task(t) => {
-                todo!()
+            RazelJson::Task(mut t) => {
+                let mut args: Vec<String> = vec![config::EXECUTABLE.to_string(), t.task];
+                args.append(&mut t.args);
+                parse_cli(scheduler, args.into_iter(), Some(t.name))?
             }
         }
     }

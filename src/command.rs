@@ -1,56 +1,76 @@
 use anyhow::bail;
-use async_trait::async_trait;
 use log::{info, warn};
 
-pub struct File {
-    path: String,
-    is_data: bool,
-    creating_command: Option<Box<dyn Command>>,
-}
-
-#[async_trait]
-// TODO add file handling
-pub trait Command {
-    async fn exec(&mut self) -> Result<(), anyhow::Error>;
-    //fn get_input_files(&self) -> Vec<&File>;
-}
-
-// TODO how to execute tasks
-pub struct Task {}
-
-pub struct CustomCommand {
-    program: String,
-    args: Vec<String>,
+pub struct Command {
+    pub name: String,
+    pub inputs: Vec<String>,
+    pub outputs: Vec<String>,
+    pub executor: Executor,
     //exit_status: Option<ExitStatus>,
     //error: Option<io::Error>,
 }
 
-impl CustomCommand {
-    pub fn new(program: String, args: Vec<String>) -> CustomCommand {
-        assert!(!program.is_empty());
-        CustomCommand {
-            program,
-            args,
-            //exit_status: None,
-            //error: None,
+impl Command {
+    pub fn new_custom_command(
+        name: String,
+        executable: String,
+        args: Vec<String>,
+        inputs: Vec<String>,
+        outputs: Vec<String>,
+    ) -> Command {
+        Command {
+            name,
+            inputs,
+            outputs,
+            executor: Executor::CustomCommand(CustomCommandExecutor { executable, args }),
+        }
+    }
+
+    pub fn new_task(
+        name: String,
+        f: Box<dyn Fn() -> Result<(), anyhow::Error>>,
+        inputs: Vec<String>,
+        outputs: Vec<String>,
+    ) -> Command {
+        Command {
+            name,
+            inputs,
+            outputs,
+            executor: Executor::Task(TaskExecutor { f }),
+        }
+    }
+
+    pub async fn exec(&mut self) -> Result<(), anyhow::Error> {
+        match &self.executor {
+            Executor::CustomCommand(c) => c.exec().await,
+            Executor::Task(t) => t.exec().await,
         }
     }
 }
 
-#[async_trait]
-impl Command for CustomCommand {
-    async fn exec(&mut self) -> Result<(), anyhow::Error> {
-        info!("exec command: {} {}", self.program, self.args.join(" "));
-        let mut child = match tokio::process::Command::new(&self.program)
+pub enum Executor {
+    CustomCommand(CustomCommandExecutor),
+    Task(TaskExecutor),
+}
+
+pub struct CustomCommandExecutor {
+    executable: String,
+    args: Vec<String>,
+}
+
+impl CustomCommandExecutor {
+    async fn exec(&self) -> Result<(), anyhow::Error> {
+        info!("exec command: {} {}", self.executable, self.args.join(" "));
+        let mut child = match tokio::process::Command::new(&self.executable)
             .env_clear()
             .args(&self.args)
             .spawn()
         {
             Ok(child) => child,
             Err(e) => {
-                warn!("command failed to start: {}\n{}", self.program, e);
+                warn!("command failed to start: {}\n{}", self.executable, e);
                 //self.error = Some(e);
-                bail!("command failed to start: {}\n{}", self.program, e);
+                bail!("command failed to start: {}\n{}", self.executable, e);
             }
         };
         match child.wait().await {
@@ -62,15 +82,31 @@ impl Command for CustomCommand {
                     bail!(
                         "command exit status {:?}\n{}",
                         exit_status.code(),
-                        self.program
+                        self.executable
                     );
                 }
             }
             Err(e) => {
-                warn!("command failed: {}\n{}", self.program, e);
+                warn!("command failed: {}\n{}", self.executable, e);
                 //self.error = Some(e);
-                bail!("command failed: {:?}\n{}", self.program, e);
+                bail!("command failed: {:?}\n{}", self.executable, e);
             }
         }
     }
+}
+
+pub struct TaskExecutor {
+    f: Box<dyn Fn() -> Result<(), anyhow::Error>>,
+}
+
+impl TaskExecutor {
+    pub async fn exec(&self) -> Result<(), anyhow::Error> {
+        (self.f)()
+    }
+}
+
+pub struct File {
+    path: String,
+    is_data: bool,
+    creating_command: Option<Box<Command>>,
 }

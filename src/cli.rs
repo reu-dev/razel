@@ -4,7 +4,7 @@ use std::ffi::OsString;
 use clap::{AppSettings, Args, Parser, Subcommand};
 
 use crate::parse_jsonl::parse_jsonl_file;
-use crate::{parse_batch_file, parse_command, tasks, Scheduler};
+use crate::{parse_batch_file, parse_command, tasks, Command, Scheduler};
 
 #[derive(Parser)]
 #[clap(name = "razel")]
@@ -40,14 +40,9 @@ enum CliTasks {
     /// Concatenate multiple csv files - headers must match
     CsvConcat(CsvConcatTaskArgs),
     /// Filter a csv file - keeping only the specified cols
-    CsvFilter(CsvFilterArgs),
+    CsvFilter(CsvFilterTaskArgs),
     /// Write a text file
-    Write {
-        /// file to create
-        file: String,
-        /// lines to write
-        lines: Vec<String>,
-    },
+    Write(WriteTaskArgs),
     /// Ensure that two files are equal
     EnsureEqual(TwoFilesArgs),
     /// Ensure that two files are not equal
@@ -64,7 +59,7 @@ struct CsvConcatTaskArgs {
 }
 
 #[derive(Args, Debug)]
-struct CsvFilterArgs {
+struct CsvFilterTaskArgs {
     #[clap(short, long)]
     input: String,
     #[clap(short, long)]
@@ -78,12 +73,24 @@ struct CsvFilterArgs {
 }
 
 #[derive(Args, Debug)]
+struct WriteTaskArgs {
+    /// file to create
+    file: String,
+    /// lines to write
+    lines: Vec<String>,
+}
+
+#[derive(Args, Debug)]
 struct TwoFilesArgs {
     file1: String,
     file2: String,
 }
 
-pub async fn parse_cli<I, T>(scheduler: &mut Scheduler, itr: I) -> Result<(), anyhow::Error>
+pub fn parse_cli<I, T>(
+    scheduler: &mut Scheduler,
+    itr: I,
+    name: Option<String>,
+) -> Result<(), anyhow::Error>
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
@@ -92,19 +99,77 @@ where
     match cli.command {
         CliCommands::Command { command } => parse_command(scheduler, command),
         CliCommands::Task(task) => match task {
-            CliTasks::CsvConcat(x) => tasks::csv_concat(x.input, x.output).await,
-            CliTasks::CsvFilter(x) => tasks::csv_filter(x.input, x.output, x.cols, x.fields).await,
+            CliTasks::CsvConcat(x) => new_csv_concat_task(scheduler, name.unwrap(), x),
+            CliTasks::CsvFilter(x) => new_csv_filter_task(scheduler, name.unwrap(), x),
             CliTasks::EnsureEqual(_x) => {
                 todo!() //tasks::ensure_equal(x.file1, x.file2)
             }
             CliTasks::EnsureNotEqual(_x) => {
                 todo!() //tasks::ensure_not_equal(x.file1, x.file2)
             }
-            CliTasks::Write { file, lines } => tasks::write(file, lines).await,
+            CliTasks::Write(x) => new_write_task(scheduler, name.unwrap(), x),
         },
         CliCommands::Batch { file } => parse_batch_file(scheduler, file),
         CliCommands::Build => parse_jsonl_file(scheduler, "razel.jsonl".into()),
     }
+}
+
+fn new_csv_concat_task(
+    scheduler: &mut Scheduler,
+    name: String,
+    args: CsvConcatTaskArgs,
+) -> Result<(), anyhow::Error> {
+    let inputs = args.input.clone();
+    let outputs = vec![args.output.clone()];
+    let command = Command::new_task(
+        name,
+        Box::new(move || tasks::csv_concat(args.input.clone(), args.output.clone())),
+        inputs,
+        outputs,
+    );
+    scheduler.push(Box::new(command));
+    Ok(())
+}
+
+fn new_csv_filter_task(
+    scheduler: &mut Scheduler,
+    name: String,
+    args: CsvFilterTaskArgs,
+) -> Result<(), anyhow::Error> {
+    let inputs = vec![args.input.clone()];
+    let outputs = vec![args.output.clone()];
+    let command = Command::new_task(
+        name,
+        Box::new(move || {
+            tasks::csv_filter(
+                args.input.clone(),
+                args.output.clone(),
+                args.cols.clone(),
+                args.fields.clone(),
+            )
+        }),
+        inputs,
+        outputs,
+    );
+    scheduler.push(Box::new(command));
+    Ok(())
+}
+
+fn new_write_task(
+    scheduler: &mut Scheduler,
+    name: String,
+    args: WriteTaskArgs,
+) -> Result<(), anyhow::Error> {
+    let inputs = vec![];
+    let outputs = vec![args.file.clone()];
+    let command = Command::new_task(
+        name,
+        Box::new(move || tasks::write(args.file.clone(), args.lines.clone())),
+        inputs,
+        outputs,
+    );
+    scheduler.push(Box::new(command));
+    Ok(())
 }
 
 /// Parse a single key-value pair

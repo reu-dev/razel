@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
-use crate::{config, CustomCommand, Scheduler};
+use crate::{config, Command, Scheduler};
 
 pub fn parse_command(
     scheduler: &mut Scheduler,
@@ -40,11 +40,11 @@ fn create_command(
         parse_cli(scheduler, args.into_iter())?
          */
         program = std::env::args_os().next().unwrap().into_string().unwrap();
-        let command = Box::new(CustomCommand::new(program, args));
-        scheduler.push(command);
+        let command = Command::new_custom_command("".into(), program, args, vec![], vec![]);
+        scheduler.push(Box::new(command));
     } else {
-        let command = Box::new(CustomCommand::new(program, args));
-        scheduler.push(command);
+        let command = Command::new_custom_command("".into(), program, args, vec![], vec![]);
+        scheduler.push(Box::new(command));
     }
     Ok(())
 }
