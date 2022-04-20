@@ -1,10 +1,9 @@
 use std::error::Error;
-use std::ffi::OsString;
 
 use clap::{AppSettings, Args, Parser, Subcommand};
 
 use crate::parse_jsonl::parse_jsonl_file;
-use crate::{parse_batch_file, parse_command, tasks, Command, Scheduler};
+use crate::{parse_batch_file, parse_command, tasks, Command, Scheduler, TaskFn};
 
 #[derive(Parser)]
 #[clap(name = "razel")]
@@ -86,90 +85,59 @@ struct TwoFilesArgs {
     file2: String,
 }
 
-pub fn parse_cli<I, T>(
+pub fn parse_cli(
+    args: Vec<String>,
     scheduler: &mut Scheduler,
-    itr: I,
     name: Option<String>,
-) -> Result<(), anyhow::Error>
-where
-    I: IntoIterator<Item = T>,
-    T: Into<OsString> + Clone,
-{
-    let cli = Cli::try_parse_from(itr)?;
+) -> Result<(), anyhow::Error> {
+    let cli = Cli::try_parse_from(args.iter())?;
     match cli.command {
         CliCommands::Command { command } => parse_command(scheduler, command),
-        CliCommands::Task(task) => match task {
-            CliTasks::CsvConcat(x) => new_csv_concat_task(scheduler, name.unwrap(), x),
-            CliTasks::CsvFilter(x) => new_csv_filter_task(scheduler, name.unwrap(), x),
-            CliTasks::EnsureEqual(_x) => {
-                todo!() //tasks::ensure_equal(x.file1, x.file2)
-            }
-            CliTasks::EnsureNotEqual(_x) => {
-                todo!() //tasks::ensure_not_equal(x.file1, x.file2)
-            }
-            CliTasks::Write(x) => new_write_task(scheduler, name.unwrap(), x),
-        },
+        CliCommands::Task(task) => {
+            scheduler.push(Box::new(match_task(name.unwrap(), task, args)));
+            Ok(())
+        }
         CliCommands::Batch { file } => parse_batch_file(scheduler, file),
         CliCommands::Build => parse_jsonl_file(scheduler, "razel.jsonl".into()),
     }
 }
 
-fn new_csv_concat_task(
-    scheduler: &mut Scheduler,
-    name: String,
-    args: CsvConcatTaskArgs,
-) -> Result<(), anyhow::Error> {
-    let inputs = args.input.clone();
-    let outputs = vec![args.output.clone()];
-    let command = Command::new_task(
-        name,
-        Box::new(move || tasks::csv_concat(args.input.clone(), args.output.clone())),
-        inputs,
-        outputs,
-    );
-    scheduler.push(Box::new(command));
-    Ok(())
-}
-
-fn new_csv_filter_task(
-    scheduler: &mut Scheduler,
-    name: String,
-    args: CsvFilterTaskArgs,
-) -> Result<(), anyhow::Error> {
-    let inputs = vec![args.input.clone()];
-    let outputs = vec![args.output.clone()];
-    let command = Command::new_task(
-        name,
-        Box::new(move || {
-            tasks::csv_filter(
-                args.input.clone(),
-                args.output.clone(),
-                args.cols.clone(),
-                args.fields.clone(),
-            )
-        }),
-        inputs,
-        outputs,
-    );
-    scheduler.push(Box::new(command));
-    Ok(())
-}
-
-fn new_write_task(
-    scheduler: &mut Scheduler,
-    name: String,
-    args: WriteTaskArgs,
-) -> Result<(), anyhow::Error> {
-    let inputs = vec![];
-    let outputs = vec![args.file.clone()];
-    let command = Command::new_task(
-        name,
-        Box::new(move || tasks::write(args.file.clone(), args.lines.clone())),
-        inputs,
-        outputs,
-    );
-    scheduler.push(Box::new(command));
-    Ok(())
+fn match_task(name: String, task: CliTasks, args: Vec<String>) -> Command {
+    let (inputs, outputs, f): (Vec<String>, Vec<String>, TaskFn) = match task {
+        CliTasks::CsvConcat(x) => (
+            x.input.clone(),
+            vec![x.output.clone()],
+            Box::new(move || tasks::csv_concat(x.input.clone(), x.output.clone())),
+        ),
+        CliTasks::CsvFilter(x) => (
+            vec![x.input.clone()],
+            vec![x.output.clone()],
+            Box::new(move || {
+                tasks::csv_filter(
+                    x.input.clone(),
+                    x.output.clone(),
+                    x.cols.clone(),
+                    x.fields.clone(),
+                )
+            }),
+        ),
+        CliTasks::EnsureEqual(x) => (
+            vec![x.file1.clone(), x.file2.clone()],
+            vec![],
+            Box::new(move || tasks::ensure_equal(x.file1.clone(), x.file2.clone())),
+        ),
+        CliTasks::EnsureNotEqual(x) => (
+            vec![x.file1.clone(), x.file2.clone()],
+            vec![],
+            Box::new(move || tasks::ensure_not_equal(x.file1.clone(), x.file2.clone())),
+        ),
+        CliTasks::Write(x) => (
+            vec![],
+            vec![x.file.clone()],
+            Box::new(move || tasks::write(x.file.clone(), x.lines.clone())),
+        ),
+    };
+    Command::new_task(name, args, f, inputs, outputs)
 }
 
 /// Parse a single key-value pair

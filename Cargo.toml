@@ -13,6 +13,7 @@ anyhow = "1.0.56"
 async-trait = "0.1.53"
 clap = { version = "3.1.6", features = ["derive"] }
 csv = "1.1.6"
+itertools = "0.10.3"
 log = "0.4.14"
 serde = { version = "1.0.136", features = ["derive"] }
 serde_json = "1.0.79"

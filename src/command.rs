@@ -1,8 +1,13 @@
 use anyhow::bail;
+use itertools::{chain, join};
 use log::{info, warn};
+
+pub type TaskFn = Box<dyn Fn() -> Result<(), anyhow::Error>>;
 
 pub struct Command {
     pub name: String,
+    /// for showing errors
+    pub command_line: String,
     pub inputs: Vec<String>,
     pub outputs: Vec<String>,
     pub executor: Executor,
@@ -20,6 +25,7 @@ impl Command {
     ) -> Command {
         Command {
             name,
+            command_line: join(chain([executable.clone()].iter(), args.iter()), " "),
             inputs,
             outputs,
             executor: Executor::CustomCommand(CustomCommandExecutor { executable, args }),
@@ -28,12 +34,14 @@ impl Command {
 
     pub fn new_task(
         name: String,
-        f: Box<dyn Fn() -> Result<(), anyhow::Error>>,
+        args: Vec<String>,
+        f: TaskFn,
         inputs: Vec<String>,
         outputs: Vec<String>,
     ) -> Command {
         Command {
             name,
+            command_line: args.join(" "),
             inputs,
             outputs,
             executor: Executor::Task(TaskExecutor { f }),
@@ -96,7 +104,7 @@ impl CustomCommandExecutor {
 }
 
 pub struct TaskExecutor {
-    f: Box<dyn Fn() -> Result<(), anyhow::Error>>,
+    f: TaskFn,
 }
 
 impl TaskExecutor {
@@ -105,8 +113,10 @@ impl TaskExecutor {
     }
 }
 
+/*
 pub struct File {
     path: String,
     is_data: bool,
     creating_command: Option<Box<Command>>,
 }
+*/

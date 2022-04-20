@@ -44,6 +44,11 @@ export class Razel {
         this.add(new Task(name, 'ensure-equal', [file1, file2]));
     }
 
+    ensureNotEqual(file1: File, file2: File) {
+        const name = `${file2.basename}##shouldNotEqual##${file1.basename}`;
+        this.add(new Task(name, 'ensure-not-equal', [file1, file2]));
+    }
+
     writeRazelFile() {
         const json = this.commands.map(x => JSON.stringify(x.json()));
         Deno.writeTextFileSync(`${this.workspaceDir}/razel.jsonl`, json.join('\n'));
@@ -81,6 +86,10 @@ export class File {
 
     ensureEqual(other: File) {
         Razel.instance().ensureEqual(this, other);
+    }
+
+    ensureNotEqual(other: File) {
+        Razel.instance().ensureNotEqual(this, other);
     }
 }
 

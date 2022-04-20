@@ -14,7 +14,13 @@ async fn main() -> Result<(), anyhow::Error> {
     .unwrap();
 
     let mut scheduler = Scheduler::new();
-    parse_cli(&mut scheduler, std::env::args_os(), None)?;
+    parse_cli(
+        std::env::args_os()
+            .map(|x| x.into_string().unwrap())
+            .collect(),
+        &mut scheduler,
+        None,
+    )?;
     scheduler.run().await?;
     Ok(())
 }

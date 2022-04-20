@@ -1,12 +1,14 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
+use anyhow::Context;
+use log::info;
 use serde::Deserialize;
 
 use crate::{config, parse_cli, Command, Scheduler};
 
 pub fn parse_jsonl_file(scheduler: &mut Scheduler, file_name: String) -> Result<(), anyhow::Error> {
-    let file = File::open(file_name)?;
+    let file = File::open(&file_name)?;
     let file_buffered = BufReader::new(file);
     for line_result in file_buffered.lines() {
         let line = line_result?;
@@ -21,13 +23,16 @@ pub fn parse_jsonl_file(scheduler: &mut Scheduler, file_name: String) -> Result<
                     Command::new_custom_command(c.name, c.executable, c.args, c.inputs, c.outputs);
                 scheduler.push(Box::new(command));
             }
-            RazelJson::Task(mut t) => {
-                let mut args: Vec<String> = vec![config::EXECUTABLE.to_string(), t.task];
-                args.append(&mut t.args);
-                parse_cli(scheduler, args.into_iter(), Some(t.name))?
+            RazelJson::Task(t) => {
+                let mut args: Vec<String> =
+                    vec![config::EXECUTABLE.into(), "task".into(), t.task.into()];
+                args.extend(&mut t.args.iter().map(|x| x.into()));
+                parse_cli(args.clone(), scheduler, Some(t.name.clone()))
+                    .with_context(|| format!("{}\n{}", t.name, args.join(" ")))?
             }
         }
     }
+    info!("Added {} commands from {}", scheduler.len(), file_name);
     Ok(())
 }
 

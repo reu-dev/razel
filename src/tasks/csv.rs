@@ -1,10 +1,8 @@
 use anyhow::ensure;
 use csv::{StringRecord, Writer};
-use log::info;
 use std::io;
 
 pub fn csv_concat(inputs: Vec<String>, output: String) -> Result<(), anyhow::Error> {
-    info!("csv_concat {:?} -> {}", inputs, output);
     let mut writer = csv::Writer::from_path(output)?;
     let mut combined_headers: Option<StringRecord> = None;
     for input in inputs {
