@@ -5,23 +5,28 @@ use anyhow::Context;
 use log::info;
 use serde::Deserialize;
 
-use crate::{config, parse_cli, Command, Scheduler};
+use crate::{config, parse_cli, Scheduler};
 
 pub fn parse_jsonl_file(scheduler: &mut Scheduler, file_name: String) -> Result<(), anyhow::Error> {
     let file = File::open(&file_name)?;
     let file_buffered = BufReader::new(file);
-    for line_result in file_buffered.lines() {
+    for (line_number, line_result) in file_buffered.lines().enumerate() {
         let line = line_result?;
         let line_trimmed = line.trim();
         if line_trimmed.starts_with("//") {
             continue;
         }
-        let json: RazelJson = serde_json::from_str(line_trimmed)?;
+        let json: RazelJson = serde_json::from_str(line_trimmed).with_context(|| {
+            format!(
+                "failed to parse {}:{}\n{}",
+                file_name,
+                line_number + 1,
+                line_trimmed
+            )
+        })?;
         match json {
             RazelJson::CustomCommand(c) => {
-                let command =
-                    Command::new_custom_command(c.name, c.executable, c.args, c.inputs, c.outputs);
-                scheduler.push(Box::new(command));
+                scheduler.push_custom_command(c.name, c.executable, c.args, c.inputs, c.outputs)?
             }
             RazelJson::Task(t) => {
                 let mut args: Vec<String> =

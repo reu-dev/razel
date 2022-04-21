@@ -1,6 +1,14 @@
+use std::rc::Rc;
+
 use anyhow::bail;
-use itertools::{chain, join};
-use log::{info, warn};
+use log::warn;
+
+use crate::File;
+
+pub enum StringOrFileArg {
+    String(String),
+    File(Rc<File>),
+}
 
 pub type TaskFn = Box<dyn Fn() -> Result<(), anyhow::Error>>;
 
@@ -16,38 +24,6 @@ pub struct Command {
 }
 
 impl Command {
-    pub fn new_custom_command(
-        name: String,
-        executable: String,
-        args: Vec<String>,
-        inputs: Vec<String>,
-        outputs: Vec<String>,
-    ) -> Command {
-        Command {
-            name,
-            command_line: join(chain([executable.clone()].iter(), args.iter()), " "),
-            inputs,
-            outputs,
-            executor: Executor::CustomCommand(CustomCommandExecutor { executable, args }),
-        }
-    }
-
-    pub fn new_task(
-        name: String,
-        args: Vec<String>,
-        f: TaskFn,
-        inputs: Vec<String>,
-        outputs: Vec<String>,
-    ) -> Command {
-        Command {
-            name,
-            command_line: args.join(" "),
-            inputs,
-            outputs,
-            executor: Executor::Task(TaskExecutor { f }),
-        }
-    }
-
     pub async fn exec(&mut self) -> Result<(), anyhow::Error> {
         match &self.executor {
             Executor::CustomCommand(c) => c.exec().await,
@@ -62,16 +38,24 @@ pub enum Executor {
 }
 
 pub struct CustomCommandExecutor {
-    executable: String,
-    args: Vec<String>,
+    pub executable: String,
+    pub string_or_file_args: Vec<StringOrFileArg>,
 }
 
 impl CustomCommandExecutor {
     async fn exec(&self) -> Result<(), anyhow::Error> {
-        info!("exec command: {} {}", self.executable, self.args.join(" "));
+        // TODO add sandbox dir
+        let args: Vec<&String> = self
+            .string_or_file_args
+            .iter()
+            .map(|a| match a {
+                StringOrFileArg::String(x) => x,
+                StringOrFileArg::File(x) => &x.path,
+            })
+            .collect();
         let mut child = match tokio::process::Command::new(&self.executable)
             .env_clear()
-            .args(&self.args)
+            .args(&args)
             .spawn()
         {
             Ok(child) => child,
@@ -104,7 +88,7 @@ impl CustomCommandExecutor {
 }
 
 pub struct TaskExecutor {
-    f: TaskFn,
+    pub f: TaskFn,
 }
 
 impl TaskExecutor {
@@ -112,11 +96,3 @@ impl TaskExecutor {
         (self.f)()
     }
 }
-
-/*
-pub struct File {
-    path: String,
-    is_data: bool,
-    creating_command: Option<Box<Command>>,
-}
-*/

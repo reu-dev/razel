@@ -3,7 +3,7 @@ use log::info;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
-use crate::{config, parse_cli, Command, Scheduler};
+use crate::{config, parse_cli, Scheduler};
 
 pub fn parse_command(
     scheduler: &mut Scheduler,
@@ -44,8 +44,7 @@ fn create_command(
         parse_cli(args.clone(), scheduler, Some(name.clone()))
             .with_context(|| format!("{}\n{}", name, args.join(" ")))?
     } else {
-        let command = Command::new_custom_command(name, program, args, vec![], vec![]);
-        scheduler.push(Box::new(command));
+        scheduler.push_custom_command(name, program, args, vec![], vec![])?
     }
     Ok(())
 }

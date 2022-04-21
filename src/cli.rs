@@ -3,7 +3,7 @@ use std::error::Error;
 use clap::{AppSettings, Args, Parser, Subcommand};
 
 use crate::parse_jsonl::parse_jsonl_file;
-use crate::{parse_batch_file, parse_command, tasks, Command, Scheduler, TaskFn};
+use crate::{parse_batch_file, parse_command, tasks, Scheduler, TaskFn};
 
 #[derive(Parser)]
 #[clap(name = "razel")]
@@ -93,17 +93,20 @@ pub fn parse_cli(
     let cli = Cli::try_parse_from(args.iter())?;
     match cli.command {
         CliCommands::Command { command } => parse_command(scheduler, command),
-        CliCommands::Task(task) => {
-            scheduler.push(Box::new(match_task(name.unwrap(), task, args)));
-            Ok(())
-        }
+        CliCommands::Task(task) => match_task(scheduler, name.unwrap(), task, args),
         CliCommands::Batch { file } => parse_batch_file(scheduler, file),
         CliCommands::Build => parse_jsonl_file(scheduler, "razel.jsonl".into()),
     }
 }
 
-fn match_task(name: String, task: CliTasks, args: Vec<String>) -> Command {
+fn match_task(
+    scheduler: &mut Scheduler,
+    name: String,
+    task: CliTasks,
+    args: Vec<String>,
+) -> Result<(), anyhow::Error> {
     let (inputs, outputs, f): (Vec<String>, Vec<String>, TaskFn) = match task {
+        // TODO use Scheduler to register files and map paths
         CliTasks::CsvConcat(x) => (
             x.input.clone(),
             vec![x.output.clone()],
@@ -137,7 +140,7 @@ fn match_task(name: String, task: CliTasks, args: Vec<String>) -> Command {
             Box::new(move || tasks::write(x.file.clone(), x.lines.clone())),
         ),
     };
-    Command::new_task(name, args, f, inputs, outputs)
+    scheduler.push_task(name, args, f, inputs, outputs)
 }
 
 /// Parse a single key-value pair
