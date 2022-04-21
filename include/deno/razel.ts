@@ -40,12 +40,12 @@ export class Razel {
     }
 
     ensureEqual(file1: File, file2: File) {
-        const name = `${file2.basename}##shouldEqual##${file1.basename}`;
+        const name = `${file1.basename}##shouldEqual##${file2.basename}`;
         this.add(new Task(name, 'ensure-equal', [file1, file2]));
     }
 
     ensureNotEqual(file1: File, file2: File) {
-        const name = `${file2.basename}##shouldNotEqual##${file1.basename}`;
+        const name = `${file1.basename}##shouldNotEqual##${file2.basename}`;
         this.add(new Task(name, 'ensure-not-equal', [file1, file2]));
     }
 
@@ -103,6 +103,7 @@ abstract class Command {
     }
 
     abstract commandLine(): string;
+
     abstract json(): any;
 }
 
@@ -126,7 +127,7 @@ class CustomCommand extends Command {
             executable: this.executable,
             args: this.args.map(x => x instanceof File ? x.fileName : x),
             inputs: this.args.filter(x => x instanceof File && x.createdBy !== this).map(x => (x as File).fileName),
-            output: this.outputs.map(x => x.fileName),
+            outputs: this.outputs.map(x => x.fileName),
         };
     }
 }
