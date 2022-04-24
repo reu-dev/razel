@@ -1,0 +1,78 @@
+use std::marker::PhantomData;
+use std::ops;
+use std::slice::Iter;
+
+/// u32 should be enough
+type ArenaIdType = u32;
+
+/// ArenaId types are checked at runtime to match the type of the Arena (newtype idiom).
+pub struct ArenaId<T>(ArenaIdType, PhantomData<T>);
+
+impl<T> Clone for ArenaId<T> {
+    fn clone(&self) -> Self {
+        ArenaId(self.0 as ArenaIdType, PhantomData)
+    }
+}
+
+impl<T> Copy for ArenaId<T> {}
+
+/// Id based arena for graph data structures.
+pub struct Arena<T> {
+    items: Vec<T>,
+}
+
+impl<T> Arena<T> {
+    /// Add an item and return its id.
+    pub fn alloc(&mut self, item: T) -> ArenaId<T> {
+        let id = self.next_id();
+        self.items.push(item);
+        id
+    }
+
+    /// Provide an id for the next item, add the item and return the id.
+    pub fn alloc_with_id(&mut self, f: impl FnOnce(ArenaId<T>) -> T) -> ArenaId<T> {
+        let id = self.next_id();
+        self.items.push(f(id));
+        id
+    }
+
+    pub fn get(&self, id: ArenaId<T>) -> Option<&T> {
+        self.items.get(id.0 as usize)
+    }
+
+    pub fn get_mut(&mut self, id: ArenaId<T>) -> Option<&mut T> {
+        self.items.get_mut(id.0 as usize)
+    }
+
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    pub fn iter(&self) -> Iter<'_, T> {
+        self.items.iter()
+    }
+
+    fn next_id(&self) -> ArenaId<T> {
+        ArenaId(self.items.len() as ArenaIdType, PhantomData)
+    }
+}
+
+impl<T> Default for Arena<T> {
+    fn default() -> Self {
+        Self { items: vec![] }
+    }
+}
+
+impl<T> ops::Index<ArenaId<T>> for Arena<T> {
+    type Output = T;
+
+    fn index(&self, id: ArenaId<T>) -> &T {
+        &self.items[id.0 as usize]
+    }
+}
+
+impl<T> ops::IndexMut<ArenaId<T>> for Arena<T> {
+    fn index_mut(&mut self, id: ArenaId<T>) -> &mut T {
+        &mut self.items[id.0 as usize]
+    }
+}
