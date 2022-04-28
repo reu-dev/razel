@@ -198,7 +198,7 @@ fn match_task(
         CliTasks::EnsureNotEqual(x) => x.build(&mut builder, scheduler),
         CliTasks::Write(x) => x.build(&mut builder, scheduler),
     }?;
-    scheduler.push(builder.build())
+    scheduler.push(builder)
 }
 
 /// Parse a single key-value pair

@@ -1,11 +1,18 @@
 use crate::executors::{CustomCommandExecutor, TaskExecutor, TaskFn};
-use crate::{ArenaId, FileId, Scheduler};
+use crate::{ArenaId, FileId, ScheduleState, Scheduler};
 
 pub struct Command {
+    pub id: CommandId,
     pub name: String,
     pub inputs: Vec<FileId>,
     pub outputs: Vec<FileId>,
     pub executor: Executor,
+    /// dependencies which are not yet finished successfully
+    pub unfinished_deps: Vec<CommandId>,
+    /// commands which depend on this command
+    pub reverse_deps: Vec<CommandId>,
+    /// TODO remove, Scheduler should keep track of states
+    pub schedule_state: ScheduleState,
     //exit_status: Option<ExitStatus>,
     //error: Option<io::Error>,
 }
@@ -134,12 +141,16 @@ impl CommandBuilder {
         self.executor = Some(Executor::Task(TaskExecutor { f, command_line }));
     }
 
-    pub fn build(self) -> Command {
+    pub fn build(self, id: CommandId) -> Command {
         Command {
+            id,
             name: self.name,
             inputs: self.inputs,
             outputs: self.outputs,
             executor: self.executor.unwrap(),
+            unfinished_deps: vec![],
+            reverse_deps: vec![],
+            schedule_state: ScheduleState::New,
         }
     }
 }

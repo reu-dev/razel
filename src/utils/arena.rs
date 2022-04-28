@@ -1,3 +1,4 @@
+use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::ops;
 use std::slice::Iter;
@@ -15,6 +16,20 @@ impl<T> Clone for ArenaId<T> {
 }
 
 impl<T> Copy for ArenaId<T> {}
+
+impl<T> Eq for ArenaId<T> {}
+
+impl<T> Hash for ArenaId<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
+impl<T> PartialEq for ArenaId<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
 
 /// Id based arena for graph data structures.
 pub struct Arena<T> {
@@ -50,6 +65,10 @@ impl<T> Arena<T> {
 
     pub fn iter(&self) -> Iter<'_, T> {
         self.items.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, T> {
+        self.items.iter_mut()
     }
 
     fn next_id(&self) -> ArenaId<T> {
