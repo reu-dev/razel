@@ -9,8 +9,9 @@ pub fn parse_command(
     scheduler: &mut Scheduler,
     mut command_line: Vec<String>,
 ) -> Result<(), anyhow::Error> {
-    let program = command_line.drain(1..).collect();
-    create_command(scheduler, "command".into(), program, command_line)
+    let program = command_line[0].clone();
+    let args = command_line.drain(1..).collect();
+    create_command(scheduler, "command".into(), program, args)
 }
 
 pub fn parse_batch_file(scheduler: &mut Scheduler, file_name: String) -> Result<(), anyhow::Error> {
@@ -19,7 +20,7 @@ pub fn parse_batch_file(scheduler: &mut Scheduler, file_name: String) -> Result<
     for (line_number, line) in file_buffered.lines().enumerate() {
         if let Ok(line) = line {
             let line_trimmed = line.trim();
-            if line_trimmed.starts_with("#") {
+            if line_trimmed.is_empty() || line_trimmed.starts_with("#") {
                 continue;
             }
             let name = format!("{}:{}", &file_name, line_number + 1);

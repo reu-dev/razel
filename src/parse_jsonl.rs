@@ -13,7 +13,7 @@ pub fn parse_jsonl_file(scheduler: &mut Scheduler, file_name: String) -> Result<
     for (line_number, line_result) in file_buffered.lines().enumerate() {
         let line = line_result?;
         let line_trimmed = line.trim();
-        if line_trimmed.starts_with("//") {
+        if line_trimmed.is_empty() || line_trimmed.starts_with("//") {
             continue;
         }
         let json: RazelJson = serde_json::from_str(line_trimmed).with_context(|| {
