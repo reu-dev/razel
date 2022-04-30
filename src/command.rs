@@ -1,4 +1,4 @@
-use crate::executors::{CustomCommandExecutor, TaskExecutor, TaskFn};
+use crate::executors::{CustomCommandExecutor, Executor, TaskExecutor, TaskFn};
 use crate::{ArenaId, FileId, ScheduleState, Scheduler};
 
 pub struct Command {
@@ -33,11 +33,6 @@ impl Command {
             Executor::Task(t) => t.command_line.clone(),
         }
     }
-}
-
-pub enum Executor {
-    CustomCommand(CustomCommandExecutor),
-    Task(TaskExecutor),
 }
 
 pub struct CommandBuilder {

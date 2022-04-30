@@ -55,7 +55,7 @@ impl Scheduler {
         args: Vec<String>,
         inputs: Vec<String>,
         outputs: Vec<String>,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<CommandId, anyhow::Error> {
         let mut builder = CommandBuilder::new(name, args);
         builder.inputs(&inputs, self)?;
         builder.outputs(&outputs, self)?;
@@ -63,7 +63,7 @@ impl Scheduler {
         self.push(builder)
     }
 
-    pub fn push(&mut self, builder: CommandBuilder) -> Result<(), anyhow::Error> {
+    pub fn push(&mut self, builder: CommandBuilder) -> Result<CommandId, anyhow::Error> {
         let id = self.commands.alloc_with_id(|id| builder.build(id));
         // TODO check if name is unique
         // patch outputs.creating_command
@@ -72,7 +72,12 @@ impl Scheduler {
             assert!(output.creating_command.is_none());
             output.creating_command = Some(id);
         }
-        Ok(())
+        Ok(id)
+    }
+
+    #[cfg(test)]
+    pub fn get_command(&self, id: CommandId) -> Option<&Command> {
+        self.commands.get(id)
     }
 
     pub async fn run(&mut self) -> Result<(), anyhow::Error> {

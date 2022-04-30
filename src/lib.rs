@@ -15,9 +15,11 @@ mod scheduler;
 
 pub mod executors {
     pub use custom_command::*;
+    pub use executor::*;
     pub use task::*;
 
     mod custom_command;
+    mod executor;
     mod task;
 }
 
@@ -28,8 +30,9 @@ pub mod utils {
 }
 
 pub mod tasks {
-    pub use self::csv::*;
     pub use tools::*;
+
+    pub use self::csv::*;
 
     mod csv;
     mod tools;

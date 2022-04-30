@@ -26,7 +26,7 @@ pub fn parse_jsonl_file(scheduler: &mut Scheduler, file_name: String) -> Result<
         })?;
         match json {
             RazelJson::CustomCommand(c) => {
-                scheduler.push_custom_command(c.name, c.executable, c.args, c.inputs, c.outputs)?
+                scheduler.push_custom_command(c.name, c.executable, c.args, c.inputs, c.outputs)?;
             }
             RazelJson::Task(t) => {
                 let mut args: Vec<String> =

@@ -37,6 +37,7 @@
     * provide specified inputs, check expected outputs
     * in ramdisk?
     * in docker/podman?
+    * exec with own uid?
 * support wasi
     * no need to compile tools for Linux, Windows, Apple x64, Apple M1, ...
     * bit-exact output on all platforms?
@@ -45,6 +46,11 @@
 * integrate building source code with CMake (low prio)
     * specify source like `Bazel new_local_repository(), new_git_repository()`
     * run CMake configure, parse commands to build targets and execute those
+        * CMake can create [JSON Compilation Database](https://clang.llvm.org/docs/JSONCompilationDatabase.html), but
+          that does not include link commands
+        * `cmake -DCMAKE_RULE_MESSAGES:BOOL=OFF -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON . && make --no-print-directory` lists
+          all commands but is difficult to parse
+        * `ninja -t commands` looks ok
 * ensure correctness
     * UB check for modified executables: run first commands multiple times to verify that the outputs are consistent
     * avoid cache poisoning when disk full: missing fwrite/fclose checks in an executable would break cache

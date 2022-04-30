@@ -1,6 +1,5 @@
 use anyhow::bail;
 use itertools::{chain, join};
-use log::warn;
 
 pub struct CustomCommandExecutor {
     pub executable: String,
@@ -17,14 +16,11 @@ impl CustomCommandExecutor {
         {
             Ok(child) => child,
             Err(e) => {
-                warn!("command failed to start: {}\n{}", self.executable, e);
-                //self.error = Some(e);
                 bail!("command failed to start: {}\n{}", self.executable, e);
             }
         };
         match child.wait().await {
             Ok(exit_status) => {
-                //self.exit_status = Some(exit_status);
                 if exit_status.success() {
                     Ok(())
                 } else {
@@ -36,8 +32,6 @@ impl CustomCommandExecutor {
                 }
             }
             Err(e) => {
-                warn!("command failed: {}\n{}", self.executable, e);
-                //self.error = Some(e);
                 bail!("command failed: {:?}\n{}", self.executable, e);
             }
         }
@@ -49,4 +43,76 @@ impl CustomCommandExecutor {
             " ",
         )
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Scheduler;
+
+    #[tokio::test]
+    async fn exec_ok() {
+        let mut scheduler = Scheduler::new();
+        let command = scheduler
+            .push_custom_command(
+                "test".into(),
+                "cmake".into(),
+                vec!["-h".into()],
+                vec![],
+                vec![],
+            )
+            .map(|id| scheduler.get_command(id).unwrap())
+            .unwrap()
+            .clone();
+        command.exec().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn exec_fail_to_start() {
+        let mut scheduler = Scheduler::new();
+        let command = scheduler
+            .push_custom_command(
+                "test".into(),
+                "hopefully-not-existing-command-to-test-razel".into(),
+                vec![],
+                vec![],
+                vec![],
+            )
+            .map(|id| scheduler.get_command(id).unwrap())
+            .unwrap();
+        command.exec().await.unwrap_err();
+    }
+
+    #[tokio::test]
+    async fn exec_failed_to_run() {
+        let mut scheduler = Scheduler::new();
+        let command = scheduler
+            .push_custom_command(
+                "test".into(),
+                "cmake".into(),
+                vec!["-E".into(), "not-existing-command".into()],
+                vec![],
+                vec![],
+            )
+            .map(|id| scheduler.get_command(id).unwrap())
+            .unwrap();
+        command.exec().await.unwrap_err();
+    }
+
+    /* TODO
+    #[tokio::test]
+    async fn exec_kill() {
+        let mut scheduler = Scheduler::new();
+        let command = scheduler
+            .push_custom_command(
+                "test".into(),
+                "cmake".into(),
+                vec!["-E".into(), "sleep".into(), "10".into()],
+                vec![],
+                vec![],
+            )
+            .map(|id| scheduler.get_command(id).unwrap())
+            .unwrap();
+        command.exec().await.unwrap_err();
+    }
+     */
 }

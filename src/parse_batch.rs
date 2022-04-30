@@ -44,7 +44,7 @@ fn create_command(
         parse_cli(args.clone(), scheduler, Some(name.clone()))
             .with_context(|| format!("{}\n{}", name, args.join(" ")))?
     } else {
-        scheduler.push_custom_command(name, program, args, vec![], vec![])?
+        scheduler.push_custom_command(name, program, args, vec![], vec![])?;
     }
     Ok(())
 }
