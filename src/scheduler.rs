@@ -1,9 +1,12 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 
-use anyhow::{bail, Context};
+use anyhow::bail;
 use log::info;
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::Sender;
 
+use crate::executors::ExecutionResult;
 use crate::{config, Arena, Command, CommandBuilder, CommandId, File, FileId};
 
 #[derive(Debug, PartialEq)]
@@ -18,6 +21,8 @@ pub enum ScheduleState {
     /// Command execution failed
     Failed,
 }
+
+type ExecutionResultChannel = (CommandId, ExecutionResult);
 
 pub struct Scheduler {
     files: Arena<File>,
@@ -83,16 +88,16 @@ impl Scheduler {
     pub async fn run(&mut self) -> Result<(), anyhow::Error> {
         self.create_dependency_graph();
         fs::create_dir_all(config::BIN_DIR)?;
-        while !self.is_finished() {
-            let id = self.ready.pop_front().unwrap();
-            let command = &self.commands[id];
-            assert_eq!(command.schedule_state, ScheduleState::Ready);
-            info!("Execute {}: {}", command.name, command.command_line());
-            command
-                .exec()
-                .await
-                .with_context(|| format!("{}\n{}", command.name, command.command_line()))?;
-            self.on_command_succeeded(id);
+        let (tx, mut rx) = mpsc::channel(32);
+        self.start_ready_commands(&tx);
+        while let Some((command_id, result)) = rx.recv().await {
+            info!("Result: {:?}", result);
+            if result.success() {
+                self.on_command_succeeded(command_id);
+                self.start_ready_commands(&tx);
+            } else {
+                self.on_command_failed(command_id);
+            }
         }
         info!(
             "Done. {} succeeded, {} failed, {} not run.",
@@ -176,6 +181,28 @@ impl Scheduler {
         self.ready.is_empty() && self.waiting.is_empty()
     }
 
+    fn start_ready_commands(&mut self, tx: &Sender<ExecutionResultChannel>) {
+        while let Some(id) = self.ready.pop_front() {
+            self.start_next_command(id, tx.clone());
+        }
+    }
+
+    fn start_next_command(&mut self, id: CommandId, tx: Sender<ExecutionResultChannel>) {
+        let command = &self.commands[id];
+        assert_eq!(command.schedule_state, ScheduleState::Ready);
+        info!(
+            "Execute {}: {}",
+            command.name,
+            command.executor.command_line()
+        );
+        let executor = command.executor.clone();
+        tokio::task::spawn_blocking(move || async move {
+            let result = executor.exec().await;
+            // TODO .with_context(|| format!("{}\n{}", command.name, command.command_line()))?;
+            tx.send((id, result)).await.unwrap();
+        });
+    }
+
     /// Track state and check if reverse dependencies are ready
     fn on_command_succeeded(&mut self, id: CommandId) {
         self.succeeded.push(id);
@@ -192,5 +219,9 @@ impl Scheduler {
                 self.ready.push_back(rdep_id);
             }
         }
+    }
+
+    fn on_command_failed(&mut self, id: CommandId) {
+        self.failed.push(id);
     }
 }

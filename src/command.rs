@@ -13,27 +13,9 @@ pub struct Command {
     pub reverse_deps: Vec<CommandId>,
     /// TODO remove, Scheduler should keep track of states
     pub schedule_state: ScheduleState,
-    //exit_status: Option<ExitStatus>,
-    //error: Option<io::Error>,
 }
 
 pub type CommandId = ArenaId<Command>;
-
-impl Command {
-    pub async fn exec(&self) -> Result<(), anyhow::Error> {
-        match &self.executor {
-            Executor::CustomCommand(c) => c.exec().await,
-            Executor::Task(t) => t.exec().await,
-        }
-    }
-
-    pub fn command_line(&self) -> String {
-        match &self.executor {
-            Executor::CustomCommand(c) => c.command_line(),
-            Executor::Task(t) => t.command_line.clone(),
-        }
-    }
-}
 
 pub struct CommandBuilder {
     name: String,

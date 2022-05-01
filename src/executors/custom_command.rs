@@ -1,13 +1,17 @@
-use anyhow::bail;
+use crate::executors::{ExecutionResult, ExecutionStatus};
+use anyhow::anyhow;
 use itertools::{chain, join};
+use std::os::unix::process::ExitStatusExt;
 
+#[derive(Clone)]
 pub struct CustomCommandExecutor {
     pub executable: String,
     pub args: Vec<String>,
 }
 
 impl CustomCommandExecutor {
-    pub async fn exec(&self) -> Result<(), anyhow::Error> {
+    pub async fn exec(&self) -> ExecutionResult {
+        let mut result: ExecutionResult = Default::default();
         // TODO add sandbox dir
         let mut child = match tokio::process::Command::new(&self.executable)
             .env_clear()
@@ -16,25 +20,29 @@ impl CustomCommandExecutor {
         {
             Ok(child) => child,
             Err(e) => {
-                bail!("command failed to start: {}\n{}", self.executable, e);
+                result.status = ExecutionStatus::FailedToStart;
+                result.error = Some(e.into());
+                return result;
             }
         };
         match child.wait().await {
             Ok(exit_status) => {
                 if exit_status.success() {
-                    Ok(())
+                    result.status = ExecutionStatus::Success;
                 } else {
-                    bail!(
-                        "command exit status {:?}\n{}",
-                        exit_status.code(),
-                        self.executable
-                    );
+                    result.status = ExecutionStatus::Failed;
+                    if let Some(signal) = exit_status.signal() {
+                        result.error = Some(anyhow!("command failed (signal {signal})"));
+                    }
                 }
+                result.exit_code = exit_status.code();
             }
             Err(e) => {
-                bail!("command failed: {:?}\n{}", self.executable, e);
+                result.status = ExecutionStatus::Failed;
+                result.error = Some(e.into());
             }
         }
+        result
     }
 
     pub fn command_line(&self) -> String {

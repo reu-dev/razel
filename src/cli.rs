@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::sync::Arc;
 
 use clap::{AppSettings, Args, Parser, Subcommand};
 
@@ -65,7 +66,7 @@ impl CsvConcatTask {
     ) -> Result<(), anyhow::Error> {
         let inputs = builder.inputs(&self.input, scheduler)?;
         let output = builder.output(&self.output, scheduler)?;
-        builder.task_executor(Box::new(move || {
+        builder.task_executor(Arc::new(move || {
             tasks::csv_concat(inputs.clone(), output.clone())
         }));
         Ok(())
@@ -94,7 +95,7 @@ impl CsvFilterTask {
     ) -> Result<(), anyhow::Error> {
         let input = builder.input(&self.input, scheduler)?;
         let output = builder.output(&self.output, scheduler)?;
-        builder.task_executor(Box::new(move || {
+        builder.task_executor(Arc::new(move || {
             tasks::csv_filter(
                 input.clone(),
                 output.clone(),
@@ -121,7 +122,7 @@ impl WriteTask {
         scheduler: &mut Scheduler,
     ) -> Result<(), anyhow::Error> {
         let output = builder.output(&self.file, scheduler)?;
-        builder.task_executor(Box::new(move || {
+        builder.task_executor(Arc::new(move || {
             tasks::write(output.clone(), self.lines.clone())
         }));
         Ok(())
@@ -142,7 +143,7 @@ impl EnsureEqualTask {
     ) -> Result<(), anyhow::Error> {
         let file1 = builder.input(&self.file1, scheduler)?;
         let file2 = builder.input(&self.file2, scheduler)?;
-        builder.task_executor(Box::new(move || {
+        builder.task_executor(Arc::new(move || {
             tasks::ensure_equal(file1.clone(), file2.clone())
         }));
         Ok(())
@@ -163,7 +164,7 @@ impl EnsureNotEqualTask {
     ) -> Result<(), anyhow::Error> {
         let file1 = builder.input(&self.file1, scheduler)?;
         let file2 = builder.input(&self.file2, scheduler)?;
-        builder.task_executor(Box::new(move || {
+        builder.task_executor(Arc::new(move || {
             tasks::ensure_not_equal(file1.clone(), file2.clone())
         }));
         Ok(())

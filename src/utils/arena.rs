@@ -1,3 +1,4 @@
+use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::ops;
@@ -16,6 +17,12 @@ impl<T> Clone for ArenaId<T> {
 }
 
 impl<T> Copy for ArenaId<T> {}
+
+impl<T> Debug for ArenaId<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 impl<T> Eq for ArenaId<T> {}
 
