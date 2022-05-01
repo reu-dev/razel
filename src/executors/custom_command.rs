@@ -1,7 +1,9 @@
-use crate::executors::{ExecutionResult, ExecutionStatus};
+use std::os::unix::process::ExitStatusExt;
+
 use anyhow::anyhow;
 use itertools::{chain, join};
-use std::os::unix::process::ExitStatusExt;
+
+use crate::executors::{ExecutionResult, ExecutionStatus};
 
 #[derive(Clone)]
 pub struct CustomCommandExecutor {
@@ -31,8 +33,19 @@ impl CustomCommandExecutor {
                     result.status = ExecutionStatus::Success;
                 } else {
                     result.status = ExecutionStatus::Failed;
-                    if let Some(signal) = exit_status.signal() {
-                        result.error = Some(anyhow!("command failed (signal {signal})"));
+                    if exit_status.core_dumped() {
+                        result.error = Some(anyhow!(
+                            "command crashed with signal {}",
+                            exit_status.signal().unwrap()
+                        ));
+                    } else if let Some(signal) = exit_status.signal() {
+                        result.error = Some(anyhow!("command terminated by signal {signal}"));
+                    } else if let Some(signal) = exit_status.stopped_signal() {
+                        result.error = Some(anyhow!("command stopped by {signal}"));
+                    } else if let Some(exit_code) = exit_status.code() {
+                        result.error = Some(anyhow!("command failed with exit code {exit_code}"));
+                    } else {
+                        result.error = Some(anyhow!("command failed"));
                     }
                 }
                 result.exit_code = exit_status.code();
@@ -55,6 +68,7 @@ impl CustomCommandExecutor {
 
 #[cfg(test)]
 mod tests {
+    use crate::executors::ExecutionStatus;
     use crate::Scheduler;
 
     #[tokio::test]
@@ -71,7 +85,11 @@ mod tests {
             .map(|id| scheduler.get_command(id).unwrap())
             .unwrap()
             .clone();
-        command.exec().await.unwrap();
+        let result = command.executor.exec().await;
+        assert!(result.success());
+        assert_eq!(result.status, ExecutionStatus::Success);
+        assert_eq!(result.exit_code, Some(0));
+        assert!(result.error.is_none());
     }
 
     #[tokio::test]
@@ -87,7 +105,11 @@ mod tests {
             )
             .map(|id| scheduler.get_command(id).unwrap())
             .unwrap();
-        command.exec().await.unwrap_err();
+        let result = command.executor.exec().await;
+        assert!(!result.success());
+        assert_eq!(result.status, ExecutionStatus::FailedToStart);
+        assert_eq!(result.exit_code, None);
+        assert!(result.error.is_some());
     }
 
     #[tokio::test]
@@ -103,7 +125,11 @@ mod tests {
             )
             .map(|id| scheduler.get_command(id).unwrap())
             .unwrap();
-        command.exec().await.unwrap_err();
+        let result = command.executor.exec().await;
+        assert!(!result.success());
+        assert_eq!(result.status, ExecutionStatus::Failed);
+        assert_eq!(result.exit_code, Some(1));
+        assert!(result.error.is_some());
     }
 
     /* TODO
@@ -120,7 +146,11 @@ mod tests {
             )
             .map(|id| scheduler.get_command(id).unwrap())
             .unwrap();
-        command.exec().await.unwrap_err();
+        let result = command.executor.exec().await;
+        assert!(!result.success());
+        assert_eq!(result.status, ExecutionStatus::Failed);
+        assert_eq!(result.exit_code, Some(-1));
+        assert!(result.error.is_some());
     }
      */
 }
