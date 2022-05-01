@@ -25,6 +25,7 @@ pub enum ScheduleState {
 type ExecutionResultChannel = (CommandId, ExecutionResult);
 
 pub struct Scheduler {
+    worker_threads: usize,
     files: Arena<File>,
     path_to_file_id: HashMap<String, FileId>,
     commands: Arena<Command>,
@@ -39,7 +40,10 @@ pub struct Scheduler {
 
 impl Scheduler {
     pub fn new() -> Scheduler {
+        let worker_threads = num_cpus::get();
+        assert!(worker_threads > 0);
         Scheduler {
+            worker_threads,
             files: Default::default(),
             path_to_file_id: Default::default(),
             commands: Default::default(),
@@ -177,7 +181,8 @@ impl Scheduler {
     }
 
     fn start_ready_commands(&mut self, tx: &Sender<ExecutionResultChannel>) {
-        while let Some(id) = self.ready.pop_front() {
+        while self.running < self.worker_threads && !self.ready.is_empty() {
+            let id = self.ready.pop_front().unwrap();
             self.start_next_command(id, tx.clone());
         }
     }
@@ -233,5 +238,44 @@ impl Scheduler {
         self.failed.push(id);
         let command = &self.commands[id];
         info!("Error {}: {:?}", command.name, result);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Instant;
+
+    use approx::assert_abs_diff_eq;
+
+    use crate::Scheduler;
+
+    /// Test that commands are actually run in parallel limited by Scheduler::worker_threads
+    #[tokio::test]
+    async fn parallel() {
+        let mut scheduler = Scheduler::new();
+        let threads = scheduler.worker_threads;
+        let n = threads * 3;
+        let sleep_duration = 0.5;
+        for i in 0..n {
+            scheduler
+                .push_custom_command(
+                    format!("{}", i),
+                    "cmake".into(),
+                    vec!["-E".into(), "sleep".into(), sleep_duration.to_string()],
+                    vec![],
+                    vec![],
+                )
+                .unwrap();
+        }
+        assert_eq!(scheduler.len(), n);
+        let start = Instant::now();
+        scheduler.run().await.unwrap();
+        let duration = start.elapsed();
+        assert_eq!(scheduler.succeeded.len(), n);
+        assert_abs_diff_eq!(
+            duration.as_secs_f64(),
+            (n as f64 / threads as f64).ceil() * sleep_duration,
+            epsilon = sleep_duration * 0.5
+        );
     }
 }
