@@ -93,14 +93,14 @@ impl CommandBuilder {
         paths: &Vec<String>,
         scheduler: &mut Scheduler,
     ) -> Result<Vec<String>, anyhow::Error> {
-        self.inputs.reserve(paths.len());
+        self.outputs.reserve(paths.len());
         paths
             .iter()
             .map(|path| {
                 let file = scheduler.output_file(path)?;
                 let new_path = file.path.clone();
                 self.map_path(path, &new_path);
-                self.inputs.push(file.id);
+                self.outputs.push(file.id);
                 Ok(new_path)
             })
             .collect()
