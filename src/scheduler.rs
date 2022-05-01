@@ -32,6 +32,7 @@ pub struct Scheduler {
     waiting: HashSet<CommandId>,
     // TODO sort by weight, e.g. recursive number of rdeps
     ready: VecDeque<CommandId>,
+    running: usize,
     succeeded: Vec<CommandId>,
     failed: Vec<CommandId>,
 }
@@ -44,6 +45,7 @@ impl Scheduler {
             commands: Default::default(),
             waiting: Default::default(),
             ready: Default::default(),
+            running: 0,
             succeeded: vec![],
             failed: vec![],
         }
@@ -90,13 +92,10 @@ impl Scheduler {
         fs::create_dir_all(config::BIN_DIR)?;
         let (tx, mut rx) = mpsc::channel(32);
         self.start_ready_commands(&tx);
-        while let Some((command_id, result)) = rx.recv().await {
-            info!("Result: {:?}", result);
-            if result.success() {
-                self.on_command_succeeded(command_id);
+        while self.ready.len() + self.running != 0 {
+            if let Some((id, result)) = rx.recv().await {
+                self.on_command_finished(id, result);
                 self.start_ready_commands(&tx);
-            } else {
-                self.on_command_failed(command_id);
             }
         }
         info!(
@@ -166,19 +165,15 @@ impl Scheduler {
                 self.waiting.insert(command.id);
             }
         }
-        for (dep, id) in rdeps {
-            self.commands[dep].reverse_deps.push(id);
+        for (id, rdep) in rdeps {
+            self.commands[id].reverse_deps.push(rdep);
         }
         self.check_for_circular_dependencies();
-        assert_ne!(self.ready.len(), 0);
+        assert!(!self.ready.is_empty());
     }
 
     fn check_for_circular_dependencies(&self) {
         // TODO
-    }
-
-    fn is_finished(&self) -> bool {
-        self.ready.is_empty() && self.waiting.is_empty()
     }
 
     fn start_ready_commands(&mut self, tx: &Sender<ExecutionResultChannel>) {
@@ -188,29 +183,42 @@ impl Scheduler {
     }
 
     fn start_next_command(&mut self, id: CommandId, tx: Sender<ExecutionResultChannel>) {
+        self.running += 1;
         let command = &self.commands[id];
         assert_eq!(command.schedule_state, ScheduleState::Ready);
+        assert_eq!(command.unfinished_deps.len(), 0);
         info!(
             "Execute {}: {}",
             command.name,
             command.executor.command_line()
         );
         let executor = command.executor.clone();
-        tokio::task::spawn_blocking(move || async move {
+        tokio::task::spawn(async move {
             let result = executor.exec().await;
             // TODO .with_context(|| format!("{}\n{}", command.name, command.command_line()))?;
             tx.send((id, result)).await.unwrap();
         });
     }
 
+    fn on_command_finished(&mut self, id: CommandId, result: ExecutionResult) {
+        self.running -= 1;
+        if result.success() {
+            self.on_command_succeeded(id, result);
+        } else {
+            self.on_command_failed(id, result);
+        }
+    }
+
     /// Track state and check if reverse dependencies are ready
-    fn on_command_succeeded(&mut self, id: CommandId) {
+    fn on_command_succeeded(&mut self, id: CommandId, result: ExecutionResult) {
         self.succeeded.push(id);
         let command = &mut self.commands[id];
         command.schedule_state = ScheduleState::Succeeded;
+        info!("Success {}: {:?}", command.name, result);
         for rdep_id in command.reverse_deps.clone() {
             let rdep = &mut self.commands[rdep_id];
             assert_eq!(rdep.schedule_state, ScheduleState::Waiting);
+            assert!(!rdep.unfinished_deps.is_empty());
             rdep.unfinished_deps
                 .swap_remove(rdep.unfinished_deps.iter().position(|x| *x == id).unwrap());
             if rdep.unfinished_deps.is_empty() {
@@ -221,7 +229,9 @@ impl Scheduler {
         }
     }
 
-    fn on_command_failed(&mut self, id: CommandId) {
+    fn on_command_failed(&mut self, id: CommandId, result: ExecutionResult) {
         self.failed.push(id);
+        let command = &self.commands[id];
+        info!("Error {}: {:?}", command.name, result);
     }
 }

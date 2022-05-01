@@ -13,6 +13,13 @@ async fn main() -> Result<(), anyhow::Error> {
     )
     .unwrap();
 
+    // exit on panic in any thread
+    let default_panic = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        default_panic(info);
+        std::process::exit(1);
+    }));
+
     let mut scheduler = Scheduler::new();
     parse_cli(
         std::env::args_os()
