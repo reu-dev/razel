@@ -2,6 +2,7 @@ pub use cli::*;
 pub use command::*;
 pub use file::*;
 pub use parse_batch::*;
+pub use rules::*;
 pub use sandbox::*;
 pub use scheduler::*;
 pub use utils::*;
@@ -12,6 +13,7 @@ mod config;
 mod file;
 mod parse_batch;
 mod parse_jsonl;
+mod rules;
 mod sandbox;
 mod scheduler;
 
