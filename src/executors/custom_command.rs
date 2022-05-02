@@ -1,4 +1,5 @@
 use std::os::unix::process::ExitStatusExt;
+use std::path::PathBuf;
 
 use anyhow::anyhow;
 use itertools::{chain, join};
@@ -12,12 +13,13 @@ pub struct CustomCommandExecutor {
 }
 
 impl CustomCommandExecutor {
-    pub async fn exec(&self) -> ExecutionResult {
+    pub async fn exec(&self, sandbox_dir: Option<PathBuf>) -> ExecutionResult {
         let mut result: ExecutionResult = Default::default();
-        // TODO add sandbox dir
+        // TODO let program = fs::canonicalize(&self.executable).unwrap();
         let mut child = match tokio::process::Command::new(&self.executable)
             .env_clear()
             .args(&self.args)
+            .current_dir(sandbox_dir.unwrap_or_default())
             .spawn()
         {
             Ok(child) => child,

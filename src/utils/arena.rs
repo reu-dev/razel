@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::ops;
@@ -20,7 +20,13 @@ impl<T> Copy for ArenaId<T> {}
 
 impl<T> Debug for ArenaId<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        write!(f, "{}", self.0)
+    }
+}
+
+impl<T> Display for ArenaId<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 

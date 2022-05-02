@@ -1,13 +1,13 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 
-use anyhow::bail;
+use anyhow::{bail, Context};
 use log::info;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 
 use crate::executors::ExecutionResult;
-use crate::{config, Arena, Command, CommandBuilder, CommandId, File, FileId};
+use crate::{config, Arena, Command, CommandBuilder, CommandId, File, FileId, Sandbox};
 
 #[derive(Debug, PartialEq)]
 pub enum ScheduleState {
@@ -22,7 +22,7 @@ pub enum ScheduleState {
     Failed,
 }
 
-type ExecutionResultChannel = (CommandId, ExecutionResult);
+type ExecutionResultChannel = (CommandId, Option<Sandbox>, ExecutionResult);
 
 pub struct Scheduler {
     worker_threads: usize,
@@ -97,8 +97,8 @@ impl Scheduler {
         let (tx, mut rx) = mpsc::channel(32);
         self.start_ready_commands(&tx);
         while self.ready.len() + self.running != 0 {
-            if let Some((id, result)) = rx.recv().await {
-                self.on_command_finished(id, result);
+            if let Some((id, sandbox, result)) = rx.recv().await {
+                self.on_command_finished(id, sandbox, result).await;
                 self.start_ready_commands(&tx);
             }
         }
@@ -198,15 +198,38 @@ impl Scheduler {
             command.executor.command_line()
         );
         let executor = command.executor.clone();
+        let sandbox = executor
+            .use_sandbox()
+            .then(|| Sandbox::new(command, &self.files));
         tokio::task::spawn(async move {
-            let result = executor.exec().await;
+            if let Some(sandbox) = &sandbox {
+                sandbox
+                    .create_and_provide_inputs()
+                    .await
+                    .with_context(|| executor.command_line())
+                    .unwrap();
+            }
+            let result = executor.exec(sandbox.as_ref().map(|x| x.dir.clone())).await;
             // TODO .with_context(|| format!("{}\n{}", command.name, command.command_line()))?;
-            tx.send((id, result)).await.unwrap();
+            tx.send((id, sandbox, result)).await.unwrap();
         });
     }
 
-    fn on_command_finished(&mut self, id: CommandId, result: ExecutionResult) {
+    async fn on_command_finished(
+        &mut self,
+        id: CommandId,
+        sandbox: Option<Sandbox>,
+        result: ExecutionResult,
+    ) {
         self.running -= 1;
+        if let Some(sandbox) = sandbox {
+            sandbox
+                .handle_outputs_and_destroy()
+                .await
+                .with_context(|| self.commands[id].executor.command_line())
+                .with_context(|| self.commands[id].name.clone())
+                .unwrap();
+        }
         if result.success() {
             self.on_command_succeeded(id, result);
         } else {

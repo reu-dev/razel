@@ -1,4 +1,5 @@
 use crate::executors::{CustomCommandExecutor, TaskExecutor};
+use std::path::PathBuf;
 
 #[derive(Clone)]
 pub enum Executor {
@@ -7,9 +8,9 @@ pub enum Executor {
 }
 
 impl Executor {
-    pub async fn exec(&self) -> ExecutionResult {
+    pub async fn exec(&self, sandbox_dir: Option<PathBuf>) -> ExecutionResult {
         match self {
-            Executor::CustomCommand(c) => c.exec().await,
+            Executor::CustomCommand(c) => c.exec(sandbox_dir).await,
             Executor::Task(t) => t.exec().await,
         }
     }
@@ -18,6 +19,17 @@ impl Executor {
         match self {
             Executor::CustomCommand(c) => c.command_line(),
             Executor::Task(t) => t.command_line.clone(),
+        }
+    }
+
+    /// Returns if a sandbox should be used.
+    ///
+    /// Internally implemented tasks have well defined inputs and outputs. This might not be true
+    /// for other commands, therefore the sandbox must be used to make caching reliable.
+    pub fn use_sandbox(&self) -> bool {
+        match self {
+            Executor::CustomCommand(_) => true,
+            Executor::Task(_) => false,
         }
     }
 }
