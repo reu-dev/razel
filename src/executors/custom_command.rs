@@ -19,7 +19,7 @@ impl CustomCommandExecutor {
         let mut child = match tokio::process::Command::new(&self.executable)
             .env_clear()
             .args(&self.args)
-            .current_dir(sandbox_dir.unwrap_or_default())
+            .current_dir(sandbox_dir.unwrap_or(".".into()))
             .spawn()
         {
             Ok(child) => child,
@@ -87,7 +87,7 @@ mod tests {
             .map(|id| scheduler.get_command(id).unwrap())
             .unwrap()
             .clone();
-        let result = command.executor.exec().await;
+        let result = command.executor.exec(None).await;
         assert!(result.success());
         assert_eq!(result.status, ExecutionStatus::Success);
         assert_eq!(result.exit_code, Some(0));
@@ -107,7 +107,7 @@ mod tests {
             )
             .map(|id| scheduler.get_command(id).unwrap())
             .unwrap();
-        let result = command.executor.exec().await;
+        let result = command.executor.exec(None).await;
         assert!(!result.success());
         assert_eq!(result.status, ExecutionStatus::FailedToStart);
         assert_eq!(result.exit_code, None);
@@ -127,7 +127,7 @@ mod tests {
             )
             .map(|id| scheduler.get_command(id).unwrap())
             .unwrap();
-        let result = command.executor.exec().await;
+        let result = command.executor.exec(None).await;
         assert!(!result.success());
         assert_eq!(result.status, ExecutionStatus::Failed);
         assert_eq!(result.exit_code, Some(1));
