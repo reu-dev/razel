@@ -98,7 +98,7 @@ impl Scheduler {
         self.commands.get(id)
     }
 
-    pub async fn run(&mut self) -> Result<(), anyhow::Error> {
+    pub async fn run(&mut self) -> Result<SchedulerResult, anyhow::Error> {
         if self.commands.is_empty() {
             bail!("no commands added");
         }
@@ -112,13 +112,11 @@ impl Scheduler {
                 self.start_ready_commands(&tx);
             }
         }
-        info!(
-            "Done. {} succeeded, {} failed, {} not run.",
-            self.succeeded.len(),
-            self.failed.len(),
-            self.waiting.len() + self.ready.len()
-        );
-        Ok(())
+        Ok(SchedulerResult {
+            succeeded: self.succeeded.len(),
+            failed: self.failed.len(),
+            not_run: self.waiting.len() + self.ready.len(),
+        })
     }
 
     pub fn input_file(&mut self, arg: &String) -> Result<&File, anyhow::Error> {

@@ -32,7 +32,11 @@ enum CliCommands {
         file: String,
     },
     /// Execute commands from a razel.jsonl file
-    Build,
+    Build {
+        /// file with commands to execute
+        #[clap(default_value = "razel.jsonl")]
+        file: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -181,7 +185,7 @@ pub fn parse_cli(
         CliCommands::Command { command } => parse_command(scheduler, command),
         CliCommands::Task(task) => match_task(scheduler, name.unwrap(), task, args),
         CliCommands::Batch { file } => parse_batch_file(scheduler, file),
-        CliCommands::Build => parse_jsonl_file(scheduler, "razel.jsonl".into()),
+        CliCommands::Build { file } => parse_jsonl_file(scheduler, file),
     }
 }
 
