@@ -80,7 +80,7 @@ mod tests {
             .push_custom_command(
                 "test".into(),
                 "cmake".into(),
-                vec!["-h".into()],
+                vec!["-E".into(), "true".into()],
                 vec![],
                 vec![],
             )
@@ -121,7 +121,7 @@ mod tests {
             .push_custom_command(
                 "test".into(),
                 "cmake".into(),
-                vec!["-E".into(), "not-existing-command".into()],
+                vec!["-E".into(), "false".into()],
                 vec![],
                 vec![],
             )
