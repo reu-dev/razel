@@ -1,20 +1,22 @@
-use anyhow::Context;
-use log::info;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
-use crate::{config, parse_cli, Scheduler};
+use anyhow::Context;
+use log::info;
+
+use crate::{config, parse_cli, Rules, Scheduler};
 
 pub fn parse_command(
     scheduler: &mut Scheduler,
-    mut command_line: Vec<String>,
+    command_line: Vec<String>,
 ) -> Result<(), anyhow::Error> {
-    let program = command_line[0].clone();
-    let args = command_line.drain(1..).collect();
-    create_command(scheduler, "command".into(), program, args)
+    let rules = Rules::new();
+    create_command(scheduler, &rules, "command".into(), command_line.clone())
+        .with_context(|| command_line.join(" "))
 }
 
 pub fn parse_batch_file(scheduler: &mut Scheduler, file_name: String) -> Result<(), anyhow::Error> {
+    let rules = Rules::new();
     let file = File::open(&file_name)?;
     let file_buffered = BufReader::new(file);
     for (line_number, line) in file_buffered.lines().enumerate() {
@@ -24,10 +26,11 @@ pub fn parse_batch_file(scheduler: &mut Scheduler, file_name: String) -> Result<
                 continue;
             }
             let name = format!("{}:{}", &file_name, line_number + 1);
-            let mut split = line.split_whitespace().map(|x| x.to_string());
-            let program = split.next().unwrap();
-            let args = split.collect();
-            create_command(scheduler, name, program, args)?;
+            let command_line: Vec<String> =
+                line.split_whitespace().map(|x| x.to_string()).collect();
+            create_command(scheduler, &rules, name.clone(), command_line.clone())
+                .with_context(|| command_line.join(" "))
+                .with_context(|| format!("Failed to add command: {name}"))?;
         }
     }
     info!("Added {} commands from {}", scheduler.len(), file_name);
@@ -36,16 +39,19 @@ pub fn parse_batch_file(scheduler: &mut Scheduler, file_name: String) -> Result<
 
 fn create_command(
     scheduler: &mut Scheduler,
+    rules: &Rules,
     name: String,
-    program: String,
-    mut args: Vec<String>,
+    command_line: Vec<String>,
 ) -> Result<(), anyhow::Error> {
-    if program == config::EXECUTABLE {
-        args.insert(0, config::EXECUTABLE.to_string());
-        parse_cli(args.clone(), scheduler, Some(name.clone()))
-            .with_context(|| format!("{}\n{}", name, args.join(" ")))?
+    if command_line.first().unwrap() == config::EXECUTABLE {
+        parse_cli(command_line, scheduler, Some(name))?
     } else {
-        scheduler.push_custom_command(name, program, args, vec![], vec![])?;
+        if let Some(x) = rules.parse_command(&command_line)? {
+            let mut i = command_line.into_iter();
+            let program = i.next().unwrap();
+            let args = i.collect();
+            scheduler.push_custom_command(name, program, args, x.inputs, x.outputs)?;
+        }
     }
     Ok(())
 }

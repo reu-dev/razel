@@ -48,6 +48,8 @@
     * run CMake configure, parse commands to build targets and execute those
         * CMake can create [JSON Compilation Database](https://clang.llvm.org/docs/JSONCompilationDatabase.html), but
           that does not include link commands
+        * [CMake File API](https://cmake.org/cmake/help/latest/manual/cmake-file-api.7.html) contains raw data, but not
+          complete command lines
         * `cmake -DCMAKE_RULE_MESSAGES:BOOL=OFF -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON . && make --no-print-directory` lists
           all commands but is difficult to parse
         * `ninja -t commands` looks ok

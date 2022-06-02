@@ -17,7 +17,7 @@ impl CustomCommandExecutor {
         let mut result: ExecutionResult = Default::default();
         // TODO let program = fs::canonicalize(&self.executable).unwrap();
         let mut child = match tokio::process::Command::new(&self.executable)
-            .env_clear()
+            // TODO .env_clear()
             .args(&self.args)
             .current_dir(sandbox_dir.unwrap_or(".".into()))
             .spawn()
@@ -80,7 +80,7 @@ mod tests {
             .push_custom_command(
                 "test".into(),
                 "cmake".into(),
-                vec!["-h".into()],
+                vec!["-E".into(), "true".into()],
                 vec![],
                 vec![],
             )
@@ -121,7 +121,7 @@ mod tests {
             .push_custom_command(
                 "test".into(),
                 "cmake".into(),
-                vec!["-E".into(), "not-existing-command".into()],
+                vec!["-E".into(), "false".into()],
                 vec![],
                 vec![],
             )

@@ -10,8 +10,8 @@ use crate::{config, Arena, Command, File};
 #[derive(Debug)]
 pub struct Sandbox {
     pub dir: PathBuf,
-    inputs: Vec<String>,
-    outputs: Vec<String>,
+    inputs: Vec<PathBuf>,
+    outputs: Vec<PathBuf>,
 }
 
 impl Sandbox {

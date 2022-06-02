@@ -10,6 +10,21 @@ TODO: sync with bazel?
 * input: (bazel: source/data file)
 * output: (bazel: generated file)
 
+### Paths
+
+* `razel-bin`: create in cwd
+* workspace dir: used to resolve relative paths
+    * cwd?
+    * or commands file dir? could be multiple?
+
+* paths used to execute commands: should equal original command?
+* paths shown to user for debugging, should be easy to reproduce
+
+| Executor      | cwd                      | executable | data              | non-data inputs                 | outputs                   |
+|---------------|--------------------------|------------|-------------------|---------------------------------|---------------------------|
+| CustomCommand | command specific tmp dir | symlink    | rel path, symlink | `razel-bin/`, rel path, symlink | `razel-bin/`, copied back |
+| Task          | -                        | -          | rel path          | `razel-bin/`, rel path          | `razel-bin/`              |
+
 ### Dependency graph
 
 dependencies:
@@ -32,15 +47,6 @@ dependencies:
 4. cleanup `razel-bin`
     * remove all files which are no outputs, e.g. created by previous build with different build file
 5. execute commands/tasks
-
-### Command executor Sandbox
-
-paths used to execute commands:
-
-| Executor      | cwd                      | executable | data              | non-data inputs                 | outputs                   |
-|---------------|--------------------------|------------|-------------------|---------------------------------|---------------------------|
-| CustomCommand | command specific tmp dir | symlink    | rel path, symlink | `razel-bin/`, rel path, symlink | `razel-bin/`, copied back |
-| Task          | -                        | -          | rel path          | `razel-bin/`, rel path          | `razel-bin/`              |
 
 ### Cache
 

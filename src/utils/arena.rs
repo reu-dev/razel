@@ -72,6 +72,10 @@ impl<T> Arena<T> {
         self.items.get_mut(id.0 as usize)
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
     pub fn len(&self) -> usize {
         self.items.len()
     }
