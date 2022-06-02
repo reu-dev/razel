@@ -1,8 +1,9 @@
 use anyhow::ensure;
 use csv::{StringRecord, Writer};
 use std::io;
+use std::path::PathBuf;
 
-pub fn csv_concat(inputs: Vec<String>, output: String) -> Result<(), anyhow::Error> {
+pub fn csv_concat(inputs: Vec<PathBuf>, output: PathBuf) -> Result<(), anyhow::Error> {
     let mut writer = csv::Writer::from_path(output)?;
     let mut combined_headers: Option<StringRecord> = None;
     for input in inputs {
@@ -24,8 +25,8 @@ pub fn csv_concat(inputs: Vec<String>, output: String) -> Result<(), anyhow::Err
 }
 
 pub fn csv_filter(
-    input: String,
-    output: String,
+    input: PathBuf,
+    output: PathBuf,
     cols: Vec<String>,
     fields: Vec<(String, String)>,
 ) -> Result<(), anyhow::Error> {

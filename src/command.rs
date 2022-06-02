@@ -1,5 +1,6 @@
 use crate::executors::{CustomCommandExecutor, Executor, TaskExecutor, TaskFn};
 use crate::{ArenaId, FileId, ScheduleState, Scheduler};
+use std::path::PathBuf;
 
 pub struct Command {
     pub id: CommandId,
@@ -48,10 +49,10 @@ impl CommandBuilder {
         &mut self,
         path: &String,
         scheduler: &mut Scheduler,
-    ) -> Result<String, anyhow::Error> {
+    ) -> Result<PathBuf, anyhow::Error> {
         scheduler.input_file(path).map(|file| {
             let new_path = file.path.clone();
-            self.map_path(path, &new_path);
+            self.map_path(path, &new_path.to_str().unwrap().into());
             self.inputs.push(file.id);
             new_path
         })
@@ -61,14 +62,14 @@ impl CommandBuilder {
         &mut self,
         paths: &Vec<String>,
         scheduler: &mut Scheduler,
-    ) -> Result<Vec<String>, anyhow::Error> {
+    ) -> Result<Vec<PathBuf>, anyhow::Error> {
         self.inputs.reserve(paths.len());
         paths
             .iter()
             .map(|path| {
                 let file = scheduler.input_file(path)?;
                 let new_path = file.path.clone();
-                self.map_path(path, &new_path);
+                self.map_path(path, &new_path.to_str().unwrap().into());
                 self.inputs.push(file.id);
                 Ok(new_path)
             })
@@ -79,10 +80,10 @@ impl CommandBuilder {
         &mut self,
         path: &String,
         scheduler: &mut Scheduler,
-    ) -> Result<String, anyhow::Error> {
+    ) -> Result<PathBuf, anyhow::Error> {
         scheduler.output_file(path).map(|file| {
             let new_path = file.path.clone();
-            self.map_path(path, &new_path);
+            self.map_path(path, &new_path.to_str().unwrap().into());
             self.outputs.push(file.id);
             new_path
         })
@@ -92,14 +93,14 @@ impl CommandBuilder {
         &mut self,
         paths: &Vec<String>,
         scheduler: &mut Scheduler,
-    ) -> Result<Vec<String>, anyhow::Error> {
+    ) -> Result<Vec<PathBuf>, anyhow::Error> {
         self.outputs.reserve(paths.len());
         paths
             .iter()
             .map(|path| {
                 let file = scheduler.output_file(path)?;
                 let new_path = file.path.clone();
-                self.map_path(path, &new_path);
+                self.map_path(path, &new_path.to_str().unwrap().into());
                 self.outputs.push(file.id);
                 Ok(new_path)
             })

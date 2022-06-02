@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::fs;
+use std::path::{Path, PathBuf};
+use std::{env, fs};
 
 use anyhow::{bail, Context};
-use log::info;
+use log::{error, info};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 
@@ -26,8 +27,10 @@ type ExecutionResultChannel = (CommandId, Option<Sandbox>, ExecutionResult);
 
 pub struct Scheduler {
     worker_threads: usize,
+    workspace: PathBuf,
+    bin_dir: PathBuf,
     files: Arena<File>,
-    path_to_file_id: HashMap<String, FileId>,
+    path_to_file_id: HashMap<PathBuf, FileId>,
     commands: Arena<Command>,
 
     waiting: HashSet<CommandId>,
@@ -42,8 +45,12 @@ impl Scheduler {
     pub fn new() -> Scheduler {
         let worker_threads = num_cpus::get();
         assert!(worker_threads > 0);
+        let workspace = env::current_dir().unwrap();
+        let bin_dir = workspace.join(config::BIN_DIR);
         Scheduler {
             worker_threads,
+            workspace,
+            bin_dir,
             files: Default::default(),
             path_to_file_id: Default::default(),
             commands: Default::default(),
@@ -92,6 +99,9 @@ impl Scheduler {
     }
 
     pub async fn run(&mut self) -> Result<(), anyhow::Error> {
+        if self.commands.is_empty() {
+            bail!("no commands added");
+        }
         self.create_dependency_graph();
         fs::create_dir_all(config::BIN_DIR)?;
         let (tx, mut rx) = mpsc::channel(32);
@@ -111,42 +121,64 @@ impl Scheduler {
         Ok(())
     }
 
-    pub fn input_file(&mut self, path: &String) -> Result<&File, anyhow::Error> {
-        let id = self.path_to_file_id.get(path).cloned().unwrap_or_else(|| {
-            // create new data file
-            let id = self.files.alloc_with_id(|id| File {
-                id,
-                creating_command: None,
-                path: path.clone(),
+    pub fn input_file(&mut self, arg: &String) -> Result<&File, anyhow::Error> {
+        let rel_path = self.rel_path(arg)?;
+        let id = self
+            .path_to_file_id
+            .get(rel_path)
+            .cloned()
+            .unwrap_or_else(|| {
+                // create new data file
+                let id = self.files.alloc_with_id(|id| File {
+                    id,
+                    arg: arg.clone(),
+                    path: rel_path.into(),
+                    creating_command: None,
+                });
+                self.path_to_file_id.insert(rel_path.into(), id);
+                id
             });
-            self.path_to_file_id.insert(path.clone(), id);
-            id
-        });
         Ok(&self.files[id])
     }
 
-    pub fn output_file(&mut self, path: &String) -> Result<&File, anyhow::Error> {
-        if let Some(file) = self.path_to_file_id.get(path).map(|x| &self.files[*x]) {
+    pub fn output_file(&mut self, arg: &String) -> Result<&File, anyhow::Error> {
+        let rel_path = self.rel_path(arg)?;
+        if let Some(file) = self.path_to_file_id.get(rel_path).map(|x| &self.files[*x]) {
             if let Some(creating_command) = file.creating_command {
                 bail!(
                     "File {} cannot be output of multiple commands, already output of {}",
-                    path,
+                    arg,
                     self.commands[creating_command].name
                 );
             } else {
                 bail!(
                     "File {} cannot be output because it's already used as data",
-                    path,
+                    arg,
                 );
             }
         }
         let id = self.files.alloc_with_id(|id| File {
             id,
             creating_command: None, // will be patched in Scheduler::push()
-            path: format!("{}/{}", crate::config::BIN_DIR, path),
+            path: self.bin_dir.join(rel_path),
+            arg: arg.clone(),
         });
-        self.path_to_file_id.insert(path.clone(), id);
+        self.path_to_file_id.insert(rel_path.into(), id);
         Ok(&self.files[id])
+    }
+
+    fn rel_path<'a>(&self, arg: &'a String) -> Result<&'a Path, anyhow::Error> {
+        let path = Path::new(arg);
+        if path.is_absolute() {
+            path.strip_prefix(&self.workspace).with_context(|| {
+                format!(
+                    "File is not within workspace ({:?}): {:?}",
+                    self.workspace, path
+                )
+            })
+        } else {
+            Ok(path)
+        }
     }
 
     fn create_dependency_graph(&mut self) {
@@ -260,7 +292,7 @@ impl Scheduler {
     fn on_command_failed(&mut self, id: CommandId, result: ExecutionResult) {
         self.failed.push(id);
         let command = &self.commands[id];
-        info!("Error {}: {:?}", command.name, result);
+        error!("Error  {}: {:?}", command.name, result);
     }
 }
 
