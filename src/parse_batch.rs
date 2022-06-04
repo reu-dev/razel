@@ -48,12 +48,15 @@ fn create_command(
     if command_line.first().unwrap() == config::EXECUTABLE {
         parse_cli(command_line, scheduler, Some(name))?
     } else {
-        if let Some(x) = rules.parse_command(&command_line)? {
-            let mut i = command_line.into_iter();
-            let program = i.next().unwrap();
-            let args = i.collect();
-            scheduler.push_custom_command(name, program, args, x.inputs, x.outputs)?;
-        }
+        let (inputs, outputs) = if let Some(files) = rules.parse_command(&command_line)? {
+            (files.inputs, files.outputs)
+        } else {
+            (Default::default(), Default::default())
+        };
+        let mut i = command_line.into_iter();
+        let program = i.next().unwrap();
+        let args = i.collect();
+        scheduler.push_custom_command(name, program, args, inputs, outputs)?;
     }
     Ok(())
 }

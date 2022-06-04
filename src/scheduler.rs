@@ -76,6 +76,11 @@ impl Scheduler {
         }
     }
 
+    /// Remove the binary directory
+    pub fn clean(&self) {
+        fs::remove_dir_all(&self.bin_dir).ok();
+    }
+
     /// Set the directory to resolve relative paths of input/output files
     pub fn set_workspace_dir(&mut self, workspace: &Path) {
         if workspace.is_absolute() {
@@ -84,12 +89,6 @@ impl Scheduler {
             self.workspace_dir = self.current_dir.join(workspace);
         }
         debug!("workspace_dir: {:?}", self.workspace_dir);
-    }
-
-    pub fn set_bin_dir(&mut self, bin_dir: PathBuf) {
-        assert!(self.commands.is_empty());
-        self.bin_dir = bin_dir;
-        debug!("bin_dir:       {:?}", self.bin_dir);
     }
 
     pub fn len(&self) -> usize {
