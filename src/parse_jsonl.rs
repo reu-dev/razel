@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::path::Path;
 
 use anyhow::Context;
 use log::info;
@@ -8,6 +9,7 @@ use serde::Deserialize;
 use crate::{config, parse_cli, Scheduler};
 
 pub fn parse_jsonl_file(scheduler: &mut Scheduler, file_name: String) -> Result<(), anyhow::Error> {
+    scheduler.set_workspace_dir(Path::new(&file_name).parent().unwrap());
     let file = File::open(&file_name).with_context(|| file_name.clone())?;
     let file_buffered = BufReader::new(file);
     for (line_number, line_result) in file_buffered.lines().enumerate() {

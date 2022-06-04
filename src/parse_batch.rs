@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::path::Path;
 
 use anyhow::Context;
 use log::info;
@@ -16,6 +17,7 @@ pub fn parse_command(
 }
 
 pub fn parse_batch_file(scheduler: &mut Scheduler, file_name: String) -> Result<(), anyhow::Error> {
+    scheduler.set_workspace_dir(Path::new(&file_name).parent().unwrap());
     let rules = Rules::new();
     let file = File::open(&file_name).with_context(|| file_name.clone())?;
     let file_buffered = BufReader::new(file);

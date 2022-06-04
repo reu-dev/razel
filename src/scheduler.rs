@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::{env, fs};
 
 use anyhow::{bail, Context};
-use log::{error, info};
+use log::{debug, error, info};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 
@@ -34,12 +34,15 @@ type ExecutionResultChannel = (CommandId, Option<Sandbox>, ExecutionResult);
 
 pub struct Scheduler {
     worker_threads: usize,
-    workspace: PathBuf,
+    /// absolute directory to resolve relative paths of input/output files
+    workspace_dir: PathBuf,
+    /// current working directory, read-only, used to execute commands
+    current_dir: PathBuf,
+    /// directory of output files
     bin_dir: PathBuf,
     files: Arena<File>,
     path_to_file_id: HashMap<PathBuf, FileId>,
     commands: Arena<Command>,
-
     waiting: HashSet<CommandId>,
     // TODO sort by weight, e.g. recursive number of rdeps
     ready: VecDeque<CommandId>,
@@ -52,12 +55,16 @@ impl Scheduler {
     pub fn new() -> Scheduler {
         let worker_threads = num_cpus::get();
         assert!(worker_threads > 0);
-        let workspace = env::current_dir().unwrap();
-        let bin_dir = workspace.join(config::BIN_DIR);
+        let current_dir = env::current_dir().unwrap();
+        let workspace_dir = current_dir.clone();
+        let bin_dir = current_dir.join(config::BIN_DIR);
+        debug!("workspace_dir: {:?}", workspace_dir);
+        debug!("bin_dir:       {:?}", bin_dir);
         Scheduler {
             worker_threads,
-            workspace,
+            workspace_dir,
             bin_dir,
+            current_dir,
             files: Default::default(),
             path_to_file_id: Default::default(),
             commands: Default::default(),
@@ -67,6 +74,22 @@ impl Scheduler {
             succeeded: vec![],
             failed: vec![],
         }
+    }
+
+    /// Set the directory to resolve relative paths of input/output files
+    pub fn set_workspace_dir(&mut self, workspace: &Path) {
+        if workspace.is_absolute() {
+            self.workspace_dir = workspace.into();
+        } else {
+            self.workspace_dir = self.current_dir.join(workspace);
+        }
+        debug!("workspace_dir: {:?}", self.workspace_dir);
+    }
+
+    pub fn set_bin_dir(&mut self, bin_dir: PathBuf) {
+        assert!(self.commands.is_empty());
+        self.bin_dir = bin_dir;
+        debug!("bin_dir:       {:?}", self.bin_dir);
     }
 
     pub fn len(&self) -> usize {
@@ -110,7 +133,7 @@ impl Scheduler {
             bail!("no commands added");
         }
         self.create_dependency_graph();
-        fs::create_dir_all(config::BIN_DIR)?;
+        fs::create_dir_all(&self.bin_dir)?;
         let (tx, mut rx) = mpsc::channel(32);
         self.start_ready_commands(&tx);
         while self.ready.len() + self.running != 0 {
@@ -130,17 +153,17 @@ impl Scheduler {
         let rel_path = self.rel_path(arg)?;
         let id = self
             .path_to_file_id
-            .get(rel_path)
+            .get(&rel_path)
             .cloned()
             .unwrap_or_else(|| {
                 // create new data file
                 let id = self.files.alloc_with_id(|id| File {
                     id,
                     arg: arg.clone(),
-                    path: rel_path.into(),
+                    path: rel_path.clone(),
                     creating_command: None,
                 });
-                self.path_to_file_id.insert(rel_path.into(), id);
+                self.path_to_file_id.insert(rel_path, id);
                 id
             });
         Ok(&self.files[id])
@@ -148,7 +171,7 @@ impl Scheduler {
 
     pub fn output_file(&mut self, arg: &String) -> Result<&File, anyhow::Error> {
         let rel_path = self.rel_path(arg)?;
-        if let Some(file) = self.path_to_file_id.get(rel_path).map(|x| &self.files[*x]) {
+        if let Some(file) = self.path_to_file_id.get(&rel_path).map(|x| &self.files[*x]) {
             if let Some(creating_command) = file.creating_command {
                 bail!(
                     "File {} cannot be output of multiple commands, already output of {}",
@@ -165,24 +188,36 @@ impl Scheduler {
         let id = self.files.alloc_with_id(|id| File {
             id,
             creating_command: None, // will be patched in Scheduler::push()
-            path: self.bin_dir.join(rel_path),
+            path: self.bin_dir.join(&rel_path),
             arg: arg.clone(),
         });
-        self.path_to_file_id.insert(rel_path.into(), id);
+        self.path_to_file_id.insert(rel_path, id);
         Ok(&self.files[id])
     }
 
-    fn rel_path<'a>(&self, arg: &'a String) -> Result<&'a Path, anyhow::Error> {
+    /// Maps a relative path from workspace dir to cwd
+    fn rel_path(&self, arg: &String) -> Result<PathBuf, anyhow::Error> {
         let path = Path::new(arg);
         if path.is_absolute() {
-            path.strip_prefix(&self.workspace).with_context(|| {
-                format!(
-                    "File is not within workspace ({:?}): {:?}",
-                    self.workspace, path
-                )
-            })
+            path.strip_prefix(&self.current_dir)
+                .map(PathBuf::from)
+                .with_context(|| {
+                    format!(
+                        "File is not within cwd ({:?}): {:?}",
+                        self.current_dir, path
+                    )
+                })
         } else {
-            Ok(path)
+            self.workspace_dir
+                .join(path)
+                .strip_prefix(&self.current_dir)
+                .map(PathBuf::from)
+                .with_context(|| {
+                    format!(
+                        "File is not within cwd ({:?}): {:?}",
+                        self.current_dir, path
+                    )
+                })
         }
     }
 
