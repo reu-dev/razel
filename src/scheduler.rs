@@ -23,6 +23,13 @@ pub enum ScheduleState {
     Failed,
 }
 
+#[derive(Debug, PartialEq)]
+pub struct SchedulerResult {
+    pub succeeded: usize,
+    pub failed: usize,
+    pub not_run: usize,
+}
+
 type ExecutionResultChannel = (CommandId, Option<Sandbox>, ExecutionResult);
 
 pub struct Scheduler {

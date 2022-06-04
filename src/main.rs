@@ -1,4 +1,4 @@
-use log::LevelFilter;
+use log::{info, LevelFilter};
 use simplelog::*;
 
 use razel::{parse_cli, Scheduler};
@@ -28,6 +28,10 @@ async fn main() -> Result<(), anyhow::Error> {
         &mut scheduler,
         None,
     )?;
-    scheduler.run().await?;
+    let result = scheduler.run().await?;
+    info!(
+        "Done. {} succeeded, {} failed, {} not run.",
+        result.succeeded, result.failed, result.not_run
+    );
     Ok(())
 }

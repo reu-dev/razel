@@ -9,7 +9,7 @@ pub use utils::*;
 
 mod cli;
 mod command;
-mod config;
+pub mod config;
 mod file;
 mod parse_batch;
 mod parse_jsonl;
