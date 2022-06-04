@@ -60,7 +60,6 @@ impl Sandbox {
         for output in &self.outputs {
             let dst = PathBuf::from(output);
             let src = self.dir.join(&dst);
-            fs::create_dir_all(dst.parent().unwrap()).await?;
             fs::rename(&src, &dst)
                 .await
                 .with_context(|| format!("mv {:?} -> {:?}", src, dst))?;

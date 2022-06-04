@@ -133,7 +133,7 @@ impl Scheduler {
             bail!("no commands added");
         }
         self.create_dependency_graph();
-        fs::create_dir_all(&self.bin_dir)?;
+        self.create_output_dirs()?;
         let (tx, mut rx) = mpsc::channel(32);
         self.start_ready_commands(&tx);
         while self.ready.len() + self.running != 0 {
@@ -250,6 +250,21 @@ impl Scheduler {
 
     fn check_for_circular_dependencies(&self) {
         // TODO
+    }
+
+    fn create_output_dirs(&self) -> Result<(), anyhow::Error> {
+        let mut dirs: Vec<&Path> = self
+            .files
+            .iter()
+            .map(|x| x.path.parent().unwrap())
+            .collect();
+        dirs.sort();
+        dirs.dedup();
+        for x in dirs {
+            fs::create_dir_all(x)
+                .with_context(|| format!("Failed to create output directory: {:?}", x.clone()))?;
+        }
+        Ok(())
     }
 
     fn start_ready_commands(&mut self, tx: &Sender<ExecutionResultChannel>) {
