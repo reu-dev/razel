@@ -12,7 +12,6 @@ mod cli;
 mod command;
 pub mod config;
 mod file;
-mod hash;
 mod parse_batch;
 mod parse_jsonl;
 mod rules;
