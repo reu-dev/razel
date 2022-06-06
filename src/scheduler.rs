@@ -6,6 +6,7 @@ use anyhow::{bail, Context};
 use log::{debug, error, info, warn};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
+use which::which;
 
 use crate::bazel_remote_exec::Digest;
 use crate::cache::BlobDigest;
@@ -35,6 +36,7 @@ pub struct SchedulerResult {
 type ExecutionResultChannel = (CommandId, Option<Sandbox>, ExecutionResult);
 
 pub struct Scheduler {
+    cache_enabled: bool,
     worker_threads: usize,
     /// absolute directory to resolve relative paths of input/output files
     workspace_dir: PathBuf,
@@ -44,6 +46,7 @@ pub struct Scheduler {
     bin_dir: PathBuf,
     files: Arena<File>,
     path_to_file_id: HashMap<PathBuf, FileId>,
+    which_to_file_id: HashMap<String, FileId>,
     commands: Arena<Command>,
     waiting: HashSet<CommandId>,
     // TODO sort by weight, e.g. recursive number of rdeps
@@ -63,12 +66,14 @@ impl Scheduler {
         debug!("workspace_dir: {:?}", workspace_dir);
         debug!("bin_dir:       {:?}", bin_dir);
         Scheduler {
+            cache_enabled: true,
             worker_threads,
             workspace_dir,
-            bin_dir,
             current_dir,
+            bin_dir,
             files: Default::default(),
             path_to_file_id: Default::default(),
+            which_to_file_id: Default::default(),
             commands: Default::default(),
             waiting: Default::default(),
             ready: Default::default(),
@@ -108,7 +113,7 @@ impl Scheduler {
         let mut builder = CommandBuilder::new(name, args);
         builder.inputs(&inputs, self)?;
         builder.outputs(&outputs, self)?;
-        builder.custom_command_executor(executable);
+        builder.custom_command_executor(executable, self)?;
         self.push(builder)
     }
 
@@ -134,7 +139,9 @@ impl Scheduler {
             bail!("no commands added");
         }
         self.create_dependency_graph();
-        self.digest_input_files().await?;
+        if self.cache_enabled {
+            self.digest_input_files().await?;
+        }
         self.create_output_dirs()?;
         let (tx, mut rx) = mpsc::channel(32);
         self.start_ready_commands(&tx);
@@ -151,17 +158,31 @@ impl Scheduler {
         })
     }
 
-    pub fn input_file(&mut self, arg: &String) -> Result<&File, anyhow::Error> {
-        let rel_path = self.rel_path(arg)?;
+    /// Register an executable to be used for a command
+    pub fn executable(&mut self, arg: String) -> Result<&File, anyhow::Error> {
+        if arg.contains('.') {
+            self.input_file(arg)
+        } else if let Some(x) = self.which_to_file_id.get(&arg) {
+            Ok(&self.files[*x])
+        } else {
+            let path = which(&arg)?;
+            info!("which({}) => {:?}", arg, path);
+            let id = self.input_file(path.to_str().unwrap().into())?.id;
+            self.which_to_file_id.insert(arg, id);
+            Ok(&self.files[id])
+        }
+    }
+
+    pub fn input_file(&mut self, arg: String) -> Result<&File, anyhow::Error> {
+        let rel_path = self.rel_path(&arg)?;
         let id = self
             .path_to_file_id
             .get(&rel_path)
             .cloned()
             .unwrap_or_else(|| {
-                // create new data file
                 let id = self.files.alloc_with_id(|id| File {
                     id,
-                    arg: arg.clone(),
+                    arg,
                     path: rel_path.clone(),
                     creating_command: None,
                     digest: None,
@@ -199,18 +220,13 @@ impl Scheduler {
         Ok(&self.files[id])
     }
 
-    /// Maps a relative path from workspace dir to cwd
+    /// Maps a relative path from workspace dir to cwd, allow absolute path
     fn rel_path(&self, arg: &String) -> Result<PathBuf, anyhow::Error> {
         let path = Path::new(arg);
         if path.is_absolute() {
-            path.strip_prefix(&self.current_dir)
-                .map(PathBuf::from)
-                .with_context(|| {
-                    format!(
-                        "File is not within cwd ({:?}): {:?}",
-                        self.current_dir, path
-                    )
-                })
+            Ok(PathBuf::from(
+                path.strip_prefix(&self.current_dir).unwrap_or(path),
+            ))
         } else {
             self.workspace_dir
                 .join(path)
@@ -416,6 +432,7 @@ mod tests {
     #[tokio::test]
     async fn parallel() {
         let mut scheduler = Scheduler::new();
+        scheduler.cache_enabled = false; // calculating digest of cmake takes too long in test config to check duration
         let threads = scheduler.worker_threads;
         let n = threads * 3;
         let sleep_duration = 0.5;

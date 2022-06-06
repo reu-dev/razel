@@ -664,6 +664,7 @@ dependencies = [
  "simplelog",
  "tokio",
  "tonic-build",
+ "which",
 ]
 
 [[package]]

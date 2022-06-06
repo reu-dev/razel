@@ -8,7 +8,7 @@ pub struct File {
     pub arg: String,
     /// path to be used for exec
     pub path: PathBuf,
-    /// files without creating_command are data files which must exist before running any commands
+    /// files without creating_command are input files (data or executable) which must exist before running any commands
     pub creating_command: Option<CommandId>,
     pub digest: Option<BlobDigest>,
 }

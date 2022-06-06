@@ -15,9 +15,8 @@ pub struct CustomCommandExecutor {
 impl CustomCommandExecutor {
     pub async fn exec(&self, sandbox_dir: Option<PathBuf>) -> ExecutionResult {
         let mut result: ExecutionResult = Default::default();
-        // TODO let program = fs::canonicalize(&self.executable).unwrap();
         let mut child = match tokio::process::Command::new(&self.executable)
-            // TODO .env_clear()
+            .env_clear()
             .args(&self.args)
             .current_dir(sandbox_dir.unwrap_or(".".into()))
             .spawn()
@@ -100,7 +99,7 @@ mod tests {
         let command = scheduler
             .push_custom_command(
                 "test".into(),
-                "hopefully-not-existing-command-to-test-razel".into(),
+                "./hopefully-not-existing-command-to-test-razel".into(),
                 vec![],
                 vec![],
                 vec![],

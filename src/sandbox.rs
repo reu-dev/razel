@@ -42,6 +42,9 @@ impl Sandbox {
     pub async fn create_and_provide_inputs(&self) -> Result<(), anyhow::Error> {
         fs::create_dir_all(&self.dir).await?;
         for input in &self.inputs {
+            if input.is_absolute() {
+                continue;
+            }
             let src = fs::canonicalize(&input).await?;
             let dst = self.dir.join(&input);
             fs::create_dir_all(dst.parent().unwrap()).await?;

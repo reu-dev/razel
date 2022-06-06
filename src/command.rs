@@ -1,6 +1,7 @@
+use std::path::PathBuf;
+
 use crate::executors::{CustomCommandExecutor, Executor, TaskExecutor, TaskFn};
 use crate::{ArenaId, FileId, ScheduleState, Scheduler};
-use std::path::PathBuf;
 
 pub struct Command {
     pub id: CommandId,
@@ -50,7 +51,7 @@ impl CommandBuilder {
         path: &String,
         scheduler: &mut Scheduler,
     ) -> Result<PathBuf, anyhow::Error> {
-        scheduler.input_file(path).map(|file| {
+        scheduler.input_file(path.clone()).map(|file| {
             let new_path = file.path.clone();
             self.map_path(path, &new_path.to_str().unwrap().into());
             self.inputs.push(file.id);
@@ -67,7 +68,7 @@ impl CommandBuilder {
         paths
             .iter()
             .map(|path| {
-                let file = scheduler.input_file(path)?;
+                let file = scheduler.input_file(path.clone())?;
                 let new_path = file.path.clone();
                 self.map_path(path, &new_path.to_str().unwrap().into());
                 self.inputs.push(file.id);
@@ -107,11 +108,18 @@ impl CommandBuilder {
             .collect()
     }
 
-    pub fn custom_command_executor(&mut self, executable: String) {
+    pub fn custom_command_executor(
+        &mut self,
+        executable: String,
+        scheduler: &mut Scheduler,
+    ) -> Result<(), anyhow::Error> {
+        let file = scheduler.executable(executable)?;
+        self.inputs.push(file.id);
         self.executor = Some(Executor::CustomCommand(CustomCommandExecutor {
-            executable,
+            executable: file.path.to_str().unwrap().into(),
             args: self.args.clone(),
         }));
+        Ok(())
     }
 
     pub fn task_executor(&mut self, f: TaskFn) {
