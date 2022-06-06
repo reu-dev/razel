@@ -7,7 +7,6 @@ pub use sandbox::*;
 pub use scheduler::*;
 pub use utils::*;
 
-mod cache;
 mod cli;
 mod command;
 pub mod config;
@@ -55,6 +54,14 @@ pub mod bazel_remote_exec {
             }
         }
     }
+}
+
+pub mod cache {
+    pub use cache::*;
+    pub use local_cache::*;
+
+    mod cache;
+    mod local_cache;
 }
 
 pub mod executors {

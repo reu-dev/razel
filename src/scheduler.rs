@@ -3,10 +3,12 @@ use std::path::{Path, PathBuf};
 use std::{env, fs};
 
 use anyhow::{bail, Context};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 
+use crate::bazel_remote_exec::Digest;
+use crate::cache::BlobDigest;
 use crate::executors::ExecutionResult;
 use crate::{config, Arena, Command, CommandBuilder, CommandId, File, FileId, Sandbox};
 
@@ -132,6 +134,7 @@ impl Scheduler {
             bail!("no commands added");
         }
         self.create_dependency_graph();
+        self.digest_input_files().await?;
         self.create_output_dirs()?;
         let (tx, mut rx) = mpsc::channel(32);
         self.start_ready_commands(&tx);
@@ -161,6 +164,7 @@ impl Scheduler {
                     arg: arg.clone(),
                     path: rel_path.clone(),
                     creating_command: None,
+                    digest: None,
                 });
                 self.path_to_file_id.insert(rel_path, id);
                 id
@@ -189,6 +193,7 @@ impl Scheduler {
             creating_command: None, // will be patched in Scheduler::push()
             path: self.bin_dir.join(&rel_path),
             arg: arg.clone(),
+            digest: None,
         });
         self.path_to_file_id.insert(rel_path, id);
         Ok(&self.files[id])
@@ -249,6 +254,55 @@ impl Scheduler {
 
     fn check_for_circular_dependencies(&self) {
         // TODO
+    }
+
+    async fn digest_input_files(&mut self) -> Result<(), anyhow::Error> {
+        let concurrent = self.worker_threads;
+        let (tx, mut rx) = mpsc::channel(concurrent);
+        let mut tx_option = Some(tx);
+        let mut next_file_id = self.files.first_id();
+        for _ in 0..concurrent {
+            self.spawn_digest_input_file(&mut next_file_id, &mut tx_option);
+        }
+        let mut missing_files = 0;
+        while let Some((id, result)) = rx.recv().await {
+            match result {
+                Ok(digest) => {
+                    self.files[id].digest = Some(digest);
+                }
+                Err(x) => {
+                    warn!("{}", x);
+                    missing_files += 1;
+                }
+            };
+            self.spawn_digest_input_file(&mut next_file_id, &mut tx_option);
+        }
+        if missing_files != 0 {
+            bail!("{missing_files} input files not found!");
+        }
+        Ok(())
+    }
+
+    fn spawn_digest_input_file(
+        &self,
+        next_id: &mut FileId,
+        tx_option: &mut Option<Sender<(FileId, Result<BlobDigest, anyhow::Error>)>>,
+    ) {
+        if tx_option.is_none() {
+            return;
+        }
+        while let Some(file) = self.files.get_and_inc_id(next_id) {
+            if file.creating_command.is_none() {
+                let id = file.id;
+                let path = file.path.clone();
+                let tx = tx_option.clone().unwrap();
+                tokio::spawn(async move {
+                    tx.send((id, Digest::for_file(path).await)).await.ok();
+                });
+                return;
+            }
+        }
+        tx_option.take();
     }
 
     fn create_output_dirs(&self) -> Result<(), anyhow::Error> {

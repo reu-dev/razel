@@ -72,6 +72,21 @@ impl<T> Arena<T> {
         self.items.get_mut(id.0 as usize)
     }
 
+    pub fn first_id(&self) -> ArenaId<T> {
+        ArenaId(0 as ArenaIdType, PhantomData)
+    }
+
+    /// Iteration w/o borrowing, use first_id() as starting point
+    pub fn get_and_inc_id(&self, id: &mut ArenaId<T>) -> Option<&T> {
+        match self.items.get(id.0 as usize) {
+            Some(x) => {
+                id.0 += 1;
+                Some(x)
+            }
+            _ => None,
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }

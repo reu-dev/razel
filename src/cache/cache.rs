@@ -6,24 +6,24 @@ use tokio::io::{AsyncReadExt, BufReader};
 
 use crate::bazel_remote_exec::{ActionResult, Digest};
 
-trait ActionCache {
+pub trait ActionCache {
     /// like rpc GetActionResult(GetActionResultRequest) returns (ActionResult)
-    fn get(&self, digest: ActionDigest) -> Option<ActionResult>;
+    fn get_action_result(&self, digest: ActionDigest) -> Option<ActionResult>;
 
     /// like rpc UpdateActionResult(UpdateActionResultRequest) returns (ActionResult)
-    fn push(&self, digest: ActionDigest, result: ActionResult);
+    fn push_action_result(&self, digest: ActionDigest, result: ActionResult);
 }
 
-trait ContentAddressableStorage {
+pub trait ContentAddressableStorage {
     // like rpc BatchReadBlobs(BatchReadBlobsRequest) returns (BatchReadBlobsResponse)
-    fn get(&self, digest: BlobDigest) -> Option<Vec<u8>>;
+    fn get_blob(&self, digest: BlobDigest) -> Option<Vec<u8>>;
 
     /// like rpc BatchUpdateBlobs(BatchUpdateBlobsRequest) returns (BatchUpdateBlobsResponse)
-    fn push(&self, digest: BlobDigest, blob: Vec<u8>);
+    fn push_blob(&self, digest: BlobDigest, blob: Vec<u8>);
 }
 
-type ActionDigest = Digest;
-type BlobDigest = Digest;
+pub type ActionDigest = Digest;
+pub type BlobDigest = Digest;
 
 impl Digest {
     pub async fn for_file(path: impl AsRef<Path>) -> Result<BlobDigest, anyhow::Error> {
