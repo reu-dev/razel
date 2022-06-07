@@ -6,7 +6,7 @@ pub type TaskFn = Arc<dyn Fn() -> Result<(), anyhow::Error> + Send + Sync>;
 #[derive(Clone)]
 pub struct TaskExecutor {
     pub f: TaskFn,
-    pub command_line: String,
+    pub args: Vec<String>,
 }
 
 impl TaskExecutor {
@@ -22,5 +22,9 @@ impl TaskExecutor {
             }
         }
         result
+    }
+
+    pub fn args_with_executable(&self) -> Vec<String> {
+        self.args.clone()
     }
 }

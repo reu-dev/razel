@@ -2,7 +2,6 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 
 use anyhow::anyhow;
-use itertools::{chain, join};
 
 use crate::executors::{ExecutionResult, ExecutionStatus};
 
@@ -59,11 +58,12 @@ impl CustomCommandExecutor {
         result
     }
 
-    pub fn command_line(&self) -> String {
-        join(
-            chain([self.executable.clone()].iter(), self.args.iter()),
-            " ",
-        )
+    pub fn args_with_executable(&self) -> Vec<String> {
+        [self.executable.clone()]
+            .iter()
+            .chain(self.args.iter())
+            .cloned()
+            .collect()
     }
 }
 

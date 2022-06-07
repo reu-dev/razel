@@ -15,11 +15,15 @@ impl Executor {
         }
     }
 
-    pub fn command_line(&self) -> String {
+    pub fn args_with_executable(&self) -> Vec<String> {
         match self {
-            Executor::CustomCommand(c) => c.command_line(),
-            Executor::Task(t) => t.command_line.clone(),
+            Executor::CustomCommand(c) => c.args_with_executable(),
+            Executor::Task(t) => t.args_with_executable(),
         }
+    }
+
+    pub fn command_line(&self) -> String {
+        self.args_with_executable().join(" ")
     }
 
     /// Returns if a sandbox should be used.

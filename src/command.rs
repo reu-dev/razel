@@ -123,8 +123,10 @@ impl CommandBuilder {
     }
 
     pub fn task_executor(&mut self, f: TaskFn) {
-        let command_line = self.args.join(" ");
-        self.executor = Some(Executor::Task(TaskExecutor { f, command_line }));
+        self.executor = Some(Executor::Task(TaskExecutor {
+            f,
+            args: self.args.clone(),
+        }));
     }
 
     pub fn build(self, id: CommandId) -> Command {
