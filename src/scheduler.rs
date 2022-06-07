@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::{env, fs};
 
 use anyhow::{bail, Context};
+use itertools::Itertools;
 use log::{debug, error, info, warn};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
@@ -11,7 +12,9 @@ use which::which;
 use crate::bazel_remote_exec::Digest;
 use crate::cache::BlobDigest;
 use crate::executors::ExecutionResult;
-use crate::{config, Arena, Command, CommandBuilder, CommandId, File, FileId, Sandbox};
+use crate::{
+    bazel_remote_exec, config, Arena, Command, CommandBuilder, CommandId, File, FileId, Sandbox,
+};
 
 #[derive(Debug, PartialEq)]
 pub enum ScheduleState {
@@ -322,13 +325,12 @@ impl Scheduler {
     }
 
     fn create_output_dirs(&self) -> Result<(), anyhow::Error> {
-        let mut dirs: Vec<&Path> = self
+        let dirs = self
             .files
             .iter()
             .map(|x| x.path.parent().unwrap())
-            .collect();
-        dirs.sort();
-        dirs.dedup();
+            .sorted_unstable()
+            .dedup();
         for x in dirs {
             fs::create_dir_all(x)
                 .with_context(|| format!("Failed to create output directory: {:?}", x.clone()))?;
@@ -348,6 +350,7 @@ impl Scheduler {
         let command = &self.commands[id];
         assert_eq!(command.schedule_state, ScheduleState::Ready);
         assert_eq!(command.unfinished_deps.len(), 0);
+        //let action = self.get_bzl_action_for_command(command);
         info!(
             "Execute {}: {}",
             command.name,
@@ -417,6 +420,50 @@ impl Scheduler {
         self.failed.push(id);
         let command = &self.commands[id];
         error!("Error  {}: {:?}", command.name, result);
+    }
+
+    fn get_bzl_action_for_command(&self, command: &Command) -> bazel_remote_exec::Action {
+        let bzl_command = bazel_remote_exec::Command {
+            arguments: command.executor.args_with_executable(),
+            environment_variables: vec![],
+            output_paths: command
+                .outputs
+                .iter()
+                .map(|x| self.files[*x].path.to_str().unwrap())
+                .sorted_unstable()
+                .dedup()
+                .map_into()
+                .collect(),
+            working_directory: "".to_string(),
+            ..Default::default()
+        };
+        // TODO properly build bazel_remote_exec::Directory tree
+        let bzl_input_root = bazel_remote_exec::Directory {
+            files: command
+                .inputs
+                .iter()
+                .map(|x| {
+                    let file = &self.files[*x];
+                    assert!(file.digest.is_some());
+                    bazel_remote_exec::FileNode {
+                        name: file.path.to_str().unwrap().into(),
+                        digest: file.digest.clone(),
+                        is_executable: false, // TODO bazel_remote_exec::FileNode::is_executable
+                        node_properties: None,
+                    }
+                })
+                .sorted_unstable_by(|a, b| Ord::cmp(&a.name, &b.name))
+                .collect(),
+            directories: vec![],
+            symlinks: vec![],
+            node_properties: None,
+        };
+        let bzl_action = bazel_remote_exec::Action {
+            command_digest: Some(Digest::for_message(&bzl_command)),
+            input_root_digest: Some(Digest::for_message(&bzl_input_root)),
+            ..Default::default()
+        };
+        bzl_action
     }
 }
 

@@ -8,7 +8,7 @@ use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 
 use crate::bazel_remote_exec::ActionResult;
-use crate::cache::ActionDigest;
+use crate::cache::{message_to_pb_buf, MessageDigest};
 use crate::config;
 
 pub struct LocalCache {
@@ -30,7 +30,7 @@ impl LocalCache {
 }
 
 impl LocalCache {
-    pub async fn get_action_result(&self, digest: &ActionDigest) -> Option<ActionResult> {
+    pub async fn get_action_result(&self, digest: &MessageDigest) -> Option<ActionResult> {
         let path = self.ac_dir.join(&digest.hash);
         match Self::try_read_pb_file(&path).await {
             Ok(x) => x,
@@ -42,7 +42,7 @@ impl LocalCache {
         }
     }
 
-    pub async fn push_action_result(&self, digest: &ActionDigest, result: &ActionResult) {
+    pub async fn push_action_result(&self, digest: &MessageDigest, result: &ActionResult) {
         let path = self.ac_dir.join(&digest.hash);
         match Self::write_pb_file(&path, result).await {
             Ok(()) => (),
@@ -73,14 +73,7 @@ impl LocalCache {
     }
 
     async fn write_pb_file<T: prost::Message>(path: &PathBuf, msg: &T) -> std::io::Result<()> {
-        let buf = Self::message_to_pb_buf(msg);
+        let buf = message_to_pb_buf(msg);
         tokio::fs::write(path, buf).await
-    }
-
-    fn message_to_pb_buf<T: prost::Message>(msg: &T) -> Vec<u8> {
-        let mut vec = Vec::new();
-        vec.reserve(msg.encoded_len());
-        msg.encode(&mut vec).unwrap();
-        vec
     }
 }

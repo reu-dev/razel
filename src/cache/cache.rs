@@ -8,10 +8,10 @@ use crate::bazel_remote_exec::{ActionResult, Digest};
 
 pub trait ActionCache {
     /// like rpc GetActionResult(GetActionResultRequest) returns (ActionResult)
-    fn get_action_result(&self, digest: ActionDigest) -> Option<ActionResult>;
+    fn get_action_result(&self, digest: MessageDigest) -> Option<ActionResult>;
 
     /// like rpc UpdateActionResult(UpdateActionResultRequest) returns (ActionResult)
-    fn push_action_result(&self, digest: ActionDigest, result: ActionResult);
+    fn push_action_result(&self, digest: MessageDigest, result: ActionResult);
 }
 
 pub trait ContentAddressableStorage {
@@ -22,7 +22,7 @@ pub trait ContentAddressableStorage {
     fn push_blob(&self, digest: BlobDigest, blob: Vec<u8>);
 }
 
-pub type ActionDigest = Digest;
+pub type MessageDigest = Digest;
 pub type BlobDigest = Digest;
 
 impl Digest {
@@ -47,13 +47,25 @@ impl Digest {
         })
     }
 
-    pub fn for_action(_path: &Path) -> ActionDigest {
-        todo!()
+    pub fn for_message<T: prost::Message>(msg: &T) -> MessageDigest {
+        use sha2::Digest;
+        let buf = message_to_pb_buf(msg);
+        crate::bazel_remote_exec::Digest {
+            hash: Self::hex(&Sha256::digest(&buf)),
+            size_bytes: buf.len() as i64,
+        }
     }
 
-    pub fn hex(input: &[u8]) -> String {
+    fn hex(input: &[u8]) -> String {
         base16ct::lower::encode_string(input)
     }
+}
+
+pub fn message_to_pb_buf<T: prost::Message>(msg: &T) -> Vec<u8> {
+    let mut vec = Vec::new();
+    vec.reserve(msg.encoded_len());
+    msg.encode(&mut vec).unwrap();
+    vec
 }
 
 #[cfg(test)]
