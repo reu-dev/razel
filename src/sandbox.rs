@@ -1,72 +1,53 @@
 use std::path::PathBuf;
 use std::process;
 
-use anyhow::Context;
 use tokio::fs;
 
-use crate::{config, Arena, Command, File};
+use crate::{config, force_symlink};
 
 /// TODO sandbox does not stop writing to input files
 #[derive(Debug)]
 pub struct Sandbox {
     pub dir: PathBuf,
-    inputs: Vec<PathBuf>,
-    outputs: Vec<PathBuf>,
 }
 
 impl Sandbox {
-    pub fn new(command: &Command, files: &Arena<File>) -> Self {
+    pub fn new(command_id: &String) -> Self {
         Self {
             dir: [
                 config::SANDBOX_DIR,
                 ".sandbox",
                 &process::id().to_string(),
-                &command.id.to_string(),
+                command_id,
             ]
             .iter()
             .collect(),
-            inputs: command
-                .inputs
-                .iter()
-                .map(|x| files[*x].path.clone())
-                .collect(),
-            outputs: command
-                .outputs
-                .iter()
-                .map(|x| files[*x].path.clone())
-                .collect(),
         }
     }
 
     /// Create tmp dir, symlink inputs and create output directories
-    pub async fn create_and_provide_inputs(&self) -> Result<(), anyhow::Error> {
+    pub async fn create(
+        &self,
+        inputs: &Vec<PathBuf>,
+        outputs: &Vec<PathBuf>,
+    ) -> Result<(), anyhow::Error> {
         fs::create_dir_all(&self.dir).await?;
-        for input in &self.inputs {
+        for input in inputs {
             if input.is_absolute() {
                 continue;
             }
             let src = fs::canonicalize(&input).await?;
             let dst = self.dir.join(&input);
-            fs::create_dir_all(dst.parent().unwrap()).await?;
-            fs::symlink(&src, &dst)
-                .await
-                .with_context(|| format!("symlink {:?} -> {:?}", src, dst))?;
+            force_symlink(&src, &dst).await?;
         }
-        for output in &self.outputs {
+        for output in outputs {
             fs::create_dir_all(self.dir.join(&output).parent().unwrap()).await?;
         }
         Ok(())
     }
 
-    /// Copy outputs and remove tmp dir
-    pub async fn handle_outputs_and_destroy(&self) -> Result<(), anyhow::Error> {
-        for output in &self.outputs {
-            let dst = PathBuf::from(output);
-            let src = self.dir.join(&dst);
-            fs::rename(&src, &dst)
-                .await
-                .with_context(|| format!("mv {:?} -> {:?}", src, dst))?;
-        }
+    /// Remove tmp dir
+    pub async fn destroy(&self) -> Result<(), anyhow::Error> {
         fs::remove_dir_all(&self.dir).await?;
         Ok(())
     }

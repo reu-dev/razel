@@ -28,36 +28,60 @@ async fn main() -> Result<(), anyhow::Error> {
         &mut scheduler,
         None,
     )?;
-    let result = scheduler.run().await?;
+    let stats = scheduler.run().await?;
     info!(
-        "Done. {} succeeded, {} failed, {} not run.",
-        result.succeeded, result.failed, result.not_run
+        "Done. {} succeeded ({} cached), {} failed, {} not run.",
+        stats.exec.succeeded, stats.cache_hits, stats.exec.failed, stats.exec.not_run
+    );
+    info!(
+        "preparation: {:.3}s, execution: {:.3}s",
+        stats.preparation_duration.as_secs_f32(),
+        stats.execution_duration.as_secs_f32()
     );
     Ok(())
 }
 
 #[cfg(test)]
-mod tests {
+mod main {
     use serial_test::serial;
 
-    use razel::{config, parse_cli, Scheduler, SchedulerResult};
+    use razel::{config, parse_cli, Scheduler, SchedulerExecStats};
 
     /// For simplification all tests use the same binary directory and therefore need to be run in serial
-    async fn test_main(args: Vec<&str>, exp: SchedulerResult) {
+    async fn test_main(args: Vec<&str>, exp_stats: SchedulerExecStats) {
         let _ = env_logger::builder()
             .filter_level(log::LevelFilter::Debug)
             .is_test(true)
             .try_init();
-        let mut scheduler = Scheduler::new();
-        scheduler.clean();
-        parse_cli(
-            args.iter().map(|&x| x.into()).collect(),
-            &mut scheduler,
-            args.get(2).map(|&x| x.into()),
-        )
-        .unwrap();
-        let act = scheduler.run().await.unwrap();
-        assert_eq!(act, exp);
+        // run without reading cache
+        {
+            let mut scheduler = Scheduler::new();
+            scheduler.read_cache = false;
+            scheduler.clean();
+            parse_cli(
+                args.iter().map(|&x| x.into()).collect(),
+                &mut scheduler,
+                args.get(2).map(|&x| x.into()),
+            )
+            .unwrap();
+            let act_stats = scheduler.run().await.unwrap();
+            assert_eq!(act_stats.exec, exp_stats);
+            assert_eq!(act_stats.cache_hits, 0);
+        }
+        // run with reading cache
+        {
+            let mut scheduler = Scheduler::new();
+            scheduler.clean();
+            parse_cli(
+                args.iter().map(|&x| x.into()).collect(),
+                &mut scheduler,
+                args.get(2).map(|&x| x.into()),
+            )
+            .unwrap();
+            let act_stats = scheduler.run().await.unwrap();
+            assert_eq!(act_stats.exec, exp_stats);
+            assert_eq!(act_stats.cache_hits, exp_stats.succeeded);
+        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
@@ -65,10 +89,9 @@ mod tests {
     async fn command_ok() {
         test_main(
             vec![config::EXECUTABLE, "command", "--", "cmake", "-E", "true"],
-            SchedulerResult {
+            SchedulerExecStats {
                 succeeded: 1,
-                failed: 0,
-                not_run: 0,
+                ..Default::default()
             },
         )
         .await;
@@ -79,10 +102,9 @@ mod tests {
     async fn command_fail() {
         test_main(
             vec![config::EXECUTABLE, "command", "--", "cmake", "-E", "false"],
-            SchedulerResult {
-                succeeded: 0,
+            SchedulerExecStats {
                 failed: 1,
-                not_run: 0,
+                ..Default::default()
             },
         )
         .await;
@@ -99,10 +121,9 @@ mod tests {
                 "test/data/a.csv",
                 "test/data/f.csv",
             ],
-            SchedulerResult {
+            SchedulerExecStats {
                 succeeded: 1,
-                failed: 0,
-                not_run: 0,
+                ..Default::default()
             },
         )
         .await;
@@ -119,10 +140,9 @@ mod tests {
                 "test/data/a.csv",
                 "test/data/f.csv",
             ],
-            SchedulerResult {
-                succeeded: 0,
+            SchedulerExecStats {
                 failed: 1,
-                not_run: 0,
+                ..Default::default()
             },
         )
         .await;
@@ -133,10 +153,9 @@ mod tests {
     async fn build() {
         test_main(
             vec![config::EXECUTABLE, "build", "test/razel.jsonl"],
-            SchedulerResult {
+            SchedulerExecStats {
                 succeeded: 7,
-                failed: 0,
-                not_run: 0,
+                ..Default::default()
             },
         )
         .await;
@@ -147,10 +166,9 @@ mod tests {
     async fn batch() {
         test_main(
             vec![config::EXECUTABLE, "batch", "test/batch.sh"],
-            SchedulerResult {
+            SchedulerExecStats {
                 succeeded: 7,
-                failed: 0,
-                not_run: 0,
+                ..Default::default()
             },
         )
         .await;
