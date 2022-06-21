@@ -21,7 +21,8 @@ pub type CommandId = ArenaId<Command>;
 
 pub struct CommandBuilder {
     name: String,
-    args: Vec<String>,
+    args_with_exec_paths: Vec<String>,
+    args_with_out_paths: Vec<String>,
     inputs: Vec<FileId>,
     outputs: Vec<FileId>,
     executor: Option<Executor>,
@@ -31,15 +32,24 @@ impl CommandBuilder {
     pub fn new(name: String, args: Vec<String>) -> CommandBuilder {
         CommandBuilder {
             name,
-            args,
+            args_with_exec_paths: args.clone(),
+            args_with_out_paths: args,
             inputs: vec![],
             outputs: vec![],
             executor: None,
         }
     }
 
-    fn map_path(&mut self, original: &String, mapped: &String) {
-        self.args.iter_mut().for_each(|x| {
+    fn map_exec_path(&mut self, original: &String, mapped: &String) {
+        self.args_with_exec_paths.iter_mut().for_each(|x| {
+            if x == original {
+                *x = mapped.clone()
+            }
+        });
+    }
+
+    fn map_out_path(&mut self, original: &String, mapped: &String) {
+        self.args_with_out_paths.iter_mut().for_each(|x| {
             if x == original {
                 *x = mapped.clone()
             }
@@ -52,10 +62,10 @@ impl CommandBuilder {
         scheduler: &mut Scheduler,
     ) -> Result<PathBuf, anyhow::Error> {
         scheduler.input_file(path.clone()).map(|file| {
-            let new_path = file.path.clone();
-            self.map_path(path, &new_path.to_str().unwrap().into());
+            self.map_exec_path(path, &file.exec_path.to_str().unwrap().into());
+            self.map_out_path(path, &file.out_path.to_str().unwrap().into());
             self.inputs.push(file.id);
-            new_path
+            file.out_path.clone()
         })
     }
 
@@ -69,10 +79,10 @@ impl CommandBuilder {
             .iter()
             .map(|path| {
                 let file = scheduler.input_file(path.clone())?;
-                let new_path = file.path.clone();
-                self.map_path(path, &new_path.to_str().unwrap().into());
+                self.map_exec_path(path, &file.exec_path.to_str().unwrap().into());
+                self.map_out_path(path, &file.out_path.to_str().unwrap().into());
                 self.inputs.push(file.id);
-                Ok(new_path)
+                Ok(file.out_path.clone())
             })
             .collect()
     }
@@ -83,10 +93,10 @@ impl CommandBuilder {
         scheduler: &mut Scheduler,
     ) -> Result<PathBuf, anyhow::Error> {
         scheduler.output_file(path).map(|file| {
-            let new_path = file.path.clone();
-            self.map_path(path, &new_path.to_str().unwrap().into());
+            self.map_exec_path(path, &file.exec_path.to_str().unwrap().into());
+            self.map_out_path(path, &file.out_path.to_str().unwrap().into());
             self.outputs.push(file.id);
-            new_path
+            file.out_path.clone()
         })
     }
 
@@ -100,10 +110,10 @@ impl CommandBuilder {
             .iter()
             .map(|path| {
                 let file = scheduler.output_file(path)?;
-                let new_path = file.path.clone();
-                self.map_path(path, &new_path.to_str().unwrap().into());
+                self.map_exec_path(path, &file.exec_path.to_str().unwrap().into());
+                self.map_out_path(path, &file.out_path.to_str().unwrap().into());
                 self.outputs.push(file.id);
-                Ok(new_path)
+                Ok(file.out_path.clone())
             })
             .collect()
     }
@@ -116,8 +126,8 @@ impl CommandBuilder {
         let file = scheduler.executable(executable)?;
         self.inputs.push(file.id);
         self.executor = Some(Executor::CustomCommand(CustomCommandExecutor {
-            executable: file.path.to_str().unwrap().into(),
-            args: self.args.clone(),
+            executable: file.exec_path.to_str().unwrap().into(),
+            args: self.args_with_exec_paths.clone(),
         }));
         Ok(())
     }
@@ -125,7 +135,7 @@ impl CommandBuilder {
     pub fn task_executor(&mut self, f: TaskFn) {
         self.executor = Some(Executor::Task(TaskExecutor {
             f,
-            args: self.args.clone(),
+            args: self.args_with_out_paths.clone(),
         }));
     }
 

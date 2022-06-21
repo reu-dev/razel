@@ -43,6 +43,7 @@ pub struct ExecutionResult {
     pub status: ExecutionStatus,
     pub exit_code: Option<i32>,
     pub error: Option<anyhow::Error>,
+    pub cache_hit: bool,
 }
 
 impl ExecutionResult {

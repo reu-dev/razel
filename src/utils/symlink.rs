@@ -1,0 +1,60 @@
+use std::fs;
+use std::path::PathBuf;
+
+use anyhow::Context;
+use tokio::task::spawn_blocking;
+
+/// Force creating a symlink: overwrite existing file and create parent directories
+pub async fn force_symlink(src: &PathBuf, dst: &PathBuf) -> Result<(), anyhow::Error> {
+    {
+        let src = src.clone();
+        let dst = dst.clone();
+        spawn_blocking(move || {
+            if let Ok(existing) = fs::read_link(&dst) {
+                if existing == *src {
+                    return Ok(());
+                }
+            }
+            fs::remove_file(&dst).ok(); // to avoid symlink() fail with "File exists"
+            fs::create_dir_all(dst.parent().unwrap())?;
+            std::os::unix::fs::symlink(&src, &dst)
+        })
+        .await?
+    }
+    .with_context(|| format!("symlink {:?} -> {:?}", src, dst))?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use temp_dir::TempDir;
+
+    use super::*;
+
+    const FIRST_CONTENT: &str = "FIRST_CONTENT";
+    const OTHER_CONTENT: &str = "OTHER_CONTENT";
+
+    #[tokio::test]
+    async fn create_recreate_and_modify() {
+        let src_dir = TempDir::new().unwrap();
+        let dst_dir = TempDir::new().unwrap();
+        let first_src = src_dir.child("first-src-file");
+        let other_src = src_dir.child("other-src-file");
+        let dst = dst_dir.child("dst-dir").join("dst-file");
+        fs::write(&first_src, FIRST_CONTENT).unwrap();
+        fs::write(&other_src, OTHER_CONTENT).unwrap();
+        // create initial symlink
+        force_symlink(&first_src, &dst).await.unwrap();
+        assert_eq!(fs::read_to_string(&first_src).unwrap(), FIRST_CONTENT);
+        assert_eq!(fs::read_to_string(&dst).unwrap(), FIRST_CONTENT);
+        // recreate with same source
+        force_symlink(&first_src, &dst).await.unwrap();
+        assert_eq!(fs::read_to_string(&first_src).unwrap(), FIRST_CONTENT);
+        assert_eq!(fs::read_to_string(&dst).unwrap(), FIRST_CONTENT);
+        // modify to other source
+        force_symlink(&other_src, &dst).await.unwrap();
+        assert_eq!(fs::read_to_string(&first_src).unwrap(), FIRST_CONTENT);
+        assert_eq!(fs::read_to_string(&other_src).unwrap(), OTHER_CONTENT);
+        assert_eq!(fs::read_to_string(&dst).unwrap(), OTHER_CONTENT);
+    }
+}

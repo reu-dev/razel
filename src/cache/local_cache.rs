@@ -7,29 +7,32 @@ use log::warn;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 
-use crate::bazel_remote_exec::ActionResult;
+use crate::bazel_remote_exec::{ActionResult, Digest};
 use crate::cache::{message_to_pb_buf, MessageDigest};
 use crate::config;
 
+#[derive(Clone)]
 pub struct LocalCache {
-    ac_dir: PathBuf,
+    pub ac_dir: PathBuf,
     #[allow(dead_code)]
-    cas_dir: PathBuf,
+    pub cas_dir: PathBuf,
 }
 
 impl LocalCache {
     pub fn new() -> Result<Self, anyhow::Error> {
-        let project_dirs = ProjectDirs::from("", "reu-dev", config::EXECUTABLE).unwrap();
-        let dir = project_dirs.cache_dir();
+        let dir = Self::dir();
         let ac_dir = dir.join("ac");
         let cas_dir = dir.join("cas");
         std::fs::create_dir_all(&ac_dir)?;
         std::fs::create_dir_all(&cas_dir)?;
         Ok(Self { ac_dir, cas_dir })
     }
-}
 
-impl LocalCache {
+    pub fn dir() -> PathBuf {
+        let project_dirs = ProjectDirs::from("", "reu-dev", config::EXECUTABLE).unwrap();
+        project_dirs.cache_dir().into()
+    }
+
     pub async fn get_action_result(&self, digest: &MessageDigest) -> Option<ActionResult> {
         let path = self.ac_dir.join(&digest.hash);
         match Self::try_read_pb_file(&path).await {
@@ -49,6 +52,39 @@ impl LocalCache {
             Err(x) => {
                 warn!("{:?}", x);
             }
+        }
+    }
+
+    pub async fn is_action_completely_cached(&self, result: &ActionResult) -> bool {
+        for file in &result.output_files {
+            if let Some(digest) = &file.digest {
+                if !self.is_blob_cached(digest).await {
+                    return false;
+                }
+            } else {
+                warn!("OutputFile has no digest: {}", file.path);
+                return false;
+            }
+        }
+        true
+    }
+
+    pub async fn is_blob_cached(&self, digest: &Digest) -> bool {
+        let path = self.cas_dir.join(&digest.hash);
+        if let Ok(metadata) = tokio::fs::metadata(&path).await {
+            let act_size = metadata.len();
+            let exp_size = digest.size_bytes as u64;
+            if act_size != exp_size {
+                warn!(
+                    "OutputFile has wrong size (act: {act_size}, exp:{exp_size}): {:?}",
+                    path
+                );
+                tokio::fs::remove_file(path).await.ok();
+                return false;
+            }
+            true
+        } else {
+            false
         }
     }
 

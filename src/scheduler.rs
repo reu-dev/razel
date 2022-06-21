@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 use std::{env, fs};
 
 use anyhow::{bail, Context};
@@ -9,9 +10,9 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use which::which;
 
-use crate::bazel_remote_exec::Digest;
-use crate::cache::BlobDigest;
-use crate::executors::ExecutionResult;
+use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
+use crate::cache::{BlobDigest, Cache, MessageDigest};
+use crate::executors::{ExecutionResult, ExecutionStatus};
 use crate::{
     bazel_remote_exec, config, Arena, Command, CommandBuilder, CommandId, File, FileId, Sandbox,
 };
@@ -29,17 +30,25 @@ pub enum ScheduleState {
     Failed,
 }
 
-#[derive(Debug, PartialEq)]
-pub struct SchedulerResult {
+#[derive(Debug, Default)]
+pub struct SchedulerStats {
+    pub exec: SchedulerExecStats,
+    pub cache_hits: usize,
+    pub preparation_duration: Duration,
+    pub execution_duration: Duration,
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct SchedulerExecStats {
     pub succeeded: usize,
     pub failed: usize,
     pub not_run: usize,
 }
 
-type ExecutionResultChannel = (CommandId, Option<Sandbox>, ExecutionResult);
+type ExecutionResultChannel = (CommandId, ExecutionResult, Option<ActionResult>);
 
 pub struct Scheduler {
-    cache_enabled: bool,
+    pub read_cache: bool,
     worker_threads: usize,
     /// absolute directory to resolve relative paths of input/output files
     workspace_dir: PathBuf,
@@ -47,6 +56,7 @@ pub struct Scheduler {
     current_dir: PathBuf,
     /// directory of output files
     bin_dir: PathBuf,
+    cache: Cache,
     files: Arena<File>,
     path_to_file_id: HashMap<PathBuf, FileId>,
     which_to_file_id: HashMap<String, FileId>,
@@ -57,6 +67,7 @@ pub struct Scheduler {
     running: usize,
     succeeded: Vec<CommandId>,
     failed: Vec<CommandId>,
+    cache_hits: usize,
 }
 
 impl Scheduler {
@@ -65,15 +76,16 @@ impl Scheduler {
         assert!(worker_threads > 0);
         let current_dir = env::current_dir().unwrap();
         let workspace_dir = current_dir.clone();
-        let bin_dir = current_dir.join(config::BIN_DIR);
+        let bin_dir = PathBuf::from(config::BIN_DIR);
         debug!("workspace_dir: {:?}", workspace_dir);
         debug!("bin_dir:       {:?}", bin_dir);
         Scheduler {
-            cache_enabled: true,
+            read_cache: true,
             worker_threads,
             workspace_dir,
             current_dir,
             bin_dir,
+            cache: Cache::new().unwrap(),
             files: Default::default(),
             path_to_file_id: Default::default(),
             which_to_file_id: Default::default(),
@@ -83,6 +95,7 @@ impl Scheduler {
             running: 0,
             succeeded: vec![],
             failed: vec![],
+            cache_hits: 0,
         }
     }
 
@@ -137,27 +150,33 @@ impl Scheduler {
         self.commands.get(id)
     }
 
-    pub async fn run(&mut self) -> Result<SchedulerResult, anyhow::Error> {
+    pub async fn run(&mut self) -> Result<SchedulerStats, anyhow::Error> {
+        let preparation_start = Instant::now();
         if self.commands.is_empty() {
             bail!("no commands added");
         }
         self.create_dependency_graph();
-        if self.cache_enabled {
-            self.digest_input_files().await?;
-        }
+        self.digest_input_files().await?;
         self.create_output_dirs()?;
         let (tx, mut rx) = mpsc::channel(32);
+        let execution_start = Instant::now();
         self.start_ready_commands(&tx);
         while self.ready.len() + self.running != 0 {
-            if let Some((id, sandbox, result)) = rx.recv().await {
-                self.on_command_finished(id, sandbox, result).await;
+            if let Some((id, execution_result, action_result)) = rx.recv().await {
+                self.on_command_finished(id, execution_result, action_result)
+                    .await;
                 self.start_ready_commands(&tx);
             }
         }
-        Ok(SchedulerResult {
-            succeeded: self.succeeded.len(),
-            failed: self.failed.len(),
-            not_run: self.waiting.len() + self.ready.len(),
+        Ok(SchedulerStats {
+            exec: SchedulerExecStats {
+                succeeded: self.succeeded.len(),
+                failed: self.failed.len(),
+                not_run: self.waiting.len() + self.ready.len(),
+            },
+            cache_hits: self.cache_hits,
+            preparation_duration: execution_start.duration_since(preparation_start),
+            execution_duration: execution_start.elapsed(),
         })
     }
 
@@ -186,7 +205,8 @@ impl Scheduler {
                 let id = self.files.alloc_with_id(|id| File {
                     id,
                     arg,
-                    path: rel_path.clone(),
+                    exec_path: rel_path.clone(),
+                    out_path: rel_path.clone(),
                     creating_command: None,
                     digest: None,
                 });
@@ -215,7 +235,8 @@ impl Scheduler {
         let id = self.files.alloc_with_id(|id| File {
             id,
             creating_command: None, // will be patched in Scheduler::push()
-            path: self.bin_dir.join(&rel_path),
+            exec_path: rel_path.clone(),
+            out_path: self.bin_dir.join(&rel_path),
             arg: arg.clone(),
             digest: None,
         });
@@ -313,7 +334,7 @@ impl Scheduler {
         while let Some(file) = self.files.get_and_inc_id(next_id) {
             if file.creating_command.is_none() {
                 let id = file.id;
-                let path = file.path.clone();
+                let path = file.exec_path.clone();
                 let tx = tx_option.clone().unwrap();
                 tokio::spawn(async move {
                     tx.send((id, Digest::for_file(path).await)).await.ok();
@@ -328,7 +349,7 @@ impl Scheduler {
         let dirs = self
             .files
             .iter()
-            .map(|x| x.path.parent().unwrap())
+            .map(|x| x.out_path.parent().unwrap())
             .sorted_unstable()
             .dedup();
         for x in dirs {
@@ -345,63 +366,191 @@ impl Scheduler {
         }
     }
 
+    fn collect_input_file_paths_for_command(&self, command: &Command) -> Vec<PathBuf> {
+        command
+            .inputs
+            .iter()
+            .map(|x| {
+                if command.executor.use_sandbox() {
+                    self.files[*x].exec_path.clone()
+                } else {
+                    self.files[*x].out_path.clone()
+                }
+            })
+            .collect()
+    }
+
+    fn collect_output_file_paths_for_command(&self, command: &Command) -> Vec<PathBuf> {
+        command
+            .outputs
+            .iter()
+            .map(|x| {
+                if command.executor.use_sandbox() {
+                    self.files[*x].exec_path.clone()
+                } else {
+                    self.files[*x].out_path.clone()
+                }
+            })
+            .collect()
+    }
+
     fn start_next_command(&mut self, id: CommandId, tx: Sender<ExecutionResultChannel>) {
         self.running += 1;
         let command = &self.commands[id];
         assert_eq!(command.schedule_state, ScheduleState::Ready);
         assert_eq!(command.unfinished_deps.len(), 0);
-        //let action = self.get_bzl_action_for_command(command);
+        let action = self.get_bzl_action_for_command(command);
+        let action_digest = Digest::for_message(&action);
         info!(
             "Execute {}: {}",
             command.name,
             command.executor.command_line()
         );
+        let cache = self.cache.clone();
+        let read_cache = self.read_cache;
         let executor = command.executor.clone();
+        let input_paths = self.collect_input_file_paths_for_command(command);
+        let output_paths = self.collect_output_file_paths_for_command(command);
         let sandbox = executor
             .use_sandbox()
-            .then(|| Sandbox::new(command, &self.files));
+            .then(|| Sandbox::new(&command.id.to_string()));
+        let out_dir = executor.use_sandbox().then(|| self.bin_dir.clone());
         tokio::task::spawn(async move {
+            if read_cache {
+                if let Some(action_result) = cache.get_action_result(&action_digest).await {
+                    cache
+                        .symlink_output_files_into_out_dir(&action_result, &out_dir)
+                        .await
+                        .unwrap();
+                    tx.send((
+                        id,
+                        ExecutionResult {
+                            status: ExecutionStatus::Success,
+                            exit_code: Some(action_result.exit_code),
+                            error: None,
+                            cache_hit: true,
+                        },
+                        Some(action_result),
+                    ))
+                    .await
+                    .unwrap();
+                    return;
+                }
+            }
+
             if let Some(sandbox) = &sandbox {
                 sandbox
-                    .create_and_provide_inputs()
+                    .create(&input_paths, &output_paths)
                     .await
                     .with_context(|| executor.command_line())
                     .unwrap();
             }
-            let result = executor.exec(sandbox.as_ref().map(|x| x.dir.clone())).await;
-            // TODO .with_context(|| format!("{}\n{}", command.name, command.command_line()))?;
-            tx.send((id, sandbox, result)).await.unwrap();
+            let execution_result = executor.exec(sandbox.as_ref().map(|x| x.dir.clone())).await;
+            let action_result = if execution_result.success() {
+                let action_result = Self::cache_action_result(
+                    &action_digest,
+                    &execution_result,
+                    &output_paths,
+                    sandbox.as_ref().map(|x| x.dir.clone()),
+                    &cache,
+                )
+                .await
+                .with_context(|| "cache_action_result()")
+                .with_context(|| executor.command_line())
+                .unwrap();
+                cache
+                    .symlink_output_files_into_out_dir(&action_result, &out_dir)
+                    .await
+                    .unwrap();
+                Some(action_result)
+            } else {
+                None
+            };
+            if let Some(sandbox) = &sandbox {
+                sandbox
+                    .destroy()
+                    .await
+                    .with_context(|| executor.command_line())
+                    .unwrap();
+            }
+            tx.send((id, execution_result, action_result))
+                .await
+                .unwrap();
         });
+    }
+
+    async fn cache_action_result(
+        action_digest: &MessageDigest,
+        execution_result: &ExecutionResult,
+        output_paths: &Vec<PathBuf>,
+        sandbox_dir: Option<PathBuf>,
+        cache: &Cache,
+    ) -> Result<ActionResult, anyhow::Error> {
+        assert!(execution_result.success());
+        let mut output_files: Vec<OutputFile> = Vec::with_capacity(output_paths.len());
+        for path in output_paths {
+            output_files.push(
+                cache
+                    .move_output_file_into_cache(&sandbox_dir, path)
+                    .await?,
+            );
+        }
+        let action_result = ActionResult {
+            output_files,
+            output_file_symlinks: vec![],
+            output_symlinks: vec![],
+            output_directories: vec![],
+            output_directory_symlinks: vec![],
+            exit_code: execution_result.exit_code.unwrap(),
+            stdout_raw: vec![],
+            stdout_digest: None,
+            stderr_raw: vec![],
+            stderr_digest: None,
+            execution_metadata: None,
+        };
+        cache
+            .push_action_result(action_digest, &action_result)
+            .await;
+        Ok(action_result)
     }
 
     async fn on_command_finished(
         &mut self,
         id: CommandId,
-        sandbox: Option<Sandbox>,
-        result: ExecutionResult,
+        execution_result: ExecutionResult,
+        action_result: Option<ActionResult>,
     ) {
         self.running -= 1;
-        if let Some(sandbox) = sandbox {
-            sandbox
-                .handle_outputs_and_destroy()
-                .await
-                .with_context(|| self.commands[id].executor.command_line())
-                .with_context(|| self.commands[id].name.clone())
-                .unwrap();
-        }
-        if result.success() {
-            self.on_command_succeeded(id, result);
+        if execution_result.success() {
+            self.set_output_file_digests(action_result.unwrap().output_files);
+            self.on_command_succeeded(id, execution_result);
         } else {
-            self.on_command_failed(id, result);
+            self.on_command_failed(id, execution_result);
+        }
+    }
+
+    fn set_output_file_digests(&mut self, output_files: Vec<OutputFile>) {
+        for output_file in output_files {
+            let mut output_file_path = PathBuf::from(output_file.path);
+            if let Ok(x) = output_file_path.strip_prefix(&self.bin_dir) {
+                output_file_path = x.into();
+            }
+            assert!(output_file_path.is_relative());
+            let file = &mut self.files[self.path_to_file_id[&output_file_path]];
+            assert!(file.digest.is_none());
+            file.digest = output_file.digest;
         }
     }
 
     /// Track state and check if reverse dependencies are ready
-    fn on_command_succeeded(&mut self, id: CommandId, result: ExecutionResult) {
+    fn on_command_succeeded(&mut self, id: CommandId, execution_result: ExecutionResult) {
         self.succeeded.push(id);
+        if execution_result.cache_hit {
+            self.cache_hits += 1;
+        }
         let command = &mut self.commands[id];
         command.schedule_state = ScheduleState::Succeeded;
-        info!("Success {}: {:?}", command.name, result);
+        info!("Success {}: {:?}", command.name, execution_result);
         for rdep_id in command.reverse_deps.clone() {
             let rdep = &mut self.commands[rdep_id];
             assert_eq!(rdep.schedule_state, ScheduleState::Waiting);
@@ -429,7 +578,7 @@ impl Scheduler {
             output_paths: command
                 .outputs
                 .iter()
-                .map(|x| self.files[*x].path.to_str().unwrap())
+                .map(|x| self.files[*x].exec_path.to_str().unwrap())
                 .sorted_unstable()
                 .dedup()
                 .map_into()
@@ -444,9 +593,13 @@ impl Scheduler {
                 .iter()
                 .map(|x| {
                     let file = &self.files[*x];
-                    assert!(file.digest.is_some());
+                    assert!(
+                        file.digest.is_some(),
+                        "digest missing for {:?}",
+                        file.exec_path
+                    );
                     bazel_remote_exec::FileNode {
-                        name: file.path.to_str().unwrap().into(),
+                        name: file.exec_path.to_str().unwrap().into(),
                         digest: file.digest.clone(),
                         is_executable: false, // TODO bazel_remote_exec::FileNode::is_executable
                         node_properties: None,
@@ -469,17 +622,17 @@ impl Scheduler {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
-
     use approx::assert_abs_diff_eq;
+    use serial_test::serial;
 
-    use crate::Scheduler;
+    use crate::{Scheduler, SchedulerExecStats};
 
     /// Test that commands are actually run in parallel limited by Scheduler::worker_threads
     #[tokio::test]
+    #[serial]
     async fn parallel() {
         let mut scheduler = Scheduler::new();
-        scheduler.cache_enabled = false; // calculating digest of cmake takes too long in test config to check duration
+        scheduler.read_cache = false;
         let threads = scheduler.worker_threads;
         let n = threads * 3;
         let sleep_duration = 0.5;
@@ -495,12 +648,16 @@ mod tests {
                 .unwrap();
         }
         assert_eq!(scheduler.len(), n);
-        let start = Instant::now();
-        scheduler.run().await.unwrap();
-        let duration = start.elapsed();
-        assert_eq!(scheduler.succeeded.len(), n);
+        let stats = scheduler.run().await.unwrap();
+        assert_eq!(
+            stats.exec,
+            SchedulerExecStats {
+                succeeded: n,
+                ..Default::default()
+            }
+        );
         assert_abs_diff_eq!(
-            duration.as_secs_f64(),
+            stats.execution_duration.as_secs_f64(),
             (n as f64 / threads as f64).ceil() * sleep_duration,
             epsilon = sleep_duration * 0.5
         );

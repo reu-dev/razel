@@ -1,5 +1,6 @@
-use crate::executors::{ExecutionResult, ExecutionStatus};
 use std::sync::Arc;
+
+use crate::executors::{ExecutionResult, ExecutionStatus};
 
 pub type TaskFn = Arc<dyn Fn() -> Result<(), anyhow::Error> + Send + Sync>;
 
@@ -15,6 +16,7 @@ impl TaskExecutor {
         match (self.f)() {
             Ok(()) => {
                 result.status = ExecutionStatus::Success;
+                result.exit_code = Some(0);
             }
             Err(e) => {
                 result.status = ExecutionStatus::Failed;
