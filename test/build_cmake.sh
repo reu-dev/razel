@@ -26,4 +26,4 @@ cargo run -- batch $CMAKE_BINARY_DIR/commands.sh
 # build with ninja to get a reference executable
 ninja -C $CMAKE_BINARY_DIR
 
-diff $CMAKE_BINARY_DIR/bin/cmake razel-bin/bin/cmake
+diff $CMAKE_BINARY_DIR/bin/cmake razel-out/bin/cmake

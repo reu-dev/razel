@@ -3,7 +3,7 @@ import * as path from 'https://deno.land/std@0.135.0/path/mod.ts';
 
 export class Razel {
     private static _instance: Razel;
-    static readonly binDir = 'razel-bin';
+    static readonly outDir = 'razel-out';
     private commands: Command[] = [];
 
     private constructor(public readonly workspaceDir: string) {
@@ -117,7 +117,7 @@ class CustomCommand extends Command {
     commandLine(): string {
         return [
             `./${this.executable}`,
-            ...this.args.map(x => x instanceof File ? (x.isData ? x.fileName : path.join(Razel.binDir, x.fileName)) : x)
+            ...this.args.map(x => x instanceof File ? (x.isData ? x.fileName : path.join(Razel.outDir, x.fileName)) : x)
         ].join(' ');
     }
 
@@ -142,7 +142,7 @@ class Task extends Command {
         return [
             'razel',
             this.task,
-            ...this.args.map(x => x instanceof File ? (x.isData ? x.fileName : path.join(Razel.binDir, x.fileName)) : x)
+            ...this.args.map(x => x instanceof File ? (x.isData ? x.fileName : path.join(Razel.outDir, x.fileName)) : x)
         ].join(' ');
     }
 

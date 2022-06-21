@@ -12,7 +12,7 @@ TODO: sync with bazel?
 
 ### Paths
 
-* `razel-bin`: create in cwd
+* `razel-out`: create in cwd
 * workspace dir: used to resolve relative paths
     * cwd?
     * or commands file dir? could be multiple?
@@ -22,8 +22,8 @@ TODO: sync with bazel?
 
 | Executor      | cwd                      | executable | data              | non-data inputs                 | outputs                   |
 |---------------|--------------------------|------------|-------------------|---------------------------------|---------------------------|
-| CustomCommand | command specific tmp dir | symlink    | rel path, symlink | `razel-bin/`, rel path, symlink | `razel-bin/`, copied back |
-| Task          | -                        | -          | rel path          | `razel-bin/`, rel path          | `razel-bin/`              |
+| CustomCommand | command specific tmp dir | symlink    | rel path, symlink | `razel-out/`, rel path, symlink | `razel-out/`, copied back |
+| Task          | -                        | -          | rel path          | `razel-out/`, rel path          | `razel-out/`              |
 
 ### Dependency graph
 
@@ -37,14 +37,14 @@ dependencies:
 ### Build stages
 
 1. create command and file instances from build file
-    * check that output files are within workspace (all outputs should be put in `razel-bin` dir)
+    * check that output files are within workspace (all outputs should be put in `razel-out` dir)
     * check that a file is not used as output of multiple commands
 2. create dependency graph
     * check for circular dependencies
 3. check inputs
     * data files must be readable
     * executables must be readable and executable
-4. cleanup `razel-bin`
+4. cleanup `razel-out`
     * remove all files which are no outputs, e.g. created by previous build with different build file
 5. execute commands/tasks
 

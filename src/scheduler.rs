@@ -76,7 +76,7 @@ impl Scheduler {
         assert!(worker_threads > 0);
         let current_dir = env::current_dir().unwrap();
         let workspace_dir = current_dir.clone();
-        let bin_dir = PathBuf::from(config::BIN_DIR);
+        let bin_dir = PathBuf::from(config::OUT_DIR);
         debug!("workspace_dir: {:?}", workspace_dir);
         debug!("bin_dir:       {:?}", bin_dir);
         Scheduler {
