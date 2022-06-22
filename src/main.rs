@@ -154,7 +154,7 @@ mod main {
         test_main(
             vec![config::EXECUTABLE, "build", "test/razel.jsonl"],
             SchedulerExecStats {
-                succeeded: 7,
+                succeeded: 8,
                 ..Default::default()
             },
         )
@@ -167,7 +167,7 @@ mod main {
         test_main(
             vec![config::EXECUTABLE, "batch", "test/batch.sh"],
             SchedulerExecStats {
-                succeeded: 7,
+                succeeded: 8,
                 ..Default::default()
             },
         )

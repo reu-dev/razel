@@ -8,4 +8,5 @@ razel task csv-filter -i c.csv -o filtered.csv -c a xyz
 razel task ensure-equal filtered.csv data/f.csv
 # add command: copy a file  # TODO use "cmake -E copy", requires Rule to support subcommands
 cp data/a.csv d.csv
-razel task ensure-equal d.csv data/a.csv
+cp d.csv e.csv
+razel task ensure-equal e.csv data/a.csv
