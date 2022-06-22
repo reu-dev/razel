@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 
@@ -9,6 +10,7 @@ use crate::executors::{ExecutionResult, ExecutionStatus};
 pub struct CustomCommandExecutor {
     pub executable: String,
     pub args: Vec<String>,
+    pub env: HashMap<String, String>,
 }
 
 impl CustomCommandExecutor {
@@ -16,6 +18,7 @@ impl CustomCommandExecutor {
         let mut result: ExecutionResult = Default::default();
         let mut child = match tokio::process::Command::new(&self.executable)
             .env_clear()
+            .envs(&self.env)
             .args(&self.args)
             .current_dir(sandbox_dir.unwrap_or(".".into()))
             .spawn()
@@ -80,6 +83,7 @@ mod tests {
                 "test".into(),
                 "cmake".into(),
                 vec!["-E".into(), "true".into()],
+                Default::default(),
                 vec![],
                 vec![],
             )
@@ -101,6 +105,7 @@ mod tests {
                 "test".into(),
                 "./hopefully-not-existing-command-to-test-razel".into(),
                 vec![],
+                Default::default(),
                 vec![],
                 vec![],
             )
@@ -121,6 +126,7 @@ mod tests {
                 "test".into(),
                 "cmake".into(),
                 vec!["-E".into(), "false".into()],
+                Default::default(),
                 vec![],
                 vec![],
             )
@@ -142,6 +148,7 @@ mod tests {
                 "test".into(),
                 "cmake".into(),
                 vec!["-E".into(), "sleep".into(), "10".into()],
+                Default::default(),
                 vec![],
                 vec![],
             )

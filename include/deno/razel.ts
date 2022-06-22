@@ -128,6 +128,7 @@ class CustomCommand extends Command {
             args: this.args.map(x => x instanceof File ? x.fileName : x),
             inputs: this.args.filter(x => x instanceof File && x.createdBy !== this).map(x => (x as File).fileName),
             outputs: this.outputs.map(x => x.fileName),
+            env: this.env,
         };
     }
 }

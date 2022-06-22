@@ -56,7 +56,7 @@ fn create_command(
         let mut i = command_line.into_iter();
         let program = i.next().unwrap();
         let args = i.collect();
-        scheduler.push_custom_command(name, program, args, inputs, outputs)?;
+        scheduler.push_custom_command(name, program, args, Default::default(), inputs, outputs)?;
     }
     Ok(())
 }

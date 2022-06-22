@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -28,7 +29,14 @@ pub fn parse_jsonl_file(scheduler: &mut Scheduler, file_name: String) -> Result<
         })?;
         match json {
             RazelJson::CustomCommand(c) => {
-                scheduler.push_custom_command(c.name, c.executable, c.args, c.inputs, c.outputs)?;
+                scheduler.push_custom_command(
+                    c.name,
+                    c.executable,
+                    c.args,
+                    c.env,
+                    c.inputs,
+                    c.outputs,
+                )?;
             }
             RazelJson::Task(t) => {
                 let mut args: Vec<String> =
@@ -55,7 +63,11 @@ struct RazelCustomCommandJson {
     name: String,
     executable: String,
     args: Vec<String>,
+    #[serde(default)]
+    env: HashMap<String, String>,
+    #[serde(default)]
     inputs: Vec<String>,
+    #[serde(default)]
     outputs: Vec<String>,
 }
 

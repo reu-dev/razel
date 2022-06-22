@@ -642,6 +642,7 @@ mod tests {
                     format!("{}", i),
                     "cmake".into(),
                     vec!["-E".into(), "sleep".into(), sleep_duration.to_string()],
+                    Default::default(),
                     vec![],
                     vec![],
                 )

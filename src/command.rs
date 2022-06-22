@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::executors::{CustomCommandExecutor, Executor, TaskExecutor, TaskFn};
@@ -121,6 +122,7 @@ impl CommandBuilder {
     pub fn custom_command_executor(
         &mut self,
         executable: String,
+        env: HashMap<String, String>,
         scheduler: &mut Scheduler,
     ) -> Result<(), anyhow::Error> {
         let file = scheduler.executable(executable)?;
@@ -128,6 +130,7 @@ impl CommandBuilder {
         self.executor = Some(Executor::CustomCommand(CustomCommandExecutor {
             executable: file.exec_path.to_str().unwrap().into(),
             args: self.args_with_exec_paths.clone(),
+            env,
         }));
         Ok(())
     }
