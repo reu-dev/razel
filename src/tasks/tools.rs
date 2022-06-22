@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::bail;
 
-pub fn write(file_name: PathBuf, lines: Vec<String>) -> Result<(), anyhow::Error> {
+pub fn write_file(file_name: PathBuf, lines: Vec<String>) -> Result<(), anyhow::Error> {
     let mut file = File::create(file_name)?;
     let mut text = lines.join("\n");
     text.push('\n');

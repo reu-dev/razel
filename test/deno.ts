@@ -10,7 +10,7 @@ const f = razel.addDataFile(path.join('data', 'f.csv'));
 // add task to verify that they differ
 a.ensureNotEqual(f);
 // add tasks to create additional files and compare the final output to a data file
-const b = razel.addTask('b.csv', 'write', [razel.addOutputFile('b.csv'), 'a,b,xyz', '3,4,56', '7,8,9']).output;
+const b = razel.addTask('b.csv', 'write-file', [razel.addOutputFile('b.csv'), 'a,b,xyz', '3,4,56', '7,8,9']).output;
 const c = razel.addTask('c.csv', 'csv-concat', [a, b, razel.addOutputFile('c.csv')]).output;
 razel.addTask('filtered.csv', 'csv-filter', ['-i', c, '-o', razel.addOutputFile('filtered.csv'), '-c', 'a', 'xyz'])
     .output

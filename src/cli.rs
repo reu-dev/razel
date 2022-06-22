@@ -46,7 +46,7 @@ enum CliTasks {
     /// Filter a csv file - keeping only the specified cols
     CsvFilter(CsvFilterTask),
     /// Write a text file
-    Write(WriteTask),
+    WriteFile(WriteFileTask),
     /// Ensure that two files are equal
     EnsureEqual(EnsureEqualTask),
     /// Ensure that two files are not equal
@@ -112,14 +112,14 @@ impl CsvFilterTask {
 }
 
 #[derive(Args, Debug)]
-struct WriteTask {
+struct WriteFileTask {
     /// file to create
     file: String,
     /// lines to write
     lines: Vec<String>,
 }
 
-impl WriteTask {
+impl WriteFileTask {
     fn build(
         self,
         builder: &mut CommandBuilder,
@@ -127,7 +127,7 @@ impl WriteTask {
     ) -> Result<(), anyhow::Error> {
         let output = builder.output(&self.file, scheduler)?;
         builder.task_executor(Arc::new(move || {
-            tasks::write(output.clone(), self.lines.clone())
+            tasks::write_file(output.clone(), self.lines.clone())
         }));
         Ok(())
     }
@@ -201,7 +201,7 @@ fn match_task(
         CliTasks::CsvFilter(x) => x.build(&mut builder, scheduler),
         CliTasks::EnsureEqual(x) => x.build(&mut builder, scheduler),
         CliTasks::EnsureNotEqual(x) => x.build(&mut builder, scheduler),
-        CliTasks::Write(x) => x.build(&mut builder, scheduler),
+        CliTasks::WriteFile(x) => x.build(&mut builder, scheduler),
     }?;
     scheduler.push(builder)?;
     Ok(())
