@@ -123,13 +123,14 @@ impl Scheduler {
         name: String,
         executable: String,
         args: Vec<String>,
+        env: HashMap<String, String>,
         inputs: Vec<String>,
         outputs: Vec<String>,
     ) -> Result<CommandId, anyhow::Error> {
         let mut builder = CommandBuilder::new(name, args);
         builder.inputs(&inputs, self)?;
         builder.outputs(&outputs, self)?;
-        builder.custom_command_executor(executable, self)?;
+        builder.custom_command_executor(executable, env, self)?;
         self.push(builder)
     }
 
