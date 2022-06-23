@@ -37,6 +37,8 @@ enum CliCommands {
         #[clap(default_value = "razel.jsonl")]
         file: String,
     },
+    /// Show info about configuration, cache, ...
+    Info,
 }
 
 #[derive(Subcommand)]
@@ -186,6 +188,10 @@ pub fn parse_cli(
         CliCommands::Task(task) => match_task(scheduler, name.unwrap(), task, args),
         CliCommands::Batch { file } => parse_batch_file(scheduler, file),
         CliCommands::Build { file } => parse_jsonl_file(scheduler, file),
+        CliCommands::Info => {
+            scheduler.show_info();
+            std::process::exit(0);
+        }
     }
 }
 

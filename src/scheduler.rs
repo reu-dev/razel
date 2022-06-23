@@ -118,6 +118,12 @@ impl Scheduler {
         self.commands.len()
     }
 
+    pub fn show_info(&self) {
+        println!("output directory: {:?}", self.out_dir);
+        println!("cache directory:  {:?}", LocalCache::dir());
+        println!("worker threads:   {}", self.worker_threads);
+    }
+
     pub fn push_custom_command(
         &mut self,
         name: String,
