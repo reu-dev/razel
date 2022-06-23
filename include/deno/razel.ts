@@ -93,7 +93,7 @@ export class File {
     }
 }
 
-abstract class Command {
+export abstract class Command {
     protected constructor(public readonly name: string, public readonly outputs: File[]) {
     }
 
@@ -107,7 +107,7 @@ abstract class Command {
     abstract json(): any;
 }
 
-class CustomCommand extends Command {
+export class CustomCommand extends Command {
     constructor(name: string, public readonly executable: string, public readonly args: (string | File)[],
                 public readonly env?: any) {
         super(name, args.filter(x => (x instanceof File) && !(x as File).isData && !(x as File).createdBy) as File[]);
@@ -133,7 +133,13 @@ class CustomCommand extends Command {
     }
 }
 
-class Task extends Command {
+export class Task extends Command {
+    static writeFile(path: string, lines: string[]): File {
+        const file = Razel.instance().addOutputFile(path);
+        Razel.instance().addTask(path, 'write-file', [file, ...lines]);
+        return file;
+    }
+
     constructor(name: string, public readonly task: string, public readonly args: (string | File)[]) {
         super(name, args.filter(x => (x instanceof File) && !(x as File).isData && !(x as File).createdBy) as File[]);
         this.outputs.forEach(x => x.createdBy = this);
