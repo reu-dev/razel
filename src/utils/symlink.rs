@@ -6,6 +6,7 @@ use tokio::task::spawn_blocking;
 
 /// Force creating a symlink: overwrite existing file and create parent directories
 pub async fn force_symlink(src: &PathBuf, dst: &PathBuf) -> Result<(), anyhow::Error> {
+    assert_ne!(src, dst);
     {
         let src = src.clone();
         let dst = dst.clone();

@@ -422,6 +422,8 @@ impl Scheduler {
                     cache
                         .symlink_output_files_into_out_dir(&action_result, &out_dir)
                         .await
+                        .context("symlink_output_files_into_out_dir()")
+                        .with_context(|| executor.command_line())
                         .unwrap();
                     tx.send((
                         id,
@@ -443,6 +445,7 @@ impl Scheduler {
                 sandbox
                     .create(&input_paths, &output_paths)
                     .await
+                    .context("sandbox")
                     .with_context(|| executor.command_line())
                     .unwrap();
             }
@@ -462,6 +465,8 @@ impl Scheduler {
                 cache
                     .symlink_output_files_into_out_dir(&action_result, &out_dir)
                     .await
+                    .context("symlink_output_files_into_out_dir()")
+                    .with_context(|| executor.command_line())
                     .unwrap();
                 Some(action_result)
             } else {
@@ -471,6 +476,7 @@ impl Scheduler {
                 sandbox
                     .destroy()
                     .await
+                    .with_context(|| "Sandbox::destroy()")
                     .with_context(|| executor.command_line())
                     .unwrap();
             }

@@ -47,6 +47,7 @@ impl Cache {
         let src = sandbox_dir
             .as_ref()
             .map_or(exec_path.clone(), |x| x.join(exec_path));
+        assert!(!src.is_symlink());
         let digest = Digest::for_file(&src).await?;
         let dst = self.local_cache.cas_dir.join(&digest.hash);
         tokio::fs::rename(&src, &dst)
