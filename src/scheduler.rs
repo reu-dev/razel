@@ -11,8 +11,8 @@ use tokio::sync::mpsc::Sender;
 use which::which;
 
 use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
-use crate::cache::{BlobDigest, Cache, MessageDigest};
-use crate::executors::{ExecutionResult, ExecutionStatus};
+use crate::cache::{BlobDigest, Cache, LocalCache, MessageDigest};
+use crate::executors::{ExecutionResult, ExecutionStatus, Executor};
 use crate::{
     bazel_remote_exec, config, Arena, Command, CommandBuilder, CommandId, File, FileId, Sandbox,
 };
@@ -383,6 +383,10 @@ impl Scheduler {
             .collect()
     }
 
+    /// Execute a command in a worker thread with caching.
+    ///
+    /// If the executed command failed, action_result will be None and the action will not be cached.
+    /// Panic only in case of system errors.
     fn start_next_command(&mut self, id: CommandId, tx: Sender<ExecutionResultChannel>) {
         self.running += 1;
         let command = &self.commands[id];
@@ -390,11 +394,7 @@ impl Scheduler {
         assert_eq!(command.unfinished_deps.len(), 0);
         let action = self.get_bzl_action_for_command(command);
         let action_digest = Digest::for_message(&action);
-        info!(
-            "Execute {}: {}",
-            command.name,
-            command.executor.command_line()
-        );
+        info!("Execute {}", command.name);
         let cache = self.cache.clone();
         let read_cache = self.read_cache;
         let executor = command.executor.clone();
@@ -405,41 +405,78 @@ impl Scheduler {
             .then(|| Sandbox::new(&command.id.to_string()));
         let out_dir = self.out_dir.clone();
         tokio::task::spawn(async move {
-            if read_cache {
-                if let Some(action_result) = cache.get_action_result(&action_digest).await {
-                    cache
-                        .symlink_output_files_into_out_dir(&action_result, &out_dir)
-                        .await
-                        .context("symlink_output_files_into_out_dir()")
-                        .with_context(|| executor.command_line())
-                        .unwrap();
-                    tx.send((
-                        id,
-                        ExecutionResult {
-                            status: ExecutionStatus::Success,
-                            exit_code: Some(action_result.exit_code),
-                            error: None,
-                            cache_hit: true,
-                        },
-                        Some(action_result),
-                    ))
+            let (execution_result, action_result) = if let Some(x) =
+                Self::get_action_from_cache(&action_digest, &cache, read_cache).await
+            {
+                x
+            } else {
+                Self::exec_action(
+                    &action_digest,
+                    &cache,
+                    &executor,
+                    &input_paths,
+                    &output_paths,
+                    &sandbox,
+                    &out_dir,
+                )
+                .await
+                .context("exec_action()")
+                .with_context(|| executor.command_line())
+                .unwrap()
+            };
+            if let Some(action_result) = &action_result {
+                cache
+                    .symlink_output_files_into_out_dir(action_result, &out_dir)
                     .await
-                    .unwrap();
-                    return;
-                }
-            }
-
-            if let Some(sandbox) = &sandbox {
-                sandbox
-                    .create(&input_paths, &output_paths)
-                    .await
-                    .context("sandbox")
+                    .context("symlink_output_files_into_out_dir()")
                     .with_context(|| executor.command_line())
                     .unwrap();
             }
-            let execution_result = executor.exec(sandbox.as_ref().map(|x| x.dir.clone())).await;
-            let action_result = if execution_result.success() {
-                let action_result = Self::cache_action_result(
+            tx.send((id, execution_result, action_result))
+                .await
+                .unwrap();
+        });
+    }
+
+    async fn get_action_from_cache(
+        action_digest: &MessageDigest,
+        cache: &Cache,
+        read_cache: bool,
+    ) -> Option<(ExecutionResult, Option<ActionResult>)> {
+        if read_cache {
+            if let Some(action_result) = cache.get_action_result(&action_digest).await {
+                let exit_code = Some(action_result.exit_code);
+                let execution_result = ExecutionResult {
+                    status: ExecutionStatus::Success,
+                    exit_code,
+                    error: None,
+                    cache_hit: true,
+                };
+                return Some((execution_result, Some(action_result)));
+            }
+        }
+        None
+    }
+
+    async fn exec_action(
+        action_digest: &MessageDigest,
+        cache: &Cache,
+        executor: &Executor,
+        input_paths: &Vec<PathBuf>,
+        output_paths: &Vec<PathBuf>,
+        sandbox: &Option<Sandbox>,
+        out_dir: &PathBuf,
+    ) -> Result<(ExecutionResult, Option<ActionResult>), anyhow::Error> {
+        if let Some(sandbox) = &sandbox {
+            sandbox
+                .create(&input_paths, &output_paths)
+                .await
+                .context("Sandbox::create()")?;
+        }
+        let execution_result = executor.exec(sandbox.as_ref().map(|x| x.dir.clone())).await;
+        let action_result = if execution_result.success() {
+            Some(
+                Self::cache_action_result(
                     &action_digest,
                     &execution_result,
                     &output_paths,
@@ -448,31 +485,18 @@ impl Scheduler {
                     &cache,
                 )
                 .await
-                .with_context(|| "cache_action_result()")
-                .with_context(|| executor.command_line())
-                .unwrap();
-                cache
-                    .symlink_output_files_into_out_dir(&action_result, &out_dir)
-                    .await
-                    .context("symlink_output_files_into_out_dir()")
-                    .with_context(|| executor.command_line())
-                    .unwrap();
-                Some(action_result)
-            } else {
-                None
-            };
-            if let Some(sandbox) = &sandbox {
-                sandbox
-                    .destroy()
-                    .await
-                    .with_context(|| "Sandbox::destroy()")
-                    .with_context(|| executor.command_line())
-                    .unwrap();
-            }
-            tx.send((id, execution_result, action_result))
+                .with_context(|| "cache_action_result()")?,
+            )
+        } else {
+            None
+        };
+        if let Some(sandbox) = &sandbox {
+            sandbox
+                .destroy()
                 .await
-                .unwrap();
-        });
+                .with_context(|| "Sandbox::destroy()")?;
+        }
+        Ok((execution_result, action_result))
     }
 
     async fn cache_action_result(
