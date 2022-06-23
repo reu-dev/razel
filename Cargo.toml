@@ -17,7 +17,7 @@ csv = "1.1.6"
 directories = "4.0"
 itertools = "0.10.3"
 log = "0.4.14"
-num_cpus = "1.8.0"
+num_cpus = "1.8.0"  # TODO replace with std::thread::available_parallelism() once it works in docker: https://github.com/rust-lang/rust/pull/97925
 prost = "0.10"
 prost-types = "0.10"
 serde = { version = "1.0.136", features = ["derive"] }
