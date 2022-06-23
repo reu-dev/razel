@@ -55,7 +55,7 @@ pub struct Scheduler {
     /// current working directory, read-only, used to execute commands
     current_dir: PathBuf,
     /// directory of output files
-    bin_dir: PathBuf,
+    out_dir: PathBuf,
     cache: Cache,
     files: Arena<File>,
     path_to_file_id: HashMap<PathBuf, FileId>,
@@ -76,15 +76,15 @@ impl Scheduler {
         assert!(worker_threads > 0);
         let current_dir = env::current_dir().unwrap();
         let workspace_dir = current_dir.clone();
-        let bin_dir = PathBuf::from(config::OUT_DIR);
+        let out_dir = PathBuf::from(config::OUT_DIR);
         debug!("workspace_dir: {:?}", workspace_dir);
-        debug!("bin_dir:       {:?}", bin_dir);
+        debug!("out_dir:       {:?}", out_dir);
         Scheduler {
             read_cache: true,
             worker_threads,
             workspace_dir,
             current_dir,
-            bin_dir,
+            out_dir,
             cache: Cache::new().unwrap(),
             files: Default::default(),
             path_to_file_id: Default::default(),
@@ -101,7 +101,7 @@ impl Scheduler {
 
     /// Remove the binary directory
     pub fn clean(&self) {
-        fs::remove_dir_all(&self.bin_dir).ok();
+        fs::remove_dir_all(&self.out_dir).ok();
     }
 
     /// Set the directory to resolve relative paths of input/output files
@@ -237,7 +237,7 @@ impl Scheduler {
             id,
             creating_command: None, // will be patched in Scheduler::push()
             exec_path: rel_path.clone(),
-            out_path: self.bin_dir.join(&rel_path),
+            out_path: self.out_dir.join(&rel_path),
             arg: arg.clone(),
             digest: None,
         });
@@ -415,7 +415,7 @@ impl Scheduler {
         let sandbox = executor
             .use_sandbox()
             .then(|| Sandbox::new(&command.id.to_string()));
-        let out_dir = executor.use_sandbox().then(|| self.bin_dir.clone());
+        let out_dir = executor.use_sandbox().then(|| self.out_dir.clone());
         tokio::task::spawn(async move {
             if read_cache {
                 if let Some(action_result) = cache.get_action_result(&action_digest).await {
@@ -533,7 +533,7 @@ impl Scheduler {
     fn set_output_file_digests(&mut self, output_files: Vec<OutputFile>) {
         for output_file in output_files {
             let mut output_file_path = PathBuf::from(output_file.path);
-            if let Ok(x) = output_file_path.strip_prefix(&self.bin_dir) {
+            if let Ok(x) = output_file_path.strip_prefix(&self.out_dir) {
                 output_file_path = x.into();
             }
             assert!(output_file_path.is_relative());
