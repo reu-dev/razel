@@ -42,6 +42,7 @@ impl Cache {
     pub async fn move_output_file_into_cache(
         &self,
         sandbox_dir: &Option<PathBuf>,
+        out_dir: &PathBuf,
         exec_path: &PathBuf,
     ) -> Result<OutputFile, anyhow::Error> {
         let src = sandbox_dir
@@ -50,11 +51,16 @@ impl Cache {
         assert!(!src.is_symlink());
         let digest = Digest::for_file(&src).await?;
         let dst = self.local_cache.cas_dir.join(&digest.hash);
+        let path: String = exec_path.strip_prefix(&out_dir).map_or_else(
+            |_| exec_path.to_str().unwrap().into(),
+            |x| x.to_str().unwrap().into(),
+        );
+        assert!(Path::new(&path).is_relative());
         tokio::fs::rename(&src, &dst)
             .await
             .with_context(|| format!("mv {:?} -> {:?}", src, dst))?;
         Ok(OutputFile {
-            path: exec_path.to_str().unwrap().into(),
+            path,
             digest: Some(digest),
             is_executable: false,
             contents: vec![],
@@ -65,16 +71,15 @@ impl Cache {
     pub async fn symlink_output_files_into_out_dir(
         &self,
         action_result: &ActionResult,
-        out_dir: &Option<PathBuf>,
+        out_dir: &PathBuf,
     ) -> Result<(), anyhow::Error> {
+        assert!(!out_dir.starts_with(&self.local_cache.cas_dir));
         for file in &action_result.output_files {
             let cas_path = self
                 .local_cache
                 .cas_dir
                 .join(&file.digest.as_ref().unwrap().hash);
-            let out_path = out_dir
-                .as_ref()
-                .map_or_else(|| PathBuf::from(&file.path), |x| x.join(&file.path));
+            let out_path = out_dir.join(&file.path);
             force_symlink(&cas_path, &out_path).await?;
         }
         Ok(())

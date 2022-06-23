@@ -129,7 +129,7 @@ impl CommandBuilder {
         self.inputs.push(file.id);
         self.executor = Some(Executor::CustomCommand(CustomCommandExecutor {
             executable: file.exec_path.to_str().unwrap().into(),
-            args: self.args_with_exec_paths.clone(),
+            args: self.args_with_out_paths.clone(),
             env,
         }));
         Ok(())

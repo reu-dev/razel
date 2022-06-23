@@ -371,13 +371,7 @@ impl Scheduler {
         command
             .inputs
             .iter()
-            .map(|x| {
-                if command.executor.use_sandbox() {
-                    self.files[*x].exec_path.clone()
-                } else {
-                    self.files[*x].out_path.clone()
-                }
-            })
+            .map(|x| self.files[*x].out_path.clone())
             .collect()
     }
 
@@ -385,13 +379,7 @@ impl Scheduler {
         command
             .outputs
             .iter()
-            .map(|x| {
-                if command.executor.use_sandbox() {
-                    self.files[*x].exec_path.clone()
-                } else {
-                    self.files[*x].out_path.clone()
-                }
-            })
+            .map(|x| self.files[*x].out_path.clone())
             .collect()
     }
 
@@ -415,7 +403,7 @@ impl Scheduler {
         let sandbox = executor
             .use_sandbox()
             .then(|| Sandbox::new(&command.id.to_string()));
-        let out_dir = executor.use_sandbox().then(|| self.out_dir.clone());
+        let out_dir = self.out_dir.clone();
         tokio::task::spawn(async move {
             if read_cache {
                 if let Some(action_result) = cache.get_action_result(&action_digest).await {
@@ -456,6 +444,7 @@ impl Scheduler {
                     &execution_result,
                     &output_paths,
                     sandbox.as_ref().map(|x| x.dir.clone()),
+                    &out_dir,
                     &cache,
                 )
                 .await
@@ -491,6 +480,7 @@ impl Scheduler {
         execution_result: &ExecutionResult,
         output_paths: &Vec<PathBuf>,
         sandbox_dir: Option<PathBuf>,
+        out_dir: &PathBuf,
         cache: &Cache,
     ) -> Result<ActionResult, anyhow::Error> {
         assert!(execution_result.success());
@@ -498,7 +488,7 @@ impl Scheduler {
         for path in output_paths {
             output_files.push(
                 cache
-                    .move_output_file_into_cache(&sandbox_dir, path)
+                    .move_output_file_into_cache(&sandbox_dir, out_dir, path)
                     .await?,
             );
         }
