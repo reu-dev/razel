@@ -61,6 +61,8 @@ pub struct Scheduler {
     files: Arena<File>,
     path_to_file_id: HashMap<PathBuf, FileId>,
     which_to_file_id: HashMap<String, FileId>,
+    /// razel executable - used in Action::input_root_digest for versioning tasks
+    self_file_id: Option<FileId>,
     commands: Arena<Command>,
     waiting: HashSet<CommandId>,
     // TODO sort by weight, e.g. recursive number of rdeps
@@ -90,6 +92,7 @@ impl Scheduler {
             files: Default::default(),
             path_to_file_id: Default::default(),
             which_to_file_id: Default::default(),
+            self_file_id: None,
             commands: Default::default(),
             waiting: Default::default(),
             ready: Default::default(),
@@ -142,8 +145,13 @@ impl Scheduler {
     }
 
     pub fn push(&mut self, builder: CommandBuilder) -> Result<CommandId, anyhow::Error> {
-        let id = self.commands.alloc_with_id(|id| builder.build(id));
         // TODO check if name is unique
+        let id = self.commands.alloc_with_id(|id| builder.build(id));
+        if let Executor::Task(_) = &self.commands[id].executor {
+            // TODO set digest to razel version once stable
+            let self_file_id = self.lazy_self_file_id()?;
+            self.commands[id].inputs.push(self_file_id);
+        }
         // patch outputs.creating_command
         for output_id in &self.commands[id].outputs {
             let output = &mut self.files[*output_id];
@@ -151,6 +159,13 @@ impl Scheduler {
             output.creating_command = Some(id);
         }
         Ok(id)
+    }
+
+    fn lazy_self_file_id(&mut self) -> Result<FileId, anyhow::Error> {
+        if self.self_file_id.is_none() {
+            self.self_file_id = Some(self.executable(env::args().next().unwrap())?.id);
+        }
+        Ok(self.self_file_id.unwrap())
     }
 
     #[cfg(test)]
