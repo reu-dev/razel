@@ -48,7 +48,7 @@ impl Cache {
         let src = sandbox_dir
             .as_ref()
             .map_or(exec_path.clone(), |x| x.join(exec_path));
-        assert!(!src.is_symlink());
+        assert!(!src.is_symlink(), "src must not be a symlink: {:?}", src);
         let digest = Digest::for_file(&src).await?;
         let dst = self.local_cache.cas_dir.join(&digest.hash);
         let path: String = exec_path.strip_prefix(&out_dir).map_or_else(

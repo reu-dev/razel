@@ -478,6 +478,12 @@ impl Scheduler {
                 .create(&input_paths, &output_paths)
                 .await
                 .context("Sandbox::create()")?;
+        } else {
+            // remove expected output files for tasks, because symlinks will not be overwritten
+            // maybe a proper sandbox would be better
+            for x in output_paths {
+                fs::remove_file(x).ok();
+            }
         }
         let execution_result = executor.exec(sandbox.as_ref().map(|x| x.dir.clone())).await;
         let action_result = if execution_result.success() {
