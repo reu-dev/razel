@@ -10,6 +10,7 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use which::which;
 
+use crate::bazel_remote_exec::command::EnvironmentVariable;
 use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
 use crate::cache::{BlobDigest, Cache, LocalCache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor};
@@ -607,7 +608,17 @@ impl Scheduler {
     fn get_bzl_action_for_command(&self, command: &Command) -> bazel_remote_exec::Action {
         let bzl_command = bazel_remote_exec::Command {
             arguments: command.executor.args_with_executable(),
-            environment_variables: vec![],
+            environment_variables: command
+                .executor
+                .env()
+                .map(|x| {
+                    x.clone()
+                        .into_iter()
+                        .map(|(name, value)| EnvironmentVariable { name, value })
+                        .sorted_unstable_by(|a, b| Ord::cmp(&a.name, &b.name))
+                        .collect()
+                })
+                .unwrap_or_default(),
             output_paths: command
                 .outputs
                 .iter()

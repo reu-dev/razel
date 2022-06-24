@@ -1,5 +1,7 @@
-use crate::executors::{CustomCommandExecutor, TaskExecutor};
+use std::collections::HashMap;
 use std::path::PathBuf;
+
+use crate::executors::{CustomCommandExecutor, TaskExecutor};
 
 #[derive(Clone)]
 pub enum Executor {
@@ -24,6 +26,13 @@ impl Executor {
 
     pub fn command_line(&self) -> String {
         self.args_with_executable().join(" ")
+    }
+
+    pub fn env(&self) -> Option<&HashMap<String, String>> {
+        match self {
+            Executor::CustomCommand(x) => Some(&x.env),
+            Executor::Task(_) => None,
+        }
     }
 
     /// Returns if a sandbox should be used.
