@@ -64,9 +64,6 @@ impl CustomCommandExecutor {
     } 
     #[cfg(target_os = "linux")]
     fn handle_error(&self, exit_status: ExitStatus, result: &mut ExecutionResult) {
-        // use anyhow::anyhow;
-        // use std::process::ExitStatus;
-        // use std::os::unix::process::ExitStatusExt;
         if exit_status.core_dumped() {
             result.error = Some(anyhow!(
                 "command crashed with signal {}",
