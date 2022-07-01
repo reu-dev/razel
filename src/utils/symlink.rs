@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
-
+use std::io;
 use anyhow::Context;
 use tokio::task::spawn_blocking;
 
@@ -18,13 +18,22 @@ pub async fn force_symlink(src: &PathBuf, dst: &PathBuf) -> Result<(), anyhow::E
             }
             fs::remove_file(&dst).ok(); // to avoid symlink() fail with "File exists"
             fs::create_dir_all(dst.parent().unwrap())?;
-            std::os::unix::fs::symlink(&src, &dst)
+            symlink_file(&src, &dst)
         })
         .await?
     }
     .with_context(|| format!("symlink {:?} -> {:?}", src, dst))?;
     Ok(())
 }
+
+#[cfg(target_os = "windows")]
+fn symlink_file(src: &PathBuf, dst: &PathBuf) -> io::Result<()> {
+    std::os::windows::fs::symlink_file(&src, &dst)
+} 
+#[cfg(target_os = "linux")]
+fn symlink_file(src: &PathBuf, dst: &PathBuf) -> io::Result<()> {
+    std::os::unix::fs::symlink(&src, &dst)
+} 
 
 #[cfg(test)]
 mod tests {
