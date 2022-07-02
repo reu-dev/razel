@@ -35,7 +35,11 @@ impl Cache {
         None
     }
 
-    pub async fn push_action_result(&self, digest: &MessageDigest, result: &ActionResult) {
+    pub async fn push_action_result(
+        &self,
+        digest: &MessageDigest,
+        result: &ActionResult,
+    ) -> Result<(), anyhow::Error> {
         self.local_cache.push_action_result(digest, result).await
     }
 

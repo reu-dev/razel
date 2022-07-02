@@ -1,7 +1,7 @@
 use std::io::ErrorKind;
 use std::path::PathBuf;
 
-use anyhow::bail;
+use anyhow::{bail, Context};
 use directories::ProjectDirs;
 use log::warn;
 use tokio::fs::File;
@@ -45,14 +45,15 @@ impl LocalCache {
         }
     }
 
-    pub async fn push_action_result(&self, digest: &MessageDigest, result: &ActionResult) {
+    pub async fn push_action_result(
+        &self,
+        digest: &MessageDigest,
+        result: &ActionResult,
+    ) -> Result<(), anyhow::Error> {
         let path = self.ac_dir.join(&digest.hash);
-        match Self::write_pb_file(&path, result).await {
-            Ok(()) => (),
-            Err(x) => {
-                warn!("{:?}", x);
-            }
-        }
+        Self::write_pb_file(&path, result)
+            .await
+            .with_context(|| format!("push_action_result(): {:?}", path))
     }
 
     pub async fn is_action_completely_cached(&self, result: &ActionResult) -> bool {

@@ -186,8 +186,10 @@ impl Scheduler {
         self.start_ready_commands(&tx);
         while self.ready.len() + self.running != 0 {
             if let Some((id, execution_result, action_result)) = rx.recv().await {
-                self.on_command_finished(id, execution_result, action_result)
-                    .await;
+                self.on_command_finished(id, &execution_result, action_result);
+                if execution_result.status == ExecutionStatus::SystemError {
+                    break;
+                }
                 self.start_ready_commands(&tx);
             }
         }
@@ -409,7 +411,6 @@ impl Scheduler {
     /// Execute a command in a worker thread with caching.
     ///
     /// If the executed command failed, action_result will be None and the action will not be cached.
-    /// Panic only in case of system errors.
     fn start_next_command(&mut self, id: CommandId, tx: Sender<ExecutionResultChannel>) {
         self.running += 1;
         let command = &self.commands[id];
@@ -428,37 +429,67 @@ impl Scheduler {
             .then(|| Sandbox::new(&command.id.to_string()));
         let out_dir = self.out_dir.clone();
         tokio::task::spawn(async move {
-            let (execution_result, action_result) = if let Some(x) =
-                Self::get_action_from_cache(&action_digest, &cache, read_cache).await
-            {
-                x
-            } else {
-                Self::exec_action(
-                    &action_digest,
-                    &cache,
-                    &executor,
-                    &input_paths,
-                    &output_paths,
-                    &sandbox,
-                    &out_dir,
+            let (execution_result, action_result) = Self::exec_action_with_cache(
+                &action_digest,
+                &cache,
+                read_cache,
+                &executor,
+                &input_paths,
+                &output_paths,
+                &sandbox,
+                &out_dir,
+            )
+            .await
+            .unwrap_or_else(|e| {
+                (
+                    ExecutionResult {
+                        status: ExecutionStatus::SystemError,
+                        exit_code: None,
+                        error: Some(e),
+                        cache_hit: false,
+                    },
+                    None,
                 )
-                .await
-                .context("exec_action()")
-                .with_context(|| executor.command_line())
-                .unwrap()
-            };
-            if let Some(action_result) = &action_result {
-                cache
-                    .symlink_output_files_into_out_dir(action_result, &out_dir)
-                    .await
-                    .context("symlink_output_files_into_out_dir()")
-                    .with_context(|| executor.command_line())
-                    .unwrap();
-            }
-            tx.send((id, execution_result, action_result))
-                .await
-                .unwrap();
+            });
+            // ignore SendError - channel might be closed if a previous command failed
+            tx.send((id, execution_result, action_result)).await.ok();
         });
+    }
+
+    async fn exec_action_with_cache(
+        action_digest: &MessageDigest,
+        cache: &Cache,
+        read_cache: bool,
+        executor: &Executor,
+        input_paths: &Vec<PathBuf>,
+        output_paths: &Vec<PathBuf>,
+        sandbox: &Option<Sandbox>,
+        out_dir: &PathBuf,
+    ) -> Result<(ExecutionResult, Option<ActionResult>), anyhow::Error> {
+        let (execution_result, action_result) = if let Some(x) =
+            Self::get_action_from_cache(&action_digest, &cache, read_cache).await
+        {
+            x
+        } else {
+            Self::exec_action(
+                &action_digest,
+                &cache,
+                &executor,
+                &input_paths,
+                &output_paths,
+                &sandbox,
+                &out_dir,
+            )
+            .await
+            .context("exec_action()")?
+        };
+        if let Some(action_result) = &action_result {
+            cache
+                .symlink_output_files_into_out_dir(action_result, &out_dir)
+                .await
+                .context("symlink_output_files_into_out_dir()")?;
+        }
+        Ok((execution_result, action_result))
     }
 
     async fn get_action_from_cache(
@@ -542,7 +573,8 @@ impl Scheduler {
             output_files.push(
                 cache
                     .move_output_file_into_cache(&sandbox_dir, out_dir, path)
-                    .await?,
+                    .await
+                    .context("move_output_file_into_cache()")?,
             );
         }
         let action_result = ActionResult {
@@ -560,14 +592,14 @@ impl Scheduler {
         };
         cache
             .push_action_result(action_digest, &action_result)
-            .await;
+            .await?;
         Ok(action_result)
     }
 
-    async fn on_command_finished(
+    fn on_command_finished(
         &mut self,
         id: CommandId,
-        execution_result: ExecutionResult,
+        execution_result: &ExecutionResult,
         action_result: Option<ActionResult>,
     ) {
         self.running -= 1;
@@ -593,7 +625,7 @@ impl Scheduler {
     }
 
     /// Track state and check if reverse dependencies are ready
-    fn on_command_succeeded(&mut self, id: CommandId, execution_result: ExecutionResult) {
+    fn on_command_succeeded(&mut self, id: CommandId, execution_result: &ExecutionResult) {
         self.succeeded.push(id);
         if execution_result.cache_hit {
             self.cache_hits += 1;
@@ -615,10 +647,12 @@ impl Scheduler {
         }
     }
 
-    fn on_command_failed(&mut self, id: CommandId, result: ExecutionResult) {
+    fn on_command_failed(&mut self, id: CommandId, result: &ExecutionResult) {
         self.failed.push(id);
         let command = &self.commands[id];
-        error!("Error  {}: {:?}", command.name, result);
+        error!("Error  {}: {:?}", command.name, result.status);
+        error!("{:?}", result.error.as_ref().unwrap());
+        info!("Command line: {}", command.executor.command_line());
     }
 
     fn get_bzl_action_for_command(&self, command: &Command) -> bazel_remote_exec::Action {
