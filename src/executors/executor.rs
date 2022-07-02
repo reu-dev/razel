@@ -68,6 +68,8 @@ pub enum ExecutionStatus {
     Failed,
     Timeout,
     Success,
+    /// not command related error, e.g. cache, sandbox
+    SystemError,
 }
 
 impl Default for ExecutionStatus {

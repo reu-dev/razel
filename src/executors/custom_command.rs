@@ -1,8 +1,7 @@
-use std::collections::HashMap;
-use std::os::unix::process::ExitStatusExt;
-use std::path::PathBuf;
-
 use anyhow::anyhow;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::process::ExitStatus;
 
 use crate::executors::{ExecutionResult, ExecutionStatus};
 
@@ -36,20 +35,7 @@ impl CustomCommandExecutor {
                     result.status = ExecutionStatus::Success;
                 } else {
                     result.status = ExecutionStatus::Failed;
-                    if exit_status.core_dumped() {
-                        result.error = Some(anyhow!(
-                            "command crashed with signal {}",
-                            exit_status.signal().unwrap()
-                        ));
-                    } else if let Some(signal) = exit_status.signal() {
-                        result.error = Some(anyhow!("command terminated by signal {signal}"));
-                    } else if let Some(signal) = exit_status.stopped_signal() {
-                        result.error = Some(anyhow!("command stopped by {signal}"));
-                    } else if let Some(exit_code) = exit_status.code() {
-                        result.error = Some(anyhow!("command failed with exit code {exit_code}"));
-                    } else {
-                        result.error = Some(anyhow!("command failed"));
-                    }
+                    result.error = Some(Self::handle_error(exit_status));
                 }
                 result.exit_code = exit_status.code();
             }
@@ -67,6 +53,30 @@ impl CustomCommandExecutor {
             .chain(self.args.iter())
             .cloned()
             .collect()
+    }
+
+    #[cfg(target_family = "windows")]
+    fn handle_error(exit_status: ExitStatus) -> anyhow::Error {
+        anyhow!("command failed: {}", exit_status)
+    }
+
+    #[cfg(target_family = "unix")]
+    fn handle_error(exit_status: ExitStatus) -> anyhow::Error {
+        use std::os::unix::process::ExitStatusExt;
+        if exit_status.core_dumped() {
+            anyhow!(
+                "command crashed with signal {}",
+                exit_status.signal().unwrap()
+            )
+        } else if let Some(signal) = exit_status.signal() {
+            anyhow!("command terminated by signal {signal}")
+        } else if let Some(signal) = exit_status.stopped_signal() {
+            anyhow!("command stopped by {signal}")
+        } else if let Some(exit_code) = exit_status.code() {
+            anyhow!("command failed with exit code {exit_code}")
+        } else {
+            anyhow!("command failed: {}", exit_status)
+        }
     }
 }
 

@@ -57,7 +57,9 @@ impl Sandbox {
 
     /// Remove tmp dir
     pub async fn destroy(&self) -> Result<(), anyhow::Error> {
-        fs::remove_dir_all(&self.dir).await?;
+        fs::remove_dir_all(&self.dir)
+            .await
+            .with_context(|| format!("Failed to remove sandbox dir: {:?}", self.dir))?;
         Ok(())
     }
 }
