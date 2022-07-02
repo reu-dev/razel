@@ -26,12 +26,12 @@ pub async fn force_symlink(src: &PathBuf, dst: &PathBuf) -> Result<(), anyhow::E
     Ok(())
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(target_family = "windows")]
 fn symlink_file(src: &PathBuf, dst: &PathBuf) -> io::Result<()> {
     std::os::windows::fs::symlink_file(&src, &dst)
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(target_family = "unix")]
 fn symlink_file(src: &PathBuf, dst: &PathBuf) -> io::Result<()> {
     std::os::unix::fs::symlink(&src, &dst)
 }

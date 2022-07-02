@@ -1,7 +1,7 @@
-#[cfg(target_os = "linux")]
+#[cfg(target_family = "unix")]
 use anyhow::anyhow;
 use std::collections::HashMap;
-#[cfg(target_os = "linux")]
+#[cfg(target_family = "unix")]
 use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::process::ExitStatus;
@@ -58,10 +58,10 @@ impl CustomCommandExecutor {
             .collect()
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(target_family = "windows")]
     fn handle_error(&self, _exit_status: ExitStatus, _result: &mut ExecutionResult) {}
 
-    #[cfg(target_os = "linux")]
+    #[cfg(target_family = "unix")]
     fn handle_error(&self, exit_status: ExitStatus, result: &mut ExecutionResult) {
         if exit_status.core_dumped() {
             result.error = Some(anyhow!(
