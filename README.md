@@ -8,6 +8,8 @@ A command executor with caching. It is:
 
 Razel is not the best choice for building software, especially there's no built-in support for compiler setup and header dependencies. 
 
+[![CI](https://github.com/reu-dev/razel/actions/workflows/ci.yml/badge.svg)](https://github.com/reu-dev/razel/actions/workflows/ci.yml)
+
 ## Getting Started
 
 Use [rustup](https://rustup.rs/) to install Rust. Clone and build Razel:

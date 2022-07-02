@@ -1,7 +1,7 @@
 import * as path from 'https://deno.land/std@0.135.0/path/mod.ts';
 import {Razel} from "../include/deno/razel.ts";
 
-const workspaceDir = path.dirname(new URL(import.meta.url).pathname);
+const workspaceDir = path.resolve(path.dirname(path.fromFileUrl(import.meta.url)));
 const razel = Razel.init(workspaceDir);
 
 // data/a.csv and data/f.csv are two input files
