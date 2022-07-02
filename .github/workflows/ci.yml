@@ -30,12 +30,10 @@ jobs:
 
       - uses: arduino/setup-protoc@v1
 
-      - name: show tools info
-        run: |
-          deno info
-          deno --version
-          protoc --version
-          rustup show
+      - run: deno info
+      - run: deno --version
+      - run: protoc --version
+      - run: rustup show
 
       - name: cache cargo
         uses: actions/cache@v3
