@@ -57,7 +57,7 @@ impl CustomCommandExecutor {
 
     #[cfg(target_family = "windows")]
     fn handle_error(exit_status: ExitStatus) -> anyhow::Error {
-        anyhow!("command failed")
+        anyhow!("command failed: {}", exit_status)
     }
 
     #[cfg(target_family = "unix")]
@@ -75,7 +75,7 @@ impl CustomCommandExecutor {
         } else if let Some(exit_code) = exit_status.code() {
             anyhow!("command failed with exit code {exit_code}")
         } else {
-            anyhow!("command failed")
+            anyhow!("command failed: {}", exit_status)
         }
     }
 }
