@@ -44,7 +44,7 @@ Razel is in active development and **not** ready for production. CLI and format 
 | OS      | Status | Note                               |
 |---------|--------|------------------------------------|
 | Linux   | ✓      | stable, main development platform  |
-| Mac     | ❓      | not yet tested, might work         |
+| Mac     | (✓)    | tested in CI                       |
 | Windows | ✘      | not yet tested, likely not working |
 
 | Feature                      | Status | Note |
