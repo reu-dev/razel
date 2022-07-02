@@ -1,7 +1,9 @@
 use std::collections::HashMap;
-use std::os::unix::process::ExitStatusExt;
+use std::process::ExitStatus;
 use std::path::PathBuf;
-
+#[cfg(target_os = "linux")]
+use std::os::unix::process::ExitStatusExt;
+#[cfg(target_os = "linux")]
 use anyhow::anyhow;
 
 use crate::executors::{ExecutionResult, ExecutionStatus};
@@ -36,20 +38,8 @@ impl CustomCommandExecutor {
                     result.status = ExecutionStatus::Success;
                 } else {
                     result.status = ExecutionStatus::Failed;
-                    if exit_status.core_dumped() {
-                        result.error = Some(anyhow!(
-                            "command crashed with signal {}",
-                            exit_status.signal().unwrap()
-                        ));
-                    } else if let Some(signal) = exit_status.signal() {
-                        result.error = Some(anyhow!("command terminated by signal {signal}"));
-                    } else if let Some(signal) = exit_status.stopped_signal() {
-                        result.error = Some(anyhow!("command stopped by {signal}"));
-                    } else if let Some(exit_code) = exit_status.code() {
-                        result.error = Some(anyhow!("command failed with exit code {exit_code}"));
-                    } else {
-                        result.error = Some(anyhow!("command failed"));
-                    }
+                    self.handle_error(exit_status, &mut result);
+
                 }
                 result.exit_code = exit_status.code();
             }
@@ -68,6 +58,28 @@ impl CustomCommandExecutor {
             .cloned()
             .collect()
     }
+
+    #[cfg(target_os = "windows")]
+    fn handle_error(&self, _exit_status: ExitStatus, _result: &mut ExecutionResult) {
+    } 
+    #[cfg(target_os = "linux")]
+    fn handle_error(&self, exit_status: ExitStatus, result: &mut ExecutionResult) {
+        if exit_status.core_dumped() {
+            result.error = Some(anyhow!(
+                "command crashed with signal {}",
+                exit_status.signal().unwrap()
+            ));
+        } else if let Some(signal) = exit_status.signal() {
+            result.error = Some(anyhow!("command terminated by signal {signal}"));
+        } else if let Some(signal) = exit_status.stopped_signal() {
+            result.error = Some(anyhow!("command stopped by {signal}"));
+        } else if let Some(exit_code) = exit_status.code() {
+            result.error = Some(anyhow!("command failed with exit code {exit_code}"));
+        } else {
+            result.error = Some(anyhow!("command failed"));
+        }
+    } 
+
 }
 
 #[cfg(test)]
