@@ -173,13 +173,26 @@ mod tests {
         let act = super::Digest::for_file(&path).await.unwrap();
         let exp = digest_file_sha256_simple(&path).unwrap();
         assert_eq!(act, exp);
-        assert_eq!(
-            act,
-            super::Digest {
-                hash: "e0f702d446912234e5767af1db3f8b23b04beade5cdd1ea72d78c4f88c869b80".into(), // sha256sum test/data/a.csv
-                size_bytes: 16,
-            }
-        );
+        // check vs: sha256sum test/data/a.csv line endings
+        if act.size_bytes == 18 {
+            // test/data/a.csv has CRLF
+            assert_eq!(
+                act,
+                super::Digest {
+                    hash: "11f5756d3300e967b28969ee86532fe891b0ea42e5ba843bc212fe444cf0f37d".into(),
+                    size_bytes: 18
+                }
+            );
+        } else {
+            // test/data/a.csv has LF line endings
+            assert_eq!(
+                act,
+                super::Digest {
+                    hash: "e0f702d446912234e5767af1db3f8b23b04beade5cdd1ea72d78c4f88c869b80".into(),
+                    size_bytes: 16,
+                }
+            );
+        }
     }
 
     #[tokio::test]
