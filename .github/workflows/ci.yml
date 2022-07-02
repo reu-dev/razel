@@ -4,6 +4,7 @@ on: [push, pull_request]
 
 env:
   CARGO_TERM_COLOR: always
+  DENO_DIR: $GITHUB_WORKSPACE/.deno-cache
   RUST_BACKTRACE: 1
 
 jobs:
@@ -26,7 +27,23 @@ jobs:
       - uses: denoland/setup-deno@v1
         with:
           deno-version: v1.x
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v1
+      - uses: arduino/setup-protoc@v1
+
+      - name: cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: cache deno
+        uses: actions/cache@v3
+        with:
+          path: $DENO_DIR/deps
+          key: ${{ runner.os }}-deno-${{ hashFiles('include/deno/razel.ts') }}
+
       - run: deno run -A test/deno.ts
       - run: cargo test
