@@ -1,10 +1,10 @@
-use std::collections::HashMap;
-use std::process::ExitStatus;
-use std::path::PathBuf;
-#[cfg(target_os = "linux")]
-use std::os::unix::process::ExitStatusExt;
 #[cfg(target_os = "linux")]
 use anyhow::anyhow;
+use std::collections::HashMap;
+#[cfg(target_os = "linux")]
+use std::os::unix::process::ExitStatusExt;
+use std::path::PathBuf;
+use std::process::ExitStatus;
 
 use crate::executors::{ExecutionResult, ExecutionStatus};
 
@@ -39,7 +39,6 @@ impl CustomCommandExecutor {
                 } else {
                     result.status = ExecutionStatus::Failed;
                     self.handle_error(exit_status, &mut result);
-
                 }
                 result.exit_code = exit_status.code();
             }
@@ -60,8 +59,8 @@ impl CustomCommandExecutor {
     }
 
     #[cfg(target_os = "windows")]
-    fn handle_error(&self, _exit_status: ExitStatus, _result: &mut ExecutionResult) {
-    } 
+    fn handle_error(&self, _exit_status: ExitStatus, _result: &mut ExecutionResult) {}
+
     #[cfg(target_os = "linux")]
     fn handle_error(&self, exit_status: ExitStatus, result: &mut ExecutionResult) {
         if exit_status.core_dumped() {
@@ -78,8 +77,7 @@ impl CustomCommandExecutor {
         } else {
             result.error = Some(anyhow!("command failed"));
         }
-    } 
-
+    }
 }
 
 #[cfg(test)]

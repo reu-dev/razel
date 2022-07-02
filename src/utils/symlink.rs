@@ -1,7 +1,7 @@
-use std::fs;
-use std::path::PathBuf;
-use std::io;
 use anyhow::Context;
+use std::fs;
+use std::io;
+use std::path::PathBuf;
 use tokio::task::spawn_blocking;
 
 /// Force creating a symlink: overwrite existing file and create parent directories
@@ -29,11 +29,12 @@ pub async fn force_symlink(src: &PathBuf, dst: &PathBuf) -> Result<(), anyhow::E
 #[cfg(target_os = "windows")]
 fn symlink_file(src: &PathBuf, dst: &PathBuf) -> io::Result<()> {
     std::os::windows::fs::symlink_file(&src, &dst)
-} 
+}
+
 #[cfg(target_os = "linux")]
 fn symlink_file(src: &PathBuf, dst: &PathBuf) -> io::Result<()> {
     std::os::unix::fs::symlink(&src, &dst)
-} 
+}
 
 #[cfg(test)]
 mod tests {
