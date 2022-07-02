@@ -1,0 +1,32 @@
+name: CI
+
+on: [push, pull_request]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  code-style:
+    runs-on: ubuntu-20.04
+    steps:
+    - uses: actions/checkout@v3
+    - run: cargo fmt --check
+
+  tests:
+    name: Test ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-11, windows-2019, ubuntu-20.04]  # macos-12, windows-2022
+        rust: [stable]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.x
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+      - run: deno run --allow-write=. test/deno.ts
+      - run: cargo test
