@@ -1,8 +1,5 @@
-#[cfg(target_family = "unix")]
 use anyhow::anyhow;
 use std::collections::HashMap;
-#[cfg(target_family = "unix")]
-use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::process::ExitStatus;
 
@@ -38,7 +35,7 @@ impl CustomCommandExecutor {
                     result.status = ExecutionStatus::Success;
                 } else {
                     result.status = ExecutionStatus::Failed;
-                    self.handle_error(exit_status, &mut result);
+                    result.error = Some(Self::handle_error(exit_status));
                 }
                 result.exit_code = exit_status.code();
             }
@@ -59,23 +56,26 @@ impl CustomCommandExecutor {
     }
 
     #[cfg(target_family = "windows")]
-    fn handle_error(&self, _exit_status: ExitStatus, _result: &mut ExecutionResult) {}
+    fn handle_error(exit_status: ExitStatus) -> anyhow::Error {
+        anyhow!("command failed")
+    }
 
     #[cfg(target_family = "unix")]
-    fn handle_error(&self, exit_status: ExitStatus, result: &mut ExecutionResult) {
+    fn handle_error(exit_status: ExitStatus) -> anyhow::Error {
+        use std::os::unix::process::ExitStatusExt;
         if exit_status.core_dumped() {
-            result.error = Some(anyhow!(
+            anyhow!(
                 "command crashed with signal {}",
                 exit_status.signal().unwrap()
-            ));
+            )
         } else if let Some(signal) = exit_status.signal() {
-            result.error = Some(anyhow!("command terminated by signal {signal}"));
+            anyhow!("command terminated by signal {signal}")
         } else if let Some(signal) = exit_status.stopped_signal() {
-            result.error = Some(anyhow!("command stopped by {signal}"));
+            anyhow!("command stopped by {signal}")
         } else if let Some(exit_code) = exit_status.code() {
-            result.error = Some(anyhow!("command failed with exit code {exit_code}"));
+            anyhow!("command failed with exit code {exit_code}")
         } else {
-            result.error = Some(anyhow!("command failed"));
+            anyhow!("command failed")
         }
     }
 }
