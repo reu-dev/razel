@@ -689,7 +689,7 @@ mod tests {
     /// Test that commands are actually run in parallel limited by Scheduler::worker_threads
     #[tokio::test]
     #[serial]
-    async fn parallel() {
+    async fn parallel_real_time_test() {
         let mut scheduler = Scheduler::new();
         scheduler.read_cache = false;
         let threads = scheduler.worker_threads;
