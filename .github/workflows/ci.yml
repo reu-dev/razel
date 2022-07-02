@@ -4,7 +4,7 @@ on: [push, pull_request]
 
 env:
   CARGO_TERM_COLOR: always
-  DENO_DIR: $GITHUB_WORKSPACE/.deno-cache
+  DENO_DIR: .deno-cache
   RUST_BACKTRACE: 1
 
 jobs:
