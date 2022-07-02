@@ -210,7 +210,8 @@ impl Scheduler {
         } else if let Some(x) = self.which_to_file_id.get(&arg) {
             Ok(&self.files[*x])
         } else {
-            let path = which(&arg)?;
+            let path =
+                which(&arg).with_context(|| format!("executable not found: {:?}", arg.clone()))?;
             info!("which({}) => {:?}", arg, path);
             let id = self.input_file(path.to_str().unwrap().into())?.id;
             self.which_to_file_id.insert(arg, id);
