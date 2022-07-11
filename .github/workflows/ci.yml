@@ -30,6 +30,8 @@ jobs:
           deno-version: v1.x
 
       - uses: arduino/setup-protoc@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - run: deno info
       - run: deno --version
