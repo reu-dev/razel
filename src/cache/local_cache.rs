@@ -2,35 +2,34 @@ use std::io::ErrorKind;
 use std::path::PathBuf;
 
 use anyhow::{bail, Context};
-use directories::ProjectDirs;
 use log::warn;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 
 use crate::bazel_remote_exec::{ActionResult, Digest};
 use crate::cache::{message_to_pb_buf, MessageDigest};
-use crate::config;
+use crate::config::select_cache_dir;
 
 #[derive(Clone)]
 pub struct LocalCache {
+    pub dir: PathBuf,
     pub ac_dir: PathBuf,
     #[allow(dead_code)]
     pub cas_dir: PathBuf,
 }
 
 impl LocalCache {
-    pub fn new() -> Result<Self, anyhow::Error> {
-        let dir = Self::dir();
+    pub fn new(workspace_dir: &PathBuf) -> Result<Self, anyhow::Error> {
+        let dir = select_cache_dir(workspace_dir)?;
         let ac_dir = dir.join("ac");
         let cas_dir = dir.join("cas");
         std::fs::create_dir_all(&ac_dir)?;
         std::fs::create_dir_all(&cas_dir)?;
-        Ok(Self { ac_dir, cas_dir })
-    }
-
-    pub fn dir() -> PathBuf {
-        let project_dirs = ProjectDirs::from("", "reu-dev", config::EXECUTABLE).unwrap();
-        project_dirs.cache_dir().into()
+        Ok(Self {
+            dir,
+            ac_dir,
+            cas_dir,
+        })
     }
 
     pub async fn get_action_result(&self, digest: &MessageDigest) -> Option<ActionResult> {

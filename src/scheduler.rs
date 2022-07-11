@@ -12,7 +12,7 @@ use which::which;
 
 use crate::bazel_remote_exec::command::EnvironmentVariable;
 use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
-use crate::cache::{BlobDigest, Cache, LocalCache, MessageDigest};
+use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor};
 use crate::{
     bazel_remote_exec, config, Arena, Command, CommandBuilder, CommandId, File, FileId, Sandbox,
@@ -80,6 +80,7 @@ impl Scheduler {
         let current_dir = env::current_dir().unwrap();
         let workspace_dir = current_dir.clone();
         let out_dir = PathBuf::from(config::OUT_DIR);
+        let cache = Cache::new(&workspace_dir).unwrap();
         debug!("workspace_dir: {:?}", workspace_dir);
         debug!("out_dir:       {:?}", out_dir);
         Scheduler {
@@ -88,7 +89,7 @@ impl Scheduler {
             workspace_dir,
             current_dir,
             out_dir,
-            cache: Cache::new().unwrap(),
+            cache,
             files: Default::default(),
             path_to_file_id: Default::default(),
             which_to_file_id: Default::default(),
@@ -109,13 +110,15 @@ impl Scheduler {
     }
 
     /// Set the directory to resolve relative paths of input/output files
-    pub fn set_workspace_dir(&mut self, workspace: &Path) {
+    pub fn set_workspace_dir(&mut self, workspace: &Path) -> Result<(), anyhow::Error> {
         if workspace.is_absolute() {
             self.workspace_dir = workspace.into();
         } else {
             self.workspace_dir = self.current_dir.join(workspace);
         }
         debug!("workspace_dir: {:?}", self.workspace_dir);
+        self.cache = Cache::new(&self.workspace_dir)?;
+        Ok(())
     }
 
     pub fn len(&self) -> usize {
@@ -124,7 +127,7 @@ impl Scheduler {
 
     pub fn show_info(&self) {
         println!("output directory: {:?}", self.out_dir);
-        println!("cache directory:  {:?}", LocalCache::dir());
+        println!("cache directory:  {:?}", self.cache.local_cache.dir);
         println!("worker threads:   {}", self.worker_threads);
     }
 
