@@ -12,13 +12,14 @@ use crate::{bazel_remote_exec, force_symlink};
 
 #[derive(Clone)]
 pub struct Cache {
-    local_cache: LocalCache,
+    pub local_cache: LocalCache,
 }
 
 impl Cache {
-    pub fn new() -> Result<Self, anyhow::Error> {
+    pub fn new(workspace_dir: &PathBuf) -> Result<Self, anyhow::Error> {
         Ok(Self {
-            local_cache: LocalCache::new().with_context(|| "Failed to create local cache")?,
+            local_cache: LocalCache::new(workspace_dir)
+                .with_context(|| "Failed to create local cache")?,
         })
     }
 

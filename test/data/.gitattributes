@@ -1,0 +1,2 @@
+# clone test data files with LF to allow comparing with output of razel csv tasks
+*.csv text eol=lf
