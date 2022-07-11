@@ -55,7 +55,7 @@ pub struct Scheduler {
     workspace_dir: PathBuf,
     /// current working directory, read-only, used to execute commands
     current_dir: PathBuf,
-    /// directory of output files
+    /// directory of output files - relative to current_dir
     out_dir: PathBuf,
     cache: Cache,
     files: Arena<File>,
@@ -82,7 +82,7 @@ impl Scheduler {
         let out_dir = PathBuf::from(config::OUT_DIR);
         let cache = Cache::new(&workspace_dir).unwrap();
         debug!("workspace_dir: {:?}", workspace_dir);
-        debug!("out_dir:       {:?}", out_dir);
+        debug!("out_dir:       {:?}", current_dir.join(&out_dir));
         Scheduler {
             read_cache: true,
             worker_threads,
@@ -126,7 +126,10 @@ impl Scheduler {
     }
 
     pub fn show_info(&self) {
-        println!("output directory: {:?}", self.out_dir);
+        println!(
+            "output directory: {:?}",
+            self.current_dir.join(&self.out_dir)
+        );
         println!("cache directory:  {:?}", self.cache.local_cache.dir);
         println!("worker threads:   {}", self.worker_threads);
     }
