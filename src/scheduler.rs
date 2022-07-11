@@ -185,6 +185,7 @@ impl Scheduler {
             bail!("no commands added");
         }
         self.create_dependency_graph();
+        self.remove_unknown_files_from_out_dir(&self.out_dir).ok();
         self.digest_input_files().await?;
         self.create_output_dirs()?;
         let (tx, mut rx) = mpsc::channel(32);
@@ -199,6 +200,7 @@ impl Scheduler {
                 self.start_ready_commands(&tx);
             }
         }
+        self.remove_outputs_of_not_run_actions_from_out_dir();
         Ok(SchedulerStats {
             exec: SchedulerExecStats {
                 succeeded: self.succeeded.len(),
@@ -326,6 +328,36 @@ impl Scheduler {
 
     fn check_for_circular_dependencies(&self) {
         // TODO
+    }
+
+    fn remove_unknown_files_from_out_dir(&self, dir: &Path) -> Result<(), anyhow::Error> {
+        for entry in fs::read_dir(dir)? {
+            if let Ok(path) = entry.map(|x| x.path()) {
+                if path.is_dir() {
+                    // TODO remove whole dir if not known
+                    self.remove_unknown_files_from_out_dir(&path).ok();
+                } else {
+                    let path_wo_prefix = path.strip_prefix(&self.out_dir).unwrap();
+                    if self
+                        .path_to_file_id
+                        .get(path_wo_prefix)
+                        .filter(|x| self.files[**x].out_path == path)
+                        .is_none()
+                    {
+                        fs::remove_file(path).ok();
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn remove_outputs_of_not_run_actions_from_out_dir(&self) {
+        for command_id in self.waiting.iter().chain(self.ready.iter()) {
+            for file_id in &self.commands[*command_id].outputs {
+                fs::remove_file(&self.files[*file_id].out_path).ok();
+            }
+        }
     }
 
     async fn digest_input_files(&mut self) -> Result<(), anyhow::Error> {
