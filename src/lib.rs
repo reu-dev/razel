@@ -77,9 +77,11 @@ pub mod executors {
 pub mod utils {
     pub use arena::*;
     pub use symlink::*;
+    pub use tui::*;
 
     mod arena;
     mod symlink;
+    mod tui;
 }
 
 pub mod tasks {

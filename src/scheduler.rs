@@ -5,7 +5,7 @@ use std::{env, fs};
 
 use anyhow::{bail, Context};
 use itertools::Itertools;
-use log::{debug, error, info, warn};
+use log::{debug, warn};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use which::which;
@@ -16,6 +16,7 @@ use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor};
 use crate::{
     bazel_remote_exec, config, Arena, Command, CommandBuilder, CommandId, File, FileId, Sandbox,
+    TUI,
 };
 
 #[derive(Debug, PartialEq)]
@@ -222,7 +223,7 @@ impl Scheduler {
         } else {
             let path =
                 which(&arg).with_context(|| format!("executable not found: {:?}", arg.clone()))?;
-            info!("which({}) => {:?}", arg, path);
+            debug!("which({}) => {:?}", arg, path);
             let id = self.input_file(path.to_str().unwrap().into())?.id;
             self.which_to_file_id.insert(arg, id);
             Ok(&self.files[id])
@@ -456,7 +457,6 @@ impl Scheduler {
         assert_eq!(command.unfinished_deps.len(), 0);
         let action = self.get_bzl_action_for_command(command);
         let action_digest = Digest::for_message(&action);
-        info!("Execute {}", command.name);
         let cache = self.cache.clone();
         let read_cache = self.read_cache;
         let executor = command.executor.clone();
@@ -670,7 +670,7 @@ impl Scheduler {
         }
         let command = &mut self.commands[id];
         command.schedule_state = ScheduleState::Succeeded;
-        info!("Success {}: {:?}", command.name, execution_result);
+        TUI::command_succeeded(command, execution_result).unwrap();
         for rdep_id in command.reverse_deps.clone() {
             let rdep = &mut self.commands[rdep_id];
             assert_eq!(rdep.schedule_state, ScheduleState::Waiting);
@@ -685,12 +685,10 @@ impl Scheduler {
         }
     }
 
-    fn on_command_failed(&mut self, id: CommandId, result: &ExecutionResult) {
+    fn on_command_failed(&mut self, id: CommandId, execution_result: &ExecutionResult) {
         self.failed.push(id);
         let command = &self.commands[id];
-        error!("Error  {}: {:?}", command.name, result.status);
-        error!("{:?}", result.error.as_ref().unwrap());
-        info!("Command line: {}", command.executor.command_line());
+        TUI::command_failed(command, execution_result).unwrap();
     }
 
     fn get_bzl_action_for_command(&self, command: &Command) -> bazel_remote_exec::Action {
