@@ -53,6 +53,8 @@ pub struct ExecutionResult {
     pub exit_code: Option<i32>,
     pub error: Option<anyhow::Error>,
     pub cache_hit: bool,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
 }
 
 impl ExecutionResult {

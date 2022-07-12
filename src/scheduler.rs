@@ -497,9 +497,8 @@ impl Scheduler {
                 (
                     ExecutionResult {
                         status: ExecutionStatus::SystemError,
-                        exit_code: None,
                         error: Some(e),
-                        cache_hit: false,
+                        ..Default::default()
                     },
                     None,
                 )
@@ -558,6 +557,8 @@ impl Scheduler {
                     exit_code,
                     error: None,
                     cache_hit: true,
+                    stdout: vec![], // TODO
+                    stderr: vec![], // TODO
                 };
                 return Some((execution_result, Some(action_result)));
             }

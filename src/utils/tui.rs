@@ -1,5 +1,6 @@
 use crate::executors::ExecutionResult;
 use crate::{Command, SchedulerStats};
+use bstr::ByteSlice;
 use crossterm::cursor::{RestorePosition, SavePosition};
 use crossterm::style::{Attribute, Color, SetForegroundColor};
 use crossterm::terminal;
@@ -19,12 +20,10 @@ impl TUI {
 
     pub fn command_succeeded(&mut self, command: &Command, execution_result: &ExecutionResult) {
         self.clear_status();
-        println!(
-            "{}{:?}{} {}",
-            SetForegroundColor(Color::Green),
-            execution_result.status,
-            Attribute::Reset,
-            command.name
+        Self::field(
+            format!("{:?} ", execution_result.status).as_str(),
+            Color::Green,
+            command.name.as_str(),
         );
     }
 
@@ -32,34 +31,30 @@ impl TUI {
         self.clear_status();
         println!();
         Self::line();
-        println!(
-            "{}{:?}{}     {}",
-            SetForegroundColor(Color::Red),
-            execution_result.status,
-            Attribute::Reset,
-            command.name
+        Self::field(
+            format!("{:<11}", format!("{:?}", execution_result.status)).as_str(),
+            Color::Red,
+            command.name.as_str(),
         );
-        if let Some(x) = execution_result.exit_code {
-            println!(
-                "{}exit code:{} {}",
-                SetForegroundColor(Color::Red),
-                Attribute::Reset,
-                x
-            );
-        }
         if let Some(x) = &execution_result.error {
-            println!(
-                "{}error:{}     {}",
-                SetForegroundColor(Color::Red),
-                Attribute::Reset,
-                x
-            );
+            Self::field("error:     ", Color::Red, format!("{}", x).as_str());
+        } else if let Some(x) = execution_result.exit_code {
+            Self::field("exit code: ", Color::Red, x.to_string().as_str());
         }
-        println!(
-            "{}command:{}   {}",
-            SetForegroundColor(Color::Blue),
-            Attribute::Reset,
-            command.executor.command_line()
+        Self::field(
+            "command:   ",
+            Color::Blue,
+            command.executor.command_line().as_str(),
+        );
+        Self::field(
+            "stderr:\n",
+            Color::Blue,
+            &execution_result.stderr.to_str_lossy(),
+        );
+        Self::field(
+            "stdout:\n",
+            Color::Blue,
+            &execution_result.stdout.to_str_lossy(),
         );
         Self::line();
         println!();
@@ -134,6 +129,19 @@ impl TUI {
             print!("{}{:>80}{}", RestorePosition, "", RestorePosition);
             self.status_printed = false;
         }
+    }
+
+    fn field(name: &str, color: Color, value: &str) {
+        if value.is_empty() {
+            return;
+        }
+        println!(
+            "{}{}{}{}",
+            SetForegroundColor(color),
+            name,
+            Attribute::Reset,
+            value.trim()
+        );
     }
 
     fn line() {

@@ -672,6 +672,7 @@ dependencies = [
  "approx",
  "async-trait",
  "base16ct",
+ "bstr",
  "clap",
  "crossterm",
  "csv",
