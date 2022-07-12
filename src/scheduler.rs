@@ -5,7 +5,7 @@ use std::{env, fs};
 
 use anyhow::{bail, Context};
 use itertools::Itertools;
-use log::{debug, error, info, warn};
+use log::{debug, warn};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use which::which;
@@ -16,6 +16,7 @@ use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor};
 use crate::{
     bazel_remote_exec, config, Arena, Command, CommandBuilder, CommandId, File, FileId, Sandbox,
+    TUI,
 };
 
 #[derive(Debug, PartialEq)]
@@ -71,6 +72,7 @@ pub struct Scheduler {
     succeeded: Vec<CommandId>,
     failed: Vec<CommandId>,
     cache_hits: usize,
+    tui: TUI,
 }
 
 impl Scheduler {
@@ -101,6 +103,7 @@ impl Scheduler {
             succeeded: vec![],
             failed: vec![],
             cache_hits: 0,
+            tui: TUI::new(),
         }
     }
 
@@ -201,7 +204,7 @@ impl Scheduler {
             }
         }
         self.remove_outputs_of_not_run_actions_from_out_dir();
-        Ok(SchedulerStats {
+        let stats = SchedulerStats {
             exec: SchedulerExecStats {
                 succeeded: self.succeeded.len(),
                 failed: self.failed.len(),
@@ -210,7 +213,9 @@ impl Scheduler {
             cache_hits: self.cache_hits,
             preparation_duration: execution_start.duration_since(preparation_start),
             execution_duration: execution_start.elapsed(),
-        })
+        };
+        self.tui.finished(&stats);
+        Ok(stats)
     }
 
     /// Register an executable to be used for a command
@@ -222,7 +227,7 @@ impl Scheduler {
         } else {
             let path =
                 which(&arg).with_context(|| format!("executable not found: {:?}", arg.clone()))?;
-            info!("which({}) => {:?}", arg, path);
+            debug!("which({}) => {:?}", arg, path);
             let id = self.input_file(path.to_str().unwrap().into())?.id;
             self.which_to_file_id.insert(arg, id);
             Ok(&self.files[id])
@@ -428,6 +433,17 @@ impl Scheduler {
             let id = self.ready.pop_front().unwrap();
             self.start_next_command(id, tx.clone());
         }
+        self.update_status();
+    }
+
+    fn update_status(&mut self) {
+        self.tui.status(
+            self.succeeded.len(),
+            self.cache_hits,
+            self.failed.len(),
+            self.running,
+            self.waiting.len() + self.ready.len(),
+        );
     }
 
     fn collect_input_file_paths_for_command(&self, command: &Command) -> Vec<PathBuf> {
@@ -456,7 +472,6 @@ impl Scheduler {
         assert_eq!(command.unfinished_deps.len(), 0);
         let action = self.get_bzl_action_for_command(command);
         let action_digest = Digest::for_message(&action);
-        info!("Execute {}", command.name);
         let cache = self.cache.clone();
         let read_cache = self.read_cache;
         let executor = command.executor.clone();
@@ -670,7 +685,7 @@ impl Scheduler {
         }
         let command = &mut self.commands[id];
         command.schedule_state = ScheduleState::Succeeded;
-        info!("Success {}: {:?}", command.name, execution_result);
+        self.tui.command_succeeded(command, execution_result);
         for rdep_id in command.reverse_deps.clone() {
             let rdep = &mut self.commands[rdep_id];
             assert_eq!(rdep.schedule_state, ScheduleState::Waiting);
@@ -685,12 +700,10 @@ impl Scheduler {
         }
     }
 
-    fn on_command_failed(&mut self, id: CommandId, result: &ExecutionResult) {
+    fn on_command_failed(&mut self, id: CommandId, execution_result: &ExecutionResult) {
         self.failed.push(id);
         let command = &self.commands[id];
-        error!("Error  {}: {:?}", command.name, result.status);
-        error!("{:?}", result.error.as_ref().unwrap());
-        info!("Command line: {}", command.executor.command_line());
+        self.tui.command_failed(command, execution_result);
     }
 
     fn get_bzl_action_for_command(&self, command: &Command) -> bazel_remote_exec::Action {

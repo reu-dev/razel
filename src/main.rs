@@ -1,4 +1,4 @@
-use log::{info, LevelFilter};
+use log::{debug, LevelFilter};
 use simplelog::*;
 
 use razel::{parse_cli, Scheduler};
@@ -29,11 +29,7 @@ async fn main() -> Result<(), anyhow::Error> {
         None,
     )?;
     let stats = scheduler.run().await?;
-    info!(
-        "Done. {} succeeded ({} cached), {} failed, {} not run.",
-        stats.exec.succeeded, stats.cache_hits, stats.exec.failed, stats.exec.not_run
-    );
-    info!(
+    debug!(
         "preparation: {:.3}s, execution: {:.3}s",
         stats.preparation_duration.as_secs_f32(),
         stats.execution_duration.as_secs_f32()
