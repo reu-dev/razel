@@ -670,7 +670,7 @@ impl Scheduler {
         }
         let command = &mut self.commands[id];
         command.schedule_state = ScheduleState::Succeeded;
-        TUI::command_succeeded(command, execution_result).unwrap();
+        TUI::command_succeeded(command, execution_result);
         for rdep_id in command.reverse_deps.clone() {
             let rdep = &mut self.commands[rdep_id];
             assert_eq!(rdep.schedule_state, ScheduleState::Waiting);
@@ -688,7 +688,7 @@ impl Scheduler {
     fn on_command_failed(&mut self, id: CommandId, execution_result: &ExecutionResult) {
         self.failed.push(id);
         let command = &self.commands[id];
-        TUI::command_failed(command, execution_result).unwrap();
+        TUI::command_failed(command, execution_result);
     }
 
     fn get_bzl_action_for_command(&self, command: &Command) -> bazel_remote_exec::Action {

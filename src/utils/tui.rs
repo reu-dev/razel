@@ -7,10 +7,7 @@ use crossterm::terminal;
 pub struct TUI {}
 
 impl TUI {
-    pub fn command_succeeded(
-        command: &Command,
-        execution_result: &ExecutionResult,
-    ) -> Result<(), anyhow::Error> {
+    pub fn command_succeeded(command: &Command, execution_result: &ExecutionResult) {
         println!(
             "{}{:?}{} {}",
             SetForegroundColor(Color::Green),
@@ -18,15 +15,11 @@ impl TUI {
             Attribute::Reset,
             command.name
         );
-        Ok(())
     }
 
-    pub fn command_failed(
-        command: &Command,
-        execution_result: &ExecutionResult,
-    ) -> Result<(), anyhow::Error> {
+    pub fn command_failed(command: &Command, execution_result: &ExecutionResult) {
         println!();
-        Self::line()?;
+        Self::line();
         println!(
             "{}{:?}{}     {}",
             SetForegroundColor(Color::Red),
@@ -56,19 +49,17 @@ impl TUI {
             Attribute::Reset,
             command.executor.command_line()
         );
-        Self::line()?;
+        Self::line();
         println!();
-        Ok(())
     }
 
-    fn line() -> Result<(), anyhow::Error> {
-        let columns = terminal::size()?.0 as usize;
+    fn line() {
+        let columns = terminal::size().map_or(80, |x| x.0 as usize);
         println!(
             "{}{}{}",
             SetForegroundColor(Color::Red),
             "-".repeat(columns),
             Attribute::Reset,
         );
-        Ok(())
     }
 }
