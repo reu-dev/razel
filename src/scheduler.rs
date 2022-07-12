@@ -72,6 +72,7 @@ pub struct Scheduler {
     succeeded: Vec<CommandId>,
     failed: Vec<CommandId>,
     cache_hits: usize,
+    tui: TUI,
 }
 
 impl Scheduler {
@@ -102,6 +103,7 @@ impl Scheduler {
             succeeded: vec![],
             failed: vec![],
             cache_hits: 0,
+            tui: TUI::new(),
         }
     }
 
@@ -202,7 +204,7 @@ impl Scheduler {
             }
         }
         self.remove_outputs_of_not_run_actions_from_out_dir();
-        Ok(SchedulerStats {
+        let stats = SchedulerStats {
             exec: SchedulerExecStats {
                 succeeded: self.succeeded.len(),
                 failed: self.failed.len(),
@@ -211,7 +213,9 @@ impl Scheduler {
             cache_hits: self.cache_hits,
             preparation_duration: execution_start.duration_since(preparation_start),
             execution_duration: execution_start.elapsed(),
-        })
+        };
+        self.tui.finished(&stats);
+        Ok(stats)
     }
 
     /// Register an executable to be used for a command
@@ -429,6 +433,17 @@ impl Scheduler {
             let id = self.ready.pop_front().unwrap();
             self.start_next_command(id, tx.clone());
         }
+        self.update_status();
+    }
+
+    fn update_status(&mut self) {
+        self.tui.status(
+            self.succeeded.len(),
+            self.cache_hits,
+            self.failed.len(),
+            self.running,
+            self.waiting.len() + self.ready.len(),
+        );
     }
 
     fn collect_input_file_paths_for_command(&self, command: &Command) -> Vec<PathBuf> {
@@ -670,7 +685,7 @@ impl Scheduler {
         }
         let command = &mut self.commands[id];
         command.schedule_state = ScheduleState::Succeeded;
-        TUI::command_succeeded(command, execution_result);
+        self.tui.command_succeeded(command, execution_result);
         for rdep_id in command.reverse_deps.clone() {
             let rdep = &mut self.commands[rdep_id];
             assert_eq!(rdep.schedule_state, ScheduleState::Waiting);
@@ -688,7 +703,7 @@ impl Scheduler {
     fn on_command_failed(&mut self, id: CommandId, execution_result: &ExecutionResult) {
         self.failed.push(id);
         let command = &self.commands[id];
-        TUI::command_failed(command, execution_result);
+        self.tui.command_failed(command, execution_result);
     }
 
     fn get_bzl_action_for_command(&self, command: &Command) -> bazel_remote_exec::Action {

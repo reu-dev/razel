@@ -1,13 +1,24 @@
 use crate::executors::ExecutionResult;
-use crate::Command;
+use crate::{Command, SchedulerStats};
+use crossterm::cursor::{RestorePosition, SavePosition};
 use crossterm::style::{Attribute, Color, SetForegroundColor};
 use crossterm::terminal;
+use std::io::{stdout, Write};
 
 /// Terminal user interface
-pub struct TUI {}
+pub struct TUI {
+    status_printed: bool,
+}
 
 impl TUI {
-    pub fn command_succeeded(command: &Command, execution_result: &ExecutionResult) {
+    pub fn new() -> Self {
+        Self {
+            status_printed: false,
+        }
+    }
+
+    pub fn command_succeeded(&mut self, command: &Command, execution_result: &ExecutionResult) {
+        self.clear_status();
         println!(
             "{}{:?}{} {}",
             SetForegroundColor(Color::Green),
@@ -17,7 +28,8 @@ impl TUI {
         );
     }
 
-    pub fn command_failed(command: &Command, execution_result: &ExecutionResult) {
+    pub fn command_failed(&mut self, command: &Command, execution_result: &ExecutionResult) {
+        self.clear_status();
         println!();
         Self::line();
         println!(
@@ -51,6 +63,77 @@ impl TUI {
         );
         Self::line();
         println!();
+    }
+
+    pub fn status(
+        &mut self,
+        succeeded: usize,
+        cached: usize,
+        failed: usize,
+        running: usize,
+        remaining: usize,
+    ) {
+        if self.status_printed {
+            print!("{}", RestorePosition);
+        } else {
+            print!("{}", SavePosition);
+        }
+        print!(
+            "{}Status: {}{}{} succeeded ({} cached), {}{}{} failed, {} running, {} remaining",
+            SetForegroundColor(Color::Blue),
+            SetForegroundColor(if succeeded > 0 {
+                Color::Green
+            } else {
+                Color::Reset
+            }),
+            succeeded,
+            SetForegroundColor(Color::Reset),
+            cached,
+            SetForegroundColor(if failed > 0 { Color::Red } else { Color::Reset }),
+            failed,
+            SetForegroundColor(Color::Reset),
+            running,
+            remaining,
+        );
+        stdout().flush().unwrap();
+        self.status_printed = true;
+    }
+
+    pub fn finished(&mut self, stats: &SchedulerStats) {
+        self.clear_status();
+        println!(
+            "{}Done. {}{}{} succeeded ({} cached), {}{}{} failed, {}{}{} not run.",
+            SetForegroundColor(Color::Blue),
+            SetForegroundColor(if stats.exec.succeeded > 0 {
+                Color::Green
+            } else {
+                Color::Reset
+            }),
+            stats.exec.succeeded,
+            SetForegroundColor(Color::Reset),
+            stats.cache_hits,
+            SetForegroundColor(if stats.exec.failed > 0 {
+                Color::Red
+            } else {
+                Color::Reset
+            }),
+            stats.exec.failed,
+            SetForegroundColor(Color::Reset),
+            SetForegroundColor(if stats.exec.not_run > 0 {
+                Color::Red
+            } else {
+                Color::Reset
+            }),
+            stats.exec.not_run,
+            SetForegroundColor(Color::Reset),
+        );
+    }
+
+    fn clear_status(&mut self) {
+        if self.status_printed {
+            print!("{}{:>80}{}", RestorePosition, "", RestorePosition);
+            self.status_printed = false;
+        }
     }
 
     fn line() {
