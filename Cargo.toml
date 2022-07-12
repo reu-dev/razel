@@ -43,3 +43,6 @@ temp-dir = "0.1"
 # optimize some dependencies also for dev profile
 [profile.dev.package.sha2]
 opt-level = 3
+
+[profile.release]
+strip = "symbols"
