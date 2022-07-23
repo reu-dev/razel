@@ -1,3 +1,4 @@
+use crate::CGroup;
 use anyhow::anyhow;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -13,7 +14,11 @@ pub struct CustomCommandExecutor {
 }
 
 impl CustomCommandExecutor {
-    pub async fn exec(&self, sandbox_dir: Option<PathBuf>) -> ExecutionResult {
+    pub async fn exec(
+        &self,
+        sandbox_dir: Option<PathBuf>,
+        cgroup: Option<CGroup>,
+    ) -> ExecutionResult {
         let mut result: ExecutionResult = Default::default();
         let child = match tokio::process::Command::new(&self.executable)
             .env_clear()
@@ -31,13 +36,15 @@ impl CustomCommandExecutor {
                 return result;
             }
         };
+        if let Some(cgroup) = cgroup {
+            cgroup.add_task("memory", child.id().unwrap()).ok();
+        }
         match child.wait_with_output().await {
             Ok(output) => {
                 if output.status.success() {
                     result.status = ExecutionStatus::Success;
                 } else {
-                    result.status = ExecutionStatus::Failed;
-                    result.error = Some(Self::handle_error(output.status));
+                    (result.status, result.error) = Self::evaluate_status(output.status);
                 }
                 result.exit_code = output.status.code();
                 result.stdout = output.stdout;
@@ -60,26 +67,50 @@ impl CustomCommandExecutor {
     }
 
     #[cfg(target_family = "windows")]
-    fn handle_error(exit_status: ExitStatus) -> anyhow::Error {
-        anyhow!("command failed: {}", exit_status)
+    fn evaluate_status(exit_status: ExitStatus) -> (ExecutionStatus, Option<anyhow::Error>) {
+        if exit_status.success() {
+            (ExecutionStatus::Success, None)
+        } else {
+            (
+                ExecutionStatus::Failed,
+                Some(anyhow!("command failed: {}", exit_status)),
+            )
+        }
     }
 
     #[cfg(target_family = "unix")]
-    fn handle_error(exit_status: ExitStatus) -> anyhow::Error {
+    fn evaluate_status(exit_status: ExitStatus) -> (ExecutionStatus, Option<anyhow::Error>) {
         use std::os::unix::process::ExitStatusExt;
-        if exit_status.core_dumped() {
-            anyhow!(
-                "command crashed with signal {}",
-                exit_status.signal().unwrap()
+        if exit_status.success() {
+            (ExecutionStatus::Success, None)
+        } else if exit_status.core_dumped() {
+            (
+                ExecutionStatus::Crashed,
+                Some(anyhow!(
+                    "command crashed with signal {}",
+                    exit_status.signal().unwrap()
+                )),
             )
         } else if let Some(signal) = exit_status.signal() {
-            anyhow!("command terminated by signal {signal}")
+            (
+                ExecutionStatus::Killed,
+                Some(anyhow!("command terminated by signal {signal}")),
+            )
         } else if let Some(signal) = exit_status.stopped_signal() {
-            anyhow!("command stopped by {signal}")
+            (
+                ExecutionStatus::Killed,
+                Some(anyhow!("command stopped by {signal}")),
+            )
         } else if let Some(exit_code) = exit_status.code() {
-            anyhow!("command failed with exit code {exit_code}")
+            (
+                ExecutionStatus::Failed,
+                Some(anyhow!("command failed with exit code {exit_code}")),
+            )
         } else {
-            anyhow!("command failed: {}", exit_status)
+            (
+                ExecutionStatus::Failed,
+                Some(anyhow!("command failed: {}", exit_status)),
+            )
         }
     }
 }

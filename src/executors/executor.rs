@@ -1,3 +1,4 @@
+use crate::CGroup;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -10,9 +11,13 @@ pub enum Executor {
 }
 
 impl Executor {
-    pub async fn exec(&self, sandbox_dir: Option<PathBuf>) -> ExecutionResult {
+    pub async fn exec(
+        &self,
+        sandbox_dir: Option<PathBuf>,
+        cgroup: Option<CGroup>,
+    ) -> ExecutionResult {
         match self {
-            Executor::CustomCommand(c) => c.exec(sandbox_dir).await,
+            Executor::CustomCommand(c) => c.exec(sandbox_dir, cgroup).await,
             Executor::Task(t) => t.exec().await,
         }
     }
@@ -68,6 +73,10 @@ pub enum ExecutionStatus {
     NotStarted,
     FailedToStart,
     Failed,
+    /// SIGSEGV
+    Crashed,
+    /// SIGTERM/SIGKILL, e.g. killed by OOM killer
+    Killed,
     Timeout,
     Success,
     /// not command related error, e.g. cache, sandbox

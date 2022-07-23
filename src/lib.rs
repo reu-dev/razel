@@ -76,10 +76,12 @@ pub mod executors {
 
 pub mod utils {
     pub use arena::*;
+    pub use resources::*;
     pub use symlink::*;
     pub use tui::*;
 
     mod arena;
+    mod resources;
     mod symlink;
     mod tui;
 }

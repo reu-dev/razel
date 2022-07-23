@@ -15,8 +15,8 @@ use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
 use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor};
 use crate::{
-    bazel_remote_exec, config, Arena, Command, CommandBuilder, CommandId, File, FileId, Sandbox,
-    TUI,
+    bazel_remote_exec, config, Arena, CGroup, Command, CommandBuilder, CommandId, File, FileId,
+    Sandbox, TUI,
 };
 
 #[derive(Debug, PartialEq)]
@@ -65,6 +65,7 @@ pub struct Scheduler {
     /// razel executable - used in Action::input_root_digest for versioning tasks
     self_file_id: Option<FileId>,
     commands: Arena<Command>,
+    cgroup: Option<CGroup>,
     waiting: HashSet<CommandId>,
     // TODO sort by weight, e.g. recursive number of rdeps
     ready: VecDeque<CommandId>,
@@ -97,6 +98,7 @@ impl Scheduler {
             which_to_file_id: Default::default(),
             self_file_id: None,
             commands: Default::default(),
+            cgroup: Self::create_cgroup().ok(),
             waiting: Default::default(),
             ready: Default::default(),
             running: 0,
@@ -105,6 +107,14 @@ impl Scheduler {
             cache_hits: 0,
             tui: TUI::new(),
         }
+    }
+
+    fn create_cgroup() -> Result<CGroup, anyhow::Error> {
+        let cgroup = CGroup::new(config::EXECUTABLE.into());
+        cgroup.create("memory")?;
+        cgroup.write("memory", "memory.limit_in_bytes", 2 * 100 * 1024 * 1024)?;
+        cgroup.write("memory", "memory.swappiness", 0)?;
+        Ok(cgroup)
     }
 
     /// Remove the binary directory
@@ -480,6 +490,7 @@ impl Scheduler {
         let sandbox = executor
             .use_sandbox()
             .then(|| Sandbox::new(&command.id.to_string()));
+        let cgroup = self.cgroup.clone();
         let out_dir = self.out_dir.clone();
         tokio::task::spawn(async move {
             let (execution_result, action_result) = Self::exec_action_with_cache(
@@ -490,6 +501,7 @@ impl Scheduler {
                 &input_paths,
                 &output_paths,
                 &sandbox,
+                cgroup,
                 &out_dir,
             )
             .await
@@ -516,6 +528,7 @@ impl Scheduler {
         input_paths: &Vec<PathBuf>,
         output_paths: &Vec<PathBuf>,
         sandbox: &Option<Sandbox>,
+        cgroup: Option<CGroup>,
         out_dir: &PathBuf,
     ) -> Result<(ExecutionResult, Option<ActionResult>), anyhow::Error> {
         let (execution_result, action_result) = if let Some(x) =
@@ -530,6 +543,7 @@ impl Scheduler {
                 &input_paths,
                 &output_paths,
                 &sandbox,
+                cgroup,
                 &out_dir,
             )
             .await
@@ -573,6 +587,7 @@ impl Scheduler {
         input_paths: &Vec<PathBuf>,
         output_paths: &Vec<PathBuf>,
         sandbox: &Option<Sandbox>,
+        cgroup: Option<CGroup>,
         out_dir: &PathBuf,
     ) -> Result<(ExecutionResult, Option<ActionResult>), anyhow::Error> {
         if let Some(sandbox) = &sandbox {
@@ -587,7 +602,9 @@ impl Scheduler {
                 fs::remove_file(x).ok();
             }
         }
-        let execution_result = executor.exec(sandbox.as_ref().map(|x| x.dir.clone())).await;
+        let execution_result = executor
+            .exec(sandbox.as_ref().map(|x| x.dir.clone()), cgroup)
+            .await;
         let action_result = if execution_result.success() {
             Some(
                 Self::cache_action_result(
