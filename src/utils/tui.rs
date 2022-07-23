@@ -4,16 +4,19 @@ use bstr::ByteSlice;
 use crossterm::cursor::{RestorePosition, SavePosition};
 use crossterm::style::{Attribute, Color, SetForegroundColor};
 use crossterm::terminal;
+use itertools::Itertools;
 use std::io::{stdout, Write};
 
 /// Terminal user interface
 pub struct TUI {
+    verbose: bool,
     status_printed: bool,
 }
 
 impl TUI {
     pub fn new() -> Self {
         Self {
+            verbose: false,
             status_printed: false,
         }
     }
@@ -25,6 +28,18 @@ impl TUI {
             Color::Green,
             command.name.as_str(),
         );
+        if self.verbose {
+            Self::field(
+                "stderr:\n",
+                Color::Blue,
+                &execution_result.stderr.to_str_lossy(),
+            );
+            Self::field(
+                "stdout:\n",
+                Color::Blue,
+                &execution_result.stdout.to_str_lossy(),
+            );
+        }
     }
 
     pub fn command_failed(&mut self, command: &Command, execution_result: &ExecutionResult) {
@@ -46,6 +61,20 @@ impl TUI {
             Color::Blue,
             command.executor.command_line().as_str(),
         );
+        if let Some(env) = command.executor.env() {
+            Self::field(
+                "env:       ",
+                Color::Blue,
+                format!(
+                    "{}",
+                    env.iter()
+                        .sorted_unstable_by(|a, b| Ord::cmp(&a.0, &b.0))
+                        .map(|x| format!("{}={}", x.0, x.1))
+                        .join(" ")
+                )
+                .as_str(),
+            );
+        }
         Self::field(
             "stderr:\n",
             Color::Blue,
