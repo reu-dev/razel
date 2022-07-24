@@ -42,6 +42,15 @@ impl TUI {
         }
     }
 
+    pub fn command_retry(&mut self, command: &Command, execution_result: &ExecutionResult) {
+        self.clear_status();
+        Self::field(
+            format!("{:?} (will retry) ", execution_result.status).as_str(),
+            Color::Yellow,
+            command.name.as_str(),
+        );
+    }
+
     pub fn command_failed(&mut self, command: &Command, execution_result: &ExecutionResult) {
         self.clear_status();
         println!();
