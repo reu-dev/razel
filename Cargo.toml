@@ -22,6 +22,7 @@ directories = "4.0"
 itertools = "0.10.3"
 log = "0.4.14"
 num_cpus = "1.8.0"  # TODO replace with std::thread::available_parallelism() once it works in docker: https://github.com/rust-lang/rust/pull/97925
+[target.'cfg(linux)'.dependencies]
 procfs = { version = "0.13.2", features = [] }
 prost = "0.10"
 prost-types = "0.10"
