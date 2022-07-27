@@ -78,14 +78,14 @@ pub mod executors {
 
 pub mod utils {
     pub use arena::*;
-    #[cfg(target_os = "linux")]
-    pub use resources_linux::*;
+    pub use resources::*;
     pub use symlink::*;
     pub use tui::*;
 
     mod arena;
-    #[cfg(target_os = "linux")]
-    mod resources_linux;
+    #[cfg_attr(target_os = "linux", path = "resources_linux.rs")]
+    #[cfg_attr(not(target_os = "linux"), path = "resources_unimplemented.rs")]
+    mod resources;
     mod symlink;
     mod tui;
 }

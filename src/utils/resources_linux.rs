@@ -82,7 +82,7 @@ impl CGroup {
         T: std::fmt::Display,
     {
         let path = self.path(controller, file);
-        std::fs::write(&path, value.to_string())?;
+        fs::write(&path, value.to_string())?;
         Ok(())
     }
 

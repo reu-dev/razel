@@ -15,8 +15,8 @@ use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
 use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor};
 use crate::{
-    bazel_remote_exec, config, get_available_memory, Arena, CGroup, Command, CommandBuilder,
-    CommandId, File, FileId, ReadyOrRunning, Sandbox, TUI,
+    bazel_remote_exec, config, Arena, CGroup, Command, CommandBuilder, CommandId, File, FileId,
+    ReadyOrRunning, Sandbox, TUI,
 };
 
 #[derive(Debug, PartialEq)]
@@ -85,6 +85,13 @@ impl Scheduler {
         let cache = Cache::new(&workspace_dir).unwrap();
         debug!("workspace_dir: {:?}", workspace_dir);
         debug!("out_dir:       {:?}", current_dir.join(&out_dir));
+        let cgroup = match Self::create_cgroup() {
+            Ok(x) => x,
+            Err(e) => {
+                info!("create_cgroup(): {:?}", e);
+                None
+            }
+        };
         Scheduler {
             read_cache: true,
             worker_threads,
@@ -97,7 +104,7 @@ impl Scheduler {
             which_to_file_id: Default::default(),
             self_file_id: None,
             commands: Default::default(),
-            cgroup: Self::create_cgroup().ok(),
+            cgroup,
             waiting: Default::default(),
             ready_or_running: ReadyOrRunning::new(worker_threads),
             succeeded: vec![],
@@ -107,30 +114,33 @@ impl Scheduler {
         }
     }
 
-    fn create_cgroup() -> Result<CGroup, anyhow::Error> {
-        if cfg!(unix) {
-            let available = get_available_memory()?;
-            let mut limit = available;
-            let existing_limit =
-                CGroup::new("".into()).read::<u64>("memory", "memory.limit_in_bytes");
-            if let Ok(x) = existing_limit {
-                limit = limit.min(x); // memory.limit_in_bytes will be infinite if not set
-            }
-            limit = (limit as f64 * 0.95) as u64;
-            let cgroup = CGroup::new(config::EXECUTABLE.into());
-            cgroup.create("memory")?;
-            cgroup.write("memory", "memory.limit_in_bytes", limit)?;
-            cgroup.write("memory", "memory.swappiness", 0)?;
-            info!(
-                "create_cgroup(): available: {}MiB, limit: {:?}MiB -> set limit {}MiB",
-                available / 1024 / 1024,
-                existing_limit.ok().map(|x| x / 1024 / 1024),
-                limit / 1024 / 1024
-            );
-            Ok(cgroup)
-        } else {
-            bail!("only supported on Linux")
+    #[cfg(target_os = "linux")]
+    fn create_cgroup() -> Result<Option<CGroup>, anyhow::Error> {
+        use crate::get_available_memory;
+        let available = get_available_memory()?;
+        let mut limit = available;
+        let existing_limit = CGroup::new("".into()).read::<u64>("memory", "memory.limit_in_bytes");
+        if let Ok(x) = existing_limit {
+            limit = limit.min(x); // memory.limit_in_bytes will be infinite if not set
         }
+        limit = (limit as f64 * 0.95) as u64;
+        let cgroup = CGroup::new(config::EXECUTABLE.into());
+        cgroup.create("memory")?;
+        cgroup.write("memory", "memory.limit_in_bytes", limit)?;
+        cgroup.write("memory", "memory.swappiness", 0)?;
+        info!(
+            "create_cgroup(): available: {}MiB, limit: {:?}MiB -> set limit {}MiB",
+            available / 1024 / 1024,
+            existing_limit.ok().map(|x| x / 1024 / 1024),
+            limit / 1024 / 1024
+        );
+        Ok(Some(cgroup))
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn create_cgroup() -> Result<Option<CGroup>, anyhow::Error> {
+        // no error, just not supported
+        Ok(None)
     }
 
     /// Remove the binary directory
