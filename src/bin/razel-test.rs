@@ -21,10 +21,7 @@ struct Args {
 fn main() -> ExitCode {
     let args = Args::parse();
 
-    if let Some(x) = args.memory {
-        let mut vec: Vec<u8> = Vec::new();
-        vec.resize(x, 0);
-    }
+    let mut _vec: Option<Vec<u8>> = args.memory.map(|x| vec![37; x]);
 
     if let Some(x) = args.sleep {
         sleep(Duration::from_secs(x));

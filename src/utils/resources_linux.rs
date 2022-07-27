@@ -97,6 +97,7 @@ impl CGroup {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
     fn available_memory() {
@@ -104,13 +105,15 @@ mod tests {
     }
 
     #[test]
+    #[serial]
+    #[ignore]
     fn cgroup_razel() {
         let cgroup = CGroup::new("razel".into());
         cgroup.create("memory").unwrap();
         cgroup
-            .write("memory", "memory.limit_in_bytes", 60000000)
+            .write("memory", "memory.limit_in_bytes", 150 * 1024 * 1024)
             .unwrap();
-        cgroup.write("memory", "memory.swappiness", 1).unwrap();
+        cgroup.write("memory", "memory.swappiness", 0).unwrap();
         println!(
             "memory.limit_in_bytes: {:?}",
             cgroup.read::<u64>("memory", "memory.limit_in_bytes")

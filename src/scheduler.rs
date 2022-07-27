@@ -5,7 +5,7 @@ use std::{env, fs};
 
 use anyhow::{bail, Context};
 use itertools::Itertools;
-use log::{debug, warn};
+use log::{debug, info, warn};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use which::which;
@@ -15,8 +15,8 @@ use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
 use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor};
 use crate::{
-    bazel_remote_exec, config, Arena, CGroup, Command, CommandBuilder, CommandId, File, FileId,
-    ReadyOrRunning, Sandbox, TUI,
+    bazel_remote_exec, config, get_available_memory, Arena, CGroup, Command, CommandBuilder,
+    CommandId, File, FileId, ReadyOrRunning, Sandbox, TUI,
 };
 
 #[derive(Debug, PartialEq)]
@@ -108,11 +108,29 @@ impl Scheduler {
     }
 
     fn create_cgroup() -> Result<CGroup, anyhow::Error> {
-        let cgroup = CGroup::new(config::EXECUTABLE.into());
-        cgroup.create("memory")?;
-        cgroup.write("memory", "memory.limit_in_bytes", 2 * 100 * 1024 * 1024)?;
-        cgroup.write("memory", "memory.swappiness", 0)?;
-        Ok(cgroup)
+        if cfg!(unix) {
+            let available = get_available_memory()?;
+            let mut limit = available;
+            let existing_limit =
+                CGroup::new("".into()).read::<u64>("memory", "memory.limit_in_bytes");
+            if let Ok(x) = existing_limit {
+                limit = limit.min(x); // memory.limit_in_bytes will be infinite if not set
+            }
+            limit = (limit as f64 * 0.95) as u64;
+            let cgroup = CGroup::new(config::EXECUTABLE.into());
+            cgroup.create("memory")?;
+            cgroup.write("memory", "memory.limit_in_bytes", limit)?;
+            cgroup.write("memory", "memory.swappiness", 0)?;
+            info!(
+                "create_cgroup(): available: {}MiB, limit: {:?}MiB -> set limit {}MiB",
+                available / 1024 / 1024,
+                existing_limit.ok().map(|x| x / 1024 / 1024),
+                limit / 1024 / 1024
+            );
+            Ok(cgroup)
+        } else {
+            bail!("only supported on Linux")
+        }
     }
 
     /// Remove the binary directory

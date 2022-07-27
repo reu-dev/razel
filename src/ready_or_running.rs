@@ -1,7 +1,6 @@
 use crate::executors::Executor;
 use crate::{Command, CommandId};
 use itertools::Itertools;
-use log::info;
 use std::collections::HashMap;
 
 type Group = String;
@@ -70,7 +69,7 @@ impl ReadyOrRunning {
             .iter()
             .find_position(|x| x.slots <= free_slots)
         {
-            let item = self.ready_items.swap_remove(index);
+            let item = self.ready_items.remove(index);
             self.running_items.insert(item.id, item.group);
             self.used_slots += item.slots;
             Some(item.id)
@@ -81,15 +80,17 @@ impl ReadyOrRunning {
 
     pub fn set_finished_and_get_retry_flag(&mut self, id: CommandId, killed: bool) -> bool {
         let group = self.running_items.remove(&id).unwrap();
-        let slots = self.slots_for_group(&group);
-        assert!(self.used_slots >= slots);
-        self.used_slots -= slots;
-        if killed && self.scale_up_memory_requirement(&group) {
-            self.ready_items.push(ReadyItem { id, group, slots });
-            true
-        } else {
-            false
+        self.used_slots -= self.slots_for_group(&group);
+        if killed {
+            self.scale_up_memory_requirement(&group);
+            // stop retry only when command was run exclusively
+            if !self.running_items.is_empty() {
+                let slots = self.slots_for_group(&group);
+                self.ready_items.push(ReadyItem { id, group, slots });
+                return true;
+            }
         }
+        false
     }
 
     fn scale_up_memory_requirement(&mut self, group: &Group) -> bool {
@@ -98,7 +99,6 @@ impl ReadyOrRunning {
         if slots_new == slots_old {
             return false;
         }
-        info!("scale_up_memory_requirement({group}): {slots_old} -> {slots_new}");
         self.group_to_slots.insert(group.clone(), slots_new);
         let running_in_group = self
             .running_items
@@ -130,19 +130,26 @@ impl ReadyOrRunning {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Arena, CommandBuilder, Scheduler};
+    use crate::executors::CustomCommandExecutor;
+    use crate::{Arena, ScheduleState};
 
     fn create(available_slots: usize, executables: Vec<&str>) -> ReadyOrRunning {
         let mut ready_or_running = ReadyOrRunning::new(available_slots);
-        let mut scheduler = Scheduler::new();
         let mut commands: Arena<Command> = Default::default();
         for executable in &executables {
-            let mut builder =
-                CommandBuilder::new(format!("cmd_{}", ready_or_running.len()), vec![]);
-            builder
-                .custom_command_executor(executable.to_string(), Default::default(), &mut scheduler)
-                .unwrap();
-            let id = commands.alloc_with_id(|id| builder.build(id));
+            let id = commands.alloc_with_id(|id| Command {
+                id,
+                name: format!("cmd_{id}"),
+                inputs: vec![],
+                outputs: vec![],
+                executor: Executor::CustomCommand(CustomCommandExecutor {
+                    executable: executable.to_string(),
+                    ..Default::default()
+                }),
+                unfinished_deps: vec![],
+                reverse_deps: vec![],
+                schedule_state: ScheduleState::New,
+            });
             ready_or_running.push_ready(&commands[id]);
         }
         assert_eq!(ready_or_running.ready(), executables.len());
@@ -151,16 +158,48 @@ mod tests {
 
     #[test]
     fn simple() {
-        let mut ror = create(3, vec!["exec_0", "exec_0", "exec_0", "exec_0"]);
+        let mut ror = create(3, vec!["exec_0", "exec_0", "exec_1", "exec_1"]);
         let c0 = ror.pop_ready_and_run().unwrap();
         let c1 = ror.pop_ready_and_run().unwrap();
         let c2 = ror.pop_ready_and_run().unwrap();
         assert_eq!(ror.pop_ready_and_run(), None);
+        assert_eq!(ror.used_slots, 3);
         assert_eq!(ror.set_finished_and_get_retry_flag(c1, false), false);
         let c3 = ror.pop_ready_and_run().unwrap();
         assert_eq!(ror.set_finished_and_get_retry_flag(c0, false), false);
         assert_eq!(ror.set_finished_and_get_retry_flag(c2, false), false);
         assert_eq!(ror.set_finished_and_get_retry_flag(c3, false), false);
         assert_eq!(ror.len(), 0);
+        assert_eq!(ror.used_slots, 0);
+    }
+
+    #[test]
+    fn killed() {
+        let mut ror = create(3, vec!["exec_0", "exec_0", "exec_1", "exec_1"]);
+        let c0 = ror.pop_ready_and_run().unwrap();
+        let c1 = ror.pop_ready_and_run().unwrap();
+        let c2 = ror.pop_ready_and_run().unwrap();
+        assert_eq!(ror.pop_ready_and_run(), None);
+        assert_eq!(ror.used_slots, 3);
+        assert_eq!(ror.set_finished_and_get_retry_flag(c1, true), true); // -> exec_0: 2 slots
+        assert_eq!(ror.used_slots, 3); // c0 (2), c2 (1)
+        assert_eq!(ror.pop_ready_and_run(), None);
+        assert_eq!(ror.set_finished_and_get_retry_flag(c0, true), true); // -> exec_0: 3 slots
+        assert_eq!(ror.used_slots, 1); // c2 (1)
+        assert_eq!(ror.set_finished_and_get_retry_flag(c2, false), false);
+        assert_eq!(ror.used_slots, 0);
+        let c3 = ror.pop_ready_and_run().unwrap();
+        assert_eq!(ror.used_slots, 1); // c4 (1)
+        assert_eq!(ror.pop_ready_and_run(), None);
+        assert_eq!(ror.set_finished_and_get_retry_flag(c3, false), false);
+        assert_eq!(ror.used_slots, 0);
+        let c0_or_c1 = ror.pop_ready_and_run().unwrap();
+        assert_eq!(ror.used_slots, 3);
+        assert_eq!(ror.pop_ready_and_run(), None);
+        assert_eq!(ror.set_finished_and_get_retry_flag(c0_or_c1, false), false);
+        let c0_or_c1 = ror.pop_ready_and_run().unwrap();
+        assert_eq!(ror.set_finished_and_get_retry_flag(c0_or_c1, true), false);
+        assert_eq!(ror.len(), 0);
+        assert_eq!(ror.used_slots, 0);
     }
 }

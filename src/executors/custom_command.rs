@@ -6,7 +6,7 @@ use std::process::{ExitStatus, Stdio};
 
 use crate::executors::{ExecutionResult, ExecutionStatus};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct CustomCommandExecutor {
     pub executable: String,
     pub args: Vec<String>,
