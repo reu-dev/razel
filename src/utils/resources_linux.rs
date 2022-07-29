@@ -36,7 +36,7 @@ impl CGroup {
     pub fn create(&self, controller: &str) -> Result<(), anyhow::Error> {
         let path = self.path(controller, "");
         let dir = path.parent().unwrap();
-        fs::create_dir_all(&dir)?;
+        fs::create_dir_all(&dir).with_context(|| format!("Failed to create dir {:?}", dir))?;
         Ok(())
     }
 
@@ -51,7 +51,10 @@ impl CGroup {
     {
         let path = self.path(controller, file);
         let string = read_to_string(&path).with_context(|| format!("Failed to read {:?}", path))?;
-        let value = string.trim().parse::<T>()?;
+        let value = string
+            .trim()
+            .parse::<T>()
+            .with_context(|| format!("Failed to parse {:?}", path))?;
         Ok(value)
     }
 
@@ -70,11 +73,13 @@ impl CGroup {
         let lines = BufReader::new(file).lines();
         for line in lines {
             if let Some(string) = line?.strip_prefix(field) {
-                let value = string.trim().parse::<T>()?;
+                let value = string.trim().parse::<T>().with_context(|| {
+                    format!("Failed to parse field {} from line: {}", field, string)
+                })?;
                 return Ok(value);
             }
         }
-        bail!("field not found: {}", field);
+        bail!("Failed to parse field {} from {:?}", field, path);
     }
 
     pub fn write<T>(&self, controller: &str, file: &str, value: T) -> Result<(), anyhow::Error>
@@ -82,7 +87,8 @@ impl CGroup {
         T: std::fmt::Display,
     {
         let path = self.path(controller, file);
-        fs::write(&path, value.to_string())?;
+        fs::write(&path, value.to_string())
+            .with_context(|| format!("Failed to write {:?}", path))?;
         Ok(())
     }
 
