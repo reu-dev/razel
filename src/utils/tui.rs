@@ -134,8 +134,24 @@ impl TUI {
     pub fn finished(&mut self, stats: &SchedulerStats) {
         self.clear_status();
         println!(
-            "{}Done. {}{}{} succeeded ({} cached), {}{}{} failed, {}{}{} not run.",
-            SetForegroundColor(Color::Blue),
+            "{}{} {}: {}{}{} succeeded ({} cached), {}{}{} failed, {}{}{} not run.",
+            SetForegroundColor(if stats.exec.finished_successfully() {
+                Color::Green
+            } else {
+                Color::Red
+            }),
+            if stats.exec.not_run == 0 {
+                "Finished"
+            } else {
+                "Stopped"
+            },
+            if stats.exec.finished_successfully() {
+                "successfully"
+            } else if stats.exec.failed == 1 {
+                "after error"
+            } else {
+                "after errors"
+            },
             SetForegroundColor(if stats.exec.succeeded > 0 {
                 Color::Green
             } else {
