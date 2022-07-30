@@ -4,6 +4,7 @@ use bstr::ByteSlice;
 use crossterm::cursor::{RestorePosition, SavePosition};
 use crossterm::style::{Attribute, Color, SetForegroundColor};
 use crossterm::terminal;
+use crossterm::tty::IsTty;
 use itertools::Itertools;
 use std::io::{stdout, Write};
 
@@ -11,6 +12,7 @@ use std::io::{stdout, Write};
 pub struct TUI {
     verbose: bool,
     status_printed: bool,
+    is_tty: bool,
 }
 
 impl TUI {
@@ -18,6 +20,7 @@ impl TUI {
         Self {
             verbose: false,
             status_printed: false,
+            is_tty: stdout().is_tty(),
         }
     }
 
@@ -97,10 +100,12 @@ impl TUI {
         running: usize,
         remaining: usize,
     ) {
-        if self.status_printed {
-            print!("{}", RestorePosition);
-        } else {
-            print!("{}", SavePosition);
+        if self.is_tty {
+            if self.status_printed {
+                print!("{}", RestorePosition);
+            } else {
+                print!("{}", SavePosition);
+            }
         }
         print!(
             "{}Status: {}{}{} succeeded ({} cached), {}{}{} failed, {} running, {} remaining",
@@ -119,6 +124,9 @@ impl TUI {
             running,
             remaining,
         );
+        if !self.is_tty {
+            println!();
+        }
         stdout().flush().unwrap();
         self.status_printed = true;
     }
@@ -154,9 +162,11 @@ impl TUI {
     }
 
     fn clear_status(&mut self) {
-        if self.status_printed {
-            print!("{}{:>80}{}", RestorePosition, "", RestorePosition);
-            self.status_printed = false;
+        if self.is_tty {
+            if self.status_printed {
+                print!("{}{:>80}{}", RestorePosition, "", RestorePosition);
+                self.status_printed = false;
+            }
         }
     }
 
