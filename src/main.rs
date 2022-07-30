@@ -34,6 +34,9 @@ async fn main() -> Result<(), anyhow::Error> {
         stats.preparation_duration.as_secs_f32(),
         stats.execution_duration.as_secs_f32()
     );
+    if !stats.exec.finished_successfully() {
+        std::process::exit(1);
+    }
     Ok(())
 }
 

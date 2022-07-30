@@ -47,6 +47,12 @@ pub struct SchedulerExecStats {
     pub not_run: usize,
 }
 
+impl SchedulerExecStats {
+    pub fn finished_successfully(&self) -> bool {
+        self.failed == 0 && self.not_run == 0
+    }
+}
+
 type ExecutionResultChannel = (CommandId, ExecutionResult, Option<ActionResult>);
 
 pub struct Scheduler {
