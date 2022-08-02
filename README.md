@@ -1,18 +1,21 @@
 # Razel
 
 A command executor with caching. It is:
-* Fast: caching avoids repeated execution of commands which haven't changed 
+
+* Fast: caching avoids repeated execution of commands which haven't changed
 * Reliable: commands are executed in a sandbox to detect missing dependencies
 * Easy to use: commands are specified using a high-level TypeScript API and convenience functions/tasks are built-in
 * Made for: data processing pipelines with executables working on files and many dependencies between those
 
-Razel is not the best choice for building software, especially there's no built-in support for compiler setup and header dependencies. 
+Razel is not the best choice for building software, especially there's no built-in support for compiler setup and header
+dependencies.
 
 [![CI](https://github.com/reu-dev/razel/actions/workflows/ci.yml/badge.svg)](https://github.com/reu-dev/razel/actions/workflows/ci.yml)
 
 ## Getting Started
 
 Use [rustup](https://rustup.rs/) to install Rust. Clone and build Razel:
+
 ```bash
 git clone https://github.com/reu-dev/razel.git
 cd razel/
@@ -22,6 +25,7 @@ cargo install --locked --path .
 ### Example: TypeScript API
 
 Install [Deno](https://deno.land/) to use the TypeScript API. [TypeScript example file](test/deno.ts)
+
 ```bash
 # create razel.jsonl from test/deno.ts 
 deno run --allow-write=. test/deno.ts
@@ -29,12 +33,14 @@ deno run --allow-write=. test/deno.ts
 # execute commands from razel.jsonl
 razel build test/razel.jsonl
 ```
+
 Instead of TypeScript, your favorite scripting language could be used to create a `razel.jsonl` file.
 
 ### Example: Batch file
 
 Razel can directly execute a file containing commands. Input and output files need to be specified, which is WIP.
 [Batch example file](test/batch.sh)
+
 ```bash
 razel batch test/batch.sh
 ```
@@ -49,18 +55,19 @@ Razel is in active development and **not** ready for production. CLI and format 
 | Mac     | (✓)    | tested in CI                       |
 | Windows | ✘      | not yet tested, likely not working |
 
-| Feature                      | Status | Note |
-|------------------------------|--------|------|
-| command execution in sandbox | ✓      |      |
-| multithreaded execution      | ✓      |      |
-| local caching                | ✓      |      |
-| remote caching               | ✘      | WIP  |
-| remote execution             | ✘      | TODO |
-
+| Feature                                   | Status  | Note                                                       |
+|-------------------------------------------|---------|------------------------------------------------------------|
+| command execution in sandbox              | ✓       |                                                            |
+| multithreaded execution                   | ✓       |                                                            |
+| local caching                             | ✓       |                                                            |
+| remote caching                            | ✘       | WIP                                                        |
+| remote execution                          | ✘       | TODO                                                       |
+| OOM handling: retry with less concurrency | ✓ Linux | requires `sudo cgcreate -a $USER -t $USER -g memory:razel` |
 
 ## Why not ...?
 
-* [Bazel](https://bazel.build/) is a multi-language build tool. However, for the use case Razel targets, there are some issues:
+* [Bazel](https://bazel.build/) is a multi-language build tool. However, for the use case Razel targets, there are some
+  issues:
     * additional launcher script required for some simple tasks
         * using stdout of action as input for another action
         * parsing measurements from stdout of action
@@ -70,12 +77,13 @@ Razel is in active development and **not** ready for production. CLI and format 
     * no native support for response files
     * resources cannot be reserved to run real-time critical tests
     * content of bazel-bin/out directories is not defined (contains mixture of current build and cache)
-* [CTest](https://cmake.org/cmake/help/latest/manual/ctest.1.html) is nice for building C/C++ code and CTest can be used for testing, 
-    but it does not support caching and managing dependencies between tests is difficult.
+* [CTest](https://cmake.org/cmake/help/latest/manual/ctest.1.html) is nice for building C/C++ code and CTest can be used
+  for testing,
+  but it does not support caching and managing dependencies between tests is difficult.
 
 ## Acknowledgements
 
-The idea to build fast and correct is based on [Bazel](https://bazel.build/). Razel uses data structures from 
+The idea to build fast and correct is based on [Bazel](https://bazel.build/). Razel uses data structures from
 the [Bazel Remote Execution API](https://github.com/bazelbuild/remote-apis/blob/main/build/bazel/remote/execution/v2/remote_execution.proto)
 for caching.
 
