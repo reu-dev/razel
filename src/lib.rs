@@ -2,6 +2,7 @@ pub use cli::*;
 pub use command::*;
 pub use file::*;
 pub use parse_batch::*;
+pub use ready_or_running::*;
 pub use rules::*;
 pub use sandbox::*;
 pub use scheduler::*;
@@ -13,6 +14,7 @@ pub mod config;
 mod file;
 mod parse_batch;
 mod parse_jsonl;
+mod ready_or_running;
 mod rules;
 mod sandbox;
 mod scheduler;
@@ -76,10 +78,14 @@ pub mod executors {
 
 pub mod utils {
     pub use arena::*;
+    pub use resources::*;
     pub use symlink::*;
     pub use tui::*;
 
     mod arena;
+    #[cfg_attr(target_os = "linux", path = "resources_linux.rs")]
+    #[cfg_attr(not(target_os = "linux"), path = "resources_unimplemented.rs")]
+    mod resources;
     mod symlink;
     mod tui;
 }

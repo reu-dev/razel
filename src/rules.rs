@@ -55,6 +55,7 @@ impl Rules {
 
     fn set_defaults(&mut self) {
         vec![
+            "razel-test",
             "cp <in> <out>",
             "ar <out> <in>...",
             "c++ -MF <out> -o <out> <in>...",

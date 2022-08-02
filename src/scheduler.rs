@@ -1,11 +1,11 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use std::{env, fs};
 
 use anyhow::{bail, Context};
 use itertools::Itertools;
-use log::{debug, warn};
+use log::{debug, info, warn};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use which::which;
@@ -15,8 +15,8 @@ use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
 use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor};
 use crate::{
-    bazel_remote_exec, config, Arena, Command, CommandBuilder, CommandId, File, FileId, Sandbox,
-    TUI,
+    bazel_remote_exec, config, Arena, CGroup, Command, CommandBuilder, CommandId, File, FileId,
+    ReadyOrRunning, Sandbox, TUI,
 };
 
 #[derive(Debug, PartialEq)]
@@ -71,10 +71,10 @@ pub struct Scheduler {
     /// razel executable - used in Action::input_root_digest for versioning tasks
     self_file_id: Option<FileId>,
     commands: Arena<Command>,
+    /// single Linux cgroup for all commands to trigger OOM killer
+    cgroup: Option<CGroup>,
     waiting: HashSet<CommandId>,
-    // TODO sort by weight, e.g. recursive number of rdeps
-    ready: VecDeque<CommandId>,
-    running: usize,
+    ready_or_running: ReadyOrRunning,
     succeeded: Vec<CommandId>,
     failed: Vec<CommandId>,
     cache_hits: usize,
@@ -91,6 +91,13 @@ impl Scheduler {
         let cache = Cache::new(&workspace_dir).unwrap();
         debug!("workspace_dir: {:?}", workspace_dir);
         debug!("out_dir:       {:?}", current_dir.join(&out_dir));
+        let cgroup = match Self::create_cgroup() {
+            Ok(x) => x,
+            Err(e) => {
+                info!("create_cgroup(): {:?}", e);
+                None
+            }
+        };
         Scheduler {
             read_cache: true,
             worker_threads,
@@ -103,14 +110,43 @@ impl Scheduler {
             which_to_file_id: Default::default(),
             self_file_id: None,
             commands: Default::default(),
+            cgroup,
             waiting: Default::default(),
-            ready: Default::default(),
-            running: 0,
+            ready_or_running: ReadyOrRunning::new(worker_threads),
             succeeded: vec![],
             failed: vec![],
             cache_hits: 0,
             tui: TUI::new(),
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn create_cgroup() -> Result<Option<CGroup>, anyhow::Error> {
+        use crate::get_available_memory;
+        let available = get_available_memory()?;
+        let mut limit = available;
+        let existing_limit = CGroup::new("".into()).read::<u64>("memory", "memory.limit_in_bytes");
+        if let Ok(x) = existing_limit {
+            limit = limit.min(x); // memory.limit_in_bytes will be infinite if not set
+        }
+        limit = (limit as f64 * 0.95) as u64;
+        let cgroup = CGroup::new(config::EXECUTABLE.into());
+        cgroup.create("memory")?;
+        cgroup.write("memory", "memory.limit_in_bytes", limit)?;
+        cgroup.write("memory", "memory.swappiness", 0)?;
+        info!(
+            "create_cgroup(): available: {}MiB, limit: {:?}MiB -> set limit {}MiB",
+            available / 1024 / 1024,
+            existing_limit.ok().map(|x| x / 1024 / 1024),
+            limit / 1024 / 1024
+        );
+        Ok(Some(cgroup))
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn create_cgroup() -> Result<Option<CGroup>, anyhow::Error> {
+        // no error, just not supported
+        Ok(None)
     }
 
     /// Remove the binary directory
@@ -200,7 +236,7 @@ impl Scheduler {
         let (tx, mut rx) = mpsc::channel(32);
         let execution_start = Instant::now();
         self.start_ready_commands(&tx);
-        while self.ready.len() + self.running != 0 {
+        while self.ready_or_running.len() != 0 {
             if let Some((id, execution_result, action_result)) = rx.recv().await {
                 self.on_command_finished(id, &execution_result, action_result);
                 if execution_result.status == ExecutionStatus::SystemError {
@@ -209,12 +245,13 @@ impl Scheduler {
                 self.start_ready_commands(&tx);
             }
         }
+        assert_eq!(self.ready_or_running.running(), 0);
         self.remove_outputs_of_not_run_actions_from_out_dir();
         let stats = SchedulerStats {
             exec: SchedulerExecStats {
                 succeeded: self.succeeded.len(),
                 failed: self.failed.len(),
-                not_run: self.waiting.len() + self.ready.len(),
+                not_run: self.waiting.len() + self.ready_or_running.ready(),
             },
             cache_hits: self.cache_hits,
             preparation_duration: execution_start.duration_since(preparation_start),
@@ -324,7 +361,7 @@ impl Scheduler {
             }
             if command.unfinished_deps.is_empty() {
                 command.schedule_state = ScheduleState::Ready;
-                self.ready.push_back(command.id);
+                self.ready_or_running.push_ready(command);
             } else {
                 command.schedule_state = ScheduleState::Waiting;
                 self.waiting.insert(command.id);
@@ -334,7 +371,7 @@ impl Scheduler {
             self.commands[id].reverse_deps.push(rdep);
         }
         self.check_for_circular_dependencies();
-        assert!(!self.ready.is_empty());
+        assert_ne!(!self.ready_or_running.len(), 0);
     }
 
     fn check_for_circular_dependencies(&self) {
@@ -364,7 +401,11 @@ impl Scheduler {
     }
 
     fn remove_outputs_of_not_run_actions_from_out_dir(&self) {
-        for command_id in self.waiting.iter().chain(self.ready.iter()) {
+        for command_id in self
+            .waiting
+            .iter()
+            .chain(self.ready_or_running.ready_ids().iter())
+        {
             for file_id in &self.commands[*command_id].outputs {
                 fs::remove_file(&self.files[*file_id].out_path).ok();
             }
@@ -435,8 +476,7 @@ impl Scheduler {
     }
 
     fn start_ready_commands(&mut self, tx: &Sender<ExecutionResultChannel>) {
-        while self.running < self.worker_threads && !self.ready.is_empty() {
-            let id = self.ready.pop_front().unwrap();
+        while let Some(id) = self.ready_or_running.pop_ready_and_run() {
             self.start_next_command(id, tx.clone());
         }
         self.update_status();
@@ -447,8 +487,8 @@ impl Scheduler {
             self.succeeded.len(),
             self.cache_hits,
             self.failed.len(),
-            self.running,
-            self.waiting.len() + self.ready.len(),
+            self.ready_or_running.running(),
+            self.waiting.len() + self.ready_or_running.ready(),
         );
     }
 
@@ -472,7 +512,6 @@ impl Scheduler {
     ///
     /// If the executed command failed, action_result will be None and the action will not be cached.
     fn start_next_command(&mut self, id: CommandId, tx: Sender<ExecutionResultChannel>) {
-        self.running += 1;
         let command = &self.commands[id];
         assert_eq!(command.schedule_state, ScheduleState::Ready);
         assert_eq!(command.unfinished_deps.len(), 0);
@@ -486,6 +525,7 @@ impl Scheduler {
         let sandbox = executor
             .use_sandbox()
             .then(|| Sandbox::new(&command.id.to_string()));
+        let cgroup = self.cgroup.clone();
         let out_dir = self.out_dir.clone();
         tokio::task::spawn(async move {
             let (execution_result, action_result) = Self::exec_action_with_cache(
@@ -496,6 +536,7 @@ impl Scheduler {
                 &input_paths,
                 &output_paths,
                 &sandbox,
+                cgroup,
                 &out_dir,
             )
             .await
@@ -522,6 +563,7 @@ impl Scheduler {
         input_paths: &Vec<PathBuf>,
         output_paths: &Vec<PathBuf>,
         sandbox: &Option<Sandbox>,
+        cgroup: Option<CGroup>,
         out_dir: &PathBuf,
     ) -> Result<(ExecutionResult, Option<ActionResult>), anyhow::Error> {
         let (execution_result, action_result) = if let Some(x) =
@@ -536,6 +578,7 @@ impl Scheduler {
                 &input_paths,
                 &output_paths,
                 &sandbox,
+                cgroup,
                 &out_dir,
             )
             .await
@@ -579,6 +622,7 @@ impl Scheduler {
         input_paths: &Vec<PathBuf>,
         output_paths: &Vec<PathBuf>,
         sandbox: &Option<Sandbox>,
+        cgroup: Option<CGroup>,
         out_dir: &PathBuf,
     ) -> Result<(ExecutionResult, Option<ActionResult>), anyhow::Error> {
         if let Some(sandbox) = &sandbox {
@@ -593,7 +637,9 @@ impl Scheduler {
                 fs::remove_file(x).ok();
             }
         }
-        let execution_result = executor.exec(sandbox.as_ref().map(|x| x.dir.clone())).await;
+        let execution_result = executor
+            .exec(sandbox.as_ref().map(|x| x.dir.clone()), cgroup)
+            .await;
         let action_result = if execution_result.success() {
             Some(
                 Self::cache_action_result(
@@ -662,8 +708,13 @@ impl Scheduler {
         execution_result: &ExecutionResult,
         action_result: Option<ActionResult>,
     ) {
-        self.running -= 1;
-        if execution_result.success() {
+        let retry = self.ready_or_running.set_finished_and_get_retry_flag(
+            id,
+            execution_result.status == ExecutionStatus::Killed,
+        );
+        if retry {
+            self.on_command_retry(id, execution_result);
+        } else if execution_result.success() {
             self.set_output_file_digests(action_result.unwrap().output_files);
             self.on_command_succeeded(id, execution_result);
         } else {
@@ -702,9 +753,14 @@ impl Scheduler {
             if rdep.unfinished_deps.is_empty() {
                 rdep.schedule_state = ScheduleState::Ready;
                 self.waiting.remove(&rdep_id);
-                self.ready.push_back(rdep_id);
+                self.ready_or_running.push_ready(rdep);
             }
         }
+    }
+
+    fn on_command_retry(&mut self, id: CommandId, execution_result: &ExecutionResult) {
+        let command = &self.commands[id];
+        self.tui.command_retry(command, execution_result);
     }
 
     fn on_command_failed(&mut self, id: CommandId, execution_result: &ExecutionResult) {
