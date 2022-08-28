@@ -94,7 +94,7 @@ impl Scheduler {
         let cgroup = match Self::create_cgroup() {
             Ok(x) => x,
             Err(e) => {
-                info!("create_cgroup(): {:?}", e);
+                debug!("create_cgroup(): {:?}", e);
                 None
             }
         };
