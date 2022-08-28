@@ -5,7 +5,7 @@ use std::{env, fs};
 
 use anyhow::{bail, Context};
 use itertools::Itertools;
-use log::{debug, info, warn};
+use log::{debug, warn};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use which::which;
@@ -123,6 +123,7 @@ impl Scheduler {
     #[cfg(target_os = "linux")]
     fn create_cgroup() -> Result<Option<CGroup>, anyhow::Error> {
         use crate::get_available_memory;
+        use log::info;
         let available = get_available_memory()?;
         let mut limit = available;
         let existing_limit = CGroup::new("".into()).read::<u64>("memory", "memory.limit_in_bytes");
