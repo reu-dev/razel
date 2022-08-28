@@ -6,9 +6,9 @@ use sha2::Sha256;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, BufReader};
 
+use crate::bazel_remote_exec;
 use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
 use crate::cache::LocalCache;
-use crate::{bazel_remote_exec, force_symlink};
 
 #[derive(Clone)]
 pub struct Cache {
@@ -50,27 +50,9 @@ impl Cache {
         out_dir: &PathBuf,
         exec_path: &PathBuf,
     ) -> Result<OutputFile, anyhow::Error> {
-        let src = sandbox_dir
-            .as_ref()
-            .map_or(exec_path.clone(), |x| x.join(exec_path));
-        assert!(!src.is_symlink(), "src must not be a symlink: {:?}", src);
-        let digest = Digest::for_file(&src).await?;
-        let dst = self.local_cache.cas_dir.join(&digest.hash);
-        let path: String = exec_path.strip_prefix(&out_dir).map_or_else(
-            |_| exec_path.to_str().unwrap().into(),
-            |x| x.to_str().unwrap().into(),
-        );
-        assert!(Path::new(&path).is_relative());
-        tokio::fs::rename(&src, &dst)
+        self.local_cache
+            .move_output_file_into_cache(sandbox_dir, out_dir, exec_path)
             .await
-            .with_context(|| format!("mv {:?} -> {:?}", src, dst))?;
-        Ok(OutputFile {
-            path,
-            digest: Some(digest),
-            is_executable: false,
-            contents: vec![],
-            node_properties: None,
-        })
     }
 
     pub async fn symlink_output_files_into_out_dir(
@@ -78,16 +60,9 @@ impl Cache {
         action_result: &ActionResult,
         out_dir: &PathBuf,
     ) -> Result<(), anyhow::Error> {
-        assert!(!out_dir.starts_with(&self.local_cache.cas_dir));
-        for file in &action_result.output_files {
-            let cas_path = self
-                .local_cache
-                .cas_dir
-                .join(&file.digest.as_ref().unwrap().hash);
-            let out_path = out_dir.join(&file.path);
-            force_symlink(&cas_path, &out_path).await?;
-        }
-        Ok(())
+        self.local_cache
+            .symlink_output_files_into_out_dir(action_result, out_dir)
+            .await
     }
 }
 
@@ -185,7 +160,7 @@ mod tests {
                 act,
                 super::Digest {
                     hash: "11f5756d3300e967b28969ee86532fe891b0ea42e5ba843bc212fe444cf0f37d".into(),
-                    size_bytes: 18
+                    size_bytes: 18,
                 }
             );
         } else {

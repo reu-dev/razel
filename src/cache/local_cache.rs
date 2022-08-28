@@ -1,21 +1,21 @@
 use std::io::ErrorKind;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context};
 use log::warn;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 
-use crate::bazel_remote_exec::{ActionResult, Digest};
+use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
 use crate::cache::{message_to_pb_buf, MessageDigest};
 use crate::config::select_cache_dir;
+use crate::force_symlink;
 
 #[derive(Clone)]
 pub struct LocalCache {
     pub dir: PathBuf,
-    pub ac_dir: PathBuf,
-    #[allow(dead_code)]
-    pub cas_dir: PathBuf,
+    ac_dir: PathBuf,
+    cas_dir: PathBuf,
 }
 
 impl LocalCache {
@@ -86,6 +86,49 @@ impl LocalCache {
         } else {
             false
         }
+    }
+
+    pub async fn move_output_file_into_cache(
+        &self,
+        sandbox_dir: &Option<PathBuf>,
+        out_dir: &PathBuf,
+        exec_path: &PathBuf,
+    ) -> Result<OutputFile, anyhow::Error> {
+        let src = sandbox_dir
+            .as_ref()
+            .map_or(exec_path.clone(), |x| x.join(exec_path));
+        assert!(!src.is_symlink(), "src must not be a symlink: {:?}", src);
+        let digest = Digest::for_file(&src).await?;
+        let dst = self.cas_dir.join(&digest.hash);
+        let path: String = exec_path.strip_prefix(&out_dir).map_or_else(
+            |_| exec_path.to_str().unwrap().into(),
+            |x| x.to_str().unwrap().into(),
+        );
+        assert!(Path::new(&path).is_relative());
+        tokio::fs::rename(&src, &dst)
+            .await
+            .with_context(|| format!("mv {:?} -> {:?}", src, dst))?;
+        Ok(OutputFile {
+            path,
+            digest: Some(digest),
+            is_executable: false,
+            contents: vec![],
+            node_properties: None,
+        })
+    }
+
+    pub async fn symlink_output_files_into_out_dir(
+        &self,
+        action_result: &ActionResult,
+        out_dir: &PathBuf,
+    ) -> Result<(), anyhow::Error> {
+        assert!(!out_dir.starts_with(&self.cas_dir));
+        for file in &action_result.output_files {
+            let cas_path = self.cas_dir.join(&file.digest.as_ref().unwrap().hash);
+            let out_path = out_dir.join(&file.path);
+            force_symlink(&cas_path, &out_path).await?;
+        }
+        Ok(())
     }
 
     async fn try_read_pb_file<T: prost::Message + Default>(
