@@ -13,6 +13,11 @@ pub struct Sandbox {
 }
 
 impl Sandbox {
+    pub async fn cleanup() {
+        let base_dir: PathBuf = [config::SANDBOX_DIR, ".sandbox"].iter().collect();
+        fs::remove_dir_all(&base_dir).await.ok();
+    }
+
     pub fn new(command_id: &String) -> Self {
         Self {
             dir: [
