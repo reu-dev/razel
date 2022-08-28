@@ -32,15 +32,18 @@ impl TUI {
             command.name.as_str(),
         );
         if self.verbose {
+            let stdout = execution_result.stdout.to_str_lossy();
+            let stderr = execution_result.stderr.to_str_lossy();
+            let print_stream_name = !stdout.is_empty() && !stderr.is_empty();
             Self::field(
-                "stderr:\n",
+                if print_stream_name { "stdout:\n" } else { "" },
                 Color::Blue,
-                &execution_result.stderr.to_str_lossy(),
+                &stdout,
             );
             Self::field(
-                "stdout:\n",
+                if print_stream_name { "stderr:\n" } else { "" },
                 Color::Blue,
-                &execution_result.stdout.to_str_lossy(),
+                &stderr,
             );
         }
     }
