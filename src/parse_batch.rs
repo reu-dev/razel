@@ -16,10 +16,13 @@ pub fn parse_command(
         .with_context(|| command_line.join(" "))
 }
 
-pub fn parse_batch_file(scheduler: &mut Scheduler, file_name: String) -> Result<(), anyhow::Error> {
-    scheduler.set_workspace_dir(Path::new(&file_name).parent().unwrap())?;
+pub fn parse_batch_file(
+    scheduler: &mut Scheduler,
+    file_name: &String,
+) -> Result<(), anyhow::Error> {
+    scheduler.set_workspace_dir(Path::new(file_name).parent().unwrap())?;
     let rules = Rules::new();
-    let file = File::open(&file_name).with_context(|| file_name.clone())?;
+    let file = File::open(file_name).with_context(|| file_name.clone())?;
     let file_buffered = BufReader::new(file);
     for (line_number, line) in file_buffered.lines().enumerate() {
         if let Ok(line) = line {
@@ -27,7 +30,7 @@ pub fn parse_batch_file(scheduler: &mut Scheduler, file_name: String) -> Result<
             if line_trimmed.is_empty() || line_trimmed.starts_with("#") {
                 continue;
             }
-            let name = format!("{}:{}", &file_name, line_number + 1);
+            let name = format!("{}:{}", file_name, line_number + 1);
             let command_line: Vec<String> =
                 line.split_whitespace().map(|x| x.to_string()).collect();
             create_command(scheduler, &rules, name.clone(), command_line.clone())

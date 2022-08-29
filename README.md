@@ -31,7 +31,7 @@ Install [Deno](https://deno.land/) to use the TypeScript API. [TypeScript exampl
 deno run --allow-write=. test/deno.ts
 
 # execute commands from razel.jsonl
-razel build test/razel.jsonl
+razel exec -f test/razel.jsonl
 ```
 
 Instead of TypeScript, your favorite scripting language could be used to create a `razel.jsonl` file.
@@ -42,7 +42,7 @@ Razel can directly execute a file containing commands. Input and output files ne
 [Batch example file](test/batch.sh)
 
 ```bash
-razel batch test/batch.sh
+razel exec -f test/batch.sh
 ```
 
 ## Project Status

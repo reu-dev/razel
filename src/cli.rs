@@ -1,4 +1,6 @@
 use std::error::Error;
+use std::ffi::OsStr;
+use std::path::Path;
 use std::sync::Arc;
 
 use clap::{AppSettings, Args, Parser, Subcommand};
@@ -9,8 +11,8 @@ use crate::{parse_batch_file, parse_command, tasks, CommandBuilder, Scheduler};
 #[derive(Parser)]
 #[clap(name = "razel")]
 #[clap(author, version, about, long_about = None)]
-#[clap(arg_required_else_help(true))]
 #[clap(global_setting(AppSettings::DeriveDisplayOrder))]
+#[clap(infer_subcommands = true)]
 struct Cli {
     #[clap(subcommand)]
     command: CliCommands,
@@ -26,19 +28,29 @@ enum CliCommands {
     /// Execute a single task
     #[clap(subcommand)]
     Task(CliTasks),
-    /// Execute commands from a batch file
-    Batch {
-        /// file with commands to execute
-        file: String,
-    },
-    /// Execute commands from a razel.jsonl file
-    Build {
-        /// file with commands to execute
-        #[clap(default_value = "razel.jsonl")]
-        file: String,
-    },
+    /// Execute commands from a razel.jsonl or batch file
+    #[clap(visible_alias = "build", visible_alias = "test")]
+    Exec(Exec),
+    // TODO add Debug subcommand
     /// Show info about configuration, cache, ...
     Info,
+    // TODO add upgrade subcommand
+}
+
+#[derive(Args, Debug)]
+struct Exec {
+    /// file with commands to execute
+    #[clap(short, long, default_value = "razel.jsonl")]
+    file: String,
+}
+
+impl Exec {
+    fn apply(&self, scheduler: &mut Scheduler) -> Result<(), anyhow::Error> {
+        match Path::new(&self.file).extension().and_then(OsStr::to_str) {
+            Some("jsonl") => parse_jsonl_file(scheduler, &self.file),
+            _ => parse_batch_file(scheduler, &self.file),
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -186,8 +198,7 @@ pub fn parse_cli(
     match cli.command {
         CliCommands::Command { command } => parse_command(scheduler, command),
         CliCommands::Task(task) => match_task(scheduler, name.unwrap(), task, args),
-        CliCommands::Batch { file } => parse_batch_file(scheduler, file),
-        CliCommands::Build { file } => parse_jsonl_file(scheduler, file),
+        CliCommands::Exec(opts) => opts.apply(scheduler),
         CliCommands::Info => {
             scheduler.show_info();
             std::process::exit(0);

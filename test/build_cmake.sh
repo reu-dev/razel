@@ -19,11 +19,11 @@ cmake -S $CMAKE_SOURCE_DIR -B $CMAKE_BINARY_DIR -D BUILD_CursesDialog=OFF -D BUI
   -D "CMAKE_C_ARCHIVE_CREATE=<CMAKE_AR> qcs <TARGET> <LINK_FLAGS> <OBJECTS>" -D "CMAKE_C_ARCHIVE_FINISH=" \
   -G Ninja
 
-# build commands used by ninja with razel
+# dump commands used by ninja and execute them with razel
 ninja -C $CMAKE_BINARY_DIR -t commands > $CMAKE_BINARY_DIR/commands.sh
-cargo run -- batch $CMAKE_BINARY_DIR/commands.sh
+cargo run -- exec -f $CMAKE_BINARY_DIR/commands.sh
 
-# build with ninja to get a reference executable
+# execute with ninja to get a reference executable
 ninja -C $CMAKE_BINARY_DIR
 
 diff $CMAKE_BINARY_DIR/bin/cmake razel-out/bin/cmake

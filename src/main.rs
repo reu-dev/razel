@@ -149,9 +149,9 @@ mod main {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
     #[serial]
-    async fn build() {
+    async fn exec_razel_jsonl() {
         test_main(
-            vec![config::EXECUTABLE, "build", "test/razel.jsonl"],
+            vec![config::EXECUTABLE, "exec", "-f", "test/razel.jsonl"],
             SchedulerExecStats {
                 succeeded: 8,
                 ..Default::default()
@@ -162,9 +162,9 @@ mod main {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
     #[serial]
-    async fn batch() {
+    async fn exec_batch_sh() {
         test_main(
-            vec![config::EXECUTABLE, "batch", "test/batch.sh"],
+            vec![config::EXECUTABLE, "exec", "-f", "test/batch.sh"],
             SchedulerExecStats {
                 succeeded: 8,
                 ..Default::default()
