@@ -106,6 +106,7 @@ mod tests {
     use serial_test::serial;
 
     #[test]
+    #[ignore]
     fn available_memory() {
         println!("available_memory: {}", get_available_memory().unwrap());
     }
