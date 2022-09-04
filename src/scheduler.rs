@@ -230,7 +230,7 @@ impl Scheduler {
         if self.commands.is_empty() {
             bail!("no commands added");
         }
-        Sandbox::cleanup().await;
+        Sandbox::cleanup();
         self.create_dependency_graph();
         self.remove_unknown_files_from_out_dir(&self.out_dir).ok();
         self.digest_input_files().await?;
@@ -249,7 +249,7 @@ impl Scheduler {
         }
         assert_eq!(self.ready_or_running.running(), 0);
         self.remove_outputs_of_not_run_actions_from_out_dir();
-        Sandbox::cleanup().await;
+        Sandbox::cleanup();
         let stats = SchedulerStats {
             exec: SchedulerExecStats {
                 succeeded: self.succeeded.len(),
