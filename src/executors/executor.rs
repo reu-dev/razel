@@ -2,6 +2,7 @@ use crate::CGroup;
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use crate::executors::{CustomCommandExecutor, TaskExecutor};
 
@@ -72,6 +73,7 @@ pub struct ExecutionResult {
     pub cache_hit: bool,
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
+    pub duration: Option<Duration>,
 }
 
 impl ExecutionResult {

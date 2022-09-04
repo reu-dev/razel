@@ -3,6 +3,7 @@ use anyhow::anyhow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
+use std::time::Instant;
 
 use crate::executors::{ExecutionResult, ExecutionStatus};
 
@@ -20,6 +21,7 @@ impl CustomCommandExecutor {
         cgroup: Option<CGroup>,
     ) -> ExecutionResult {
         let mut result: ExecutionResult = Default::default();
+        let execution_start = Instant::now();
         let child = match tokio::process::Command::new(&self.executable)
             .env_clear()
             .envs(&self.env)
@@ -49,6 +51,7 @@ impl CustomCommandExecutor {
                 result.exit_code = output.status.code();
                 result.stdout = output.stdout;
                 result.stderr = output.stderr;
+                result.duration = Some(execution_start.elapsed())
             }
             Err(e) => {
                 result.status = ExecutionStatus::Failed;

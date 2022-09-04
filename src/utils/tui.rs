@@ -29,7 +29,17 @@ impl TUI {
         Self::field(
             format!("{:?} ", execution_result.status).as_str(),
             Color::Green,
-            command.name.as_str(),
+            if let Some(duration) = execution_result.duration {
+                format!(
+                    "{} {}{:?}{}",
+                    command.name,
+                    SetForegroundColor(Color::Blue),
+                    duration,
+                    Attribute::Reset
+                )
+            } else {
+                command.name.clone()
+            },
         );
         if self.verbose {
             let stdout = execution_result.stdout.to_str_lossy();
@@ -198,8 +208,8 @@ impl TUI {
         }
     }
 
-    fn field(name: &str, color: Color, value: &str) {
-        if value.is_empty() {
+    fn field<S: AsRef<str>>(name: &str, color: Color, value: S) {
+        if value.as_ref().is_empty() {
             return;
         }
         println!(
@@ -207,7 +217,7 @@ impl TUI {
             SetForegroundColor(color),
             name,
             Attribute::Reset,
-            value.trim()
+            value.as_ref().trim()
         );
     }
 

@@ -11,7 +11,7 @@ use tokio::sync::mpsc::Sender;
 use which::which;
 
 use crate::bazel_remote_exec::command::EnvironmentVariable;
-use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
+use crate::bazel_remote_exec::{ActionResult, Digest, ExecutedActionMetadata, OutputFile};
 use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor};
 use crate::{
@@ -604,6 +604,7 @@ impl Scheduler {
         if read_cache {
             if let Some(action_result) = cache.get_action_result(&action_digest).await {
                 let exit_code = Some(action_result.exit_code);
+                let metadata = action_result.execution_metadata.as_ref();
                 let execution_result = ExecutionResult {
                     status: ExecutionStatus::Success,
                     exit_code,
@@ -611,6 +612,9 @@ impl Scheduler {
                     cache_hit: true,
                     stdout: vec![], // TODO
                     stderr: vec![], // TODO
+                    duration: metadata
+                        .and_then(|x| x.virtual_execution_duration.as_ref())
+                        .map(|x| Duration::new(x.seconds as u64, x.nanos as u32)),
                 };
                 return Some((execution_result, Some(action_result)));
             }
@@ -697,7 +701,25 @@ impl Scheduler {
             stdout_digest: None,
             stderr_raw: vec![],
             stderr_digest: None,
-            execution_metadata: None,
+            execution_metadata: Some(ExecutedActionMetadata {
+                worker: "".to_string(),
+                queued_timestamp: None,
+                worker_start_timestamp: None,
+                worker_completed_timestamp: None,
+                input_fetch_start_timestamp: None,
+                input_fetch_completed_timestamp: None,
+                execution_start_timestamp: None,
+                execution_completed_timestamp: None,
+                virtual_execution_duration: execution_result.duration.map(|x| {
+                    prost_types::Duration {
+                        seconds: x.as_secs() as i64,
+                        nanos: x.subsec_nanos() as i32,
+                    }
+                }),
+                output_upload_start_timestamp: None,
+                output_upload_completed_timestamp: None,
+                auxiliary_metadata: vec![],
+            }),
         };
         cache
             .push_action_result(action_digest, &action_result)
