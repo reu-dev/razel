@@ -1,9 +1,11 @@
+use crate::config::{RESPONSE_FILE_MIN_ARGS_LEN, RESPONSE_FILE_PREFIX};
 use crate::CGroup;
 use anyhow::anyhow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
 use std::time::Instant;
+use tokio::io::AsyncWriteExt;
 
 use crate::executors::{ExecutionResult, ExecutionStatus};
 
@@ -21,11 +23,20 @@ impl CustomCommandExecutor {
         cgroup: Option<CGroup>,
     ) -> ExecutionResult {
         let mut result: ExecutionResult = Default::default();
+        let response_file_args = match self.maybe_use_response_file(&sandbox_dir).await {
+            Ok(Some(x)) => Some(vec![x]),
+            Ok(None) => None,
+            Err(x) => {
+                result.status = ExecutionStatus::FailedToCreateResponseFile;
+                result.error = Some(x);
+                return result;
+            }
+        };
         let execution_start = Instant::now();
         let child = match tokio::process::Command::new(&self.executable)
             .env_clear()
             .envs(&self.env)
-            .args(&self.args)
+            .args(response_file_args.as_ref().unwrap_or(&self.args))
             .current_dir(sandbox_dir.unwrap_or(".".into()))
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -115,6 +126,35 @@ impl CustomCommandExecutor {
                 Some(anyhow!("command failed: {}", exit_status)),
             )
         }
+    }
+
+    async fn maybe_use_response_file(
+        &self,
+        sandbox_dir: &Option<PathBuf>,
+    ) -> Result<Option<String>, anyhow::Error> {
+        if !self.is_response_file_needed() {
+            return Ok(None);
+        }
+        let file_name = "params";
+        let path = sandbox_dir
+            .as_ref()
+            .ok_or_else(|| anyhow!("Sandbox is required for response file!"))?
+            .join(file_name);
+        let mut file = tokio::fs::File::create(path).await?;
+        file.write_all(self.args.join("\n").as_bytes()).await?;
+        file.sync_all().await?;
+        Ok(Some(RESPONSE_FILE_PREFIX.to_string() + file_name))
+    }
+
+    fn is_response_file_needed(&self) -> bool {
+        let mut args_len_sum = 0;
+        for x in &self.args {
+            args_len_sum += x.len();
+            if args_len_sum >= RESPONSE_FILE_MIN_ARGS_LEN {
+                return true;
+            }
+        }
+        false
     }
 }
 
