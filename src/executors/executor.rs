@@ -70,6 +70,7 @@ impl ExecutionResult {
 pub enum ExecutionStatus {
     NotStarted,
     FailedToStart,
+    FailedToCreateResponseFile,
     Failed,
     /// SIGSEGV
     Crashed,
