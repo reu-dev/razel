@@ -14,9 +14,6 @@ pub struct Sandbox {
 
 impl Sandbox {
     pub fn cleanup() {
-        if cfg!(target_os = "macos") {
-            return; // TODO remove hack to debug hanging tests on GitLab actions
-        }
         let base_dir: PathBuf = [config::SANDBOX_DIR, ".sandbox"].iter().collect();
         std::fs::remove_dir_all(&base_dir).ok();
     }
