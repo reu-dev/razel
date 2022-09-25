@@ -8,6 +8,13 @@ use crossterm::tty::IsTty;
 use itertools::Itertools;
 use std::io::{stdout, Write};
 
+static A_BOLD: Attribute = Attribute::Bold;
+static A_RESET: Attribute = Attribute::Reset;
+static C_BLUE: SetForegroundColor = SetForegroundColor(Color::Blue);
+static C_GREEN: SetForegroundColor = SetForegroundColor(Color::Green);
+static C_RED: SetForegroundColor = SetForegroundColor(Color::Red);
+static C_RESET: SetForegroundColor = SetForegroundColor(Color::Reset);
+
 /// Terminal user interface
 pub struct TUI {
     verbose: bool,
@@ -31,11 +38,8 @@ impl TUI {
             Color::Green,
             if let Some(duration) = execution_result.duration {
                 format!(
-                    "{} {}{:?}{}",
-                    command.name,
-                    SetForegroundColor(Color::Blue),
-                    duration,
-                    Attribute::Reset
+                    "{} {A_BOLD}{C_BLUE}{:?}{C_RESET}{A_RESET}",
+                    command.name, duration,
                 )
             } else {
                 command.name.clone()
@@ -130,19 +134,17 @@ impl TUI {
             }
         }
         print!(
-            "{}Status: {}{}{} succeeded ({} cached), {}{}{} failed, {} running, {} remaining",
-            SetForegroundColor(Color::Blue),
-            SetForegroundColor(if succeeded > 0 {
-                Color::Green
+            "{A_BOLD}{C_BLUE}Status{C_RESET}{A_RESET}: {A_BOLD}{}{}{C_RESET}{A_RESET} succeeded ({} cached), {}{}{}{C_RESET}{A_RESET} failed, {} running, {} remaining",
+            if succeeded > 0 {
+                C_GREEN
             } else {
-                Color::Reset
-            }),
+                C_RESET
+            },
             succeeded,
-            SetForegroundColor(Color::Reset),
             cached,
-            SetForegroundColor(if failed > 0 { Color::Red } else { Color::Reset }),
+            if failed > 0 { A_BOLD } else { A_RESET },
+            if failed > 0 { C_RED } else { C_RESET },
             failed,
-            SetForegroundColor(Color::Reset),
             running,
             remaining,
         );
@@ -156,12 +158,12 @@ impl TUI {
     pub fn finished(&mut self, stats: &SchedulerStats) {
         self.clear_status();
         println!(
-            "{}{} {}: {}{}{} succeeded ({} cached), {}{}{} failed, {}{}{} not run.",
-            SetForegroundColor(if stats.exec.finished_successfully() {
-                Color::Green
+            "{A_BOLD}{}{} {}{C_RESET}{A_RESET}: {A_BOLD}{}{}{C_RESET}{A_RESET} succeeded ({} cached), {A_BOLD}{}{}{C_RESET}{A_RESET} failed, {A_BOLD}{}{}{C_RESET}{A_RESET} not run.",
+            if stats.exec.finished_successfully() {
+                C_GREEN
             } else {
-                Color::Red
-            }),
+                C_RED
+            },
             if stats.exec.not_run == 0 {
                 "Finished"
             } else {
@@ -174,28 +176,25 @@ impl TUI {
             } else {
                 "after errors"
             },
-            SetForegroundColor(if stats.exec.succeeded > 0 {
-                Color::Green
+            if stats.exec.succeeded > 0 {
+                C_GREEN
             } else {
-                Color::Reset
-            }),
+                C_RESET
+            },
             stats.exec.succeeded,
-            SetForegroundColor(Color::Reset),
             stats.cache_hits,
-            SetForegroundColor(if stats.exec.failed > 0 {
-                Color::Red
+            if stats.exec.failed > 0 {
+                C_RED
             } else {
-                Color::Reset
-            }),
+                C_RESET
+            },
             stats.exec.failed,
-            SetForegroundColor(Color::Reset),
-            SetForegroundColor(if stats.exec.not_run > 0 {
-                Color::Red
+            if stats.exec.not_run > 0 {
+                C_RED
             } else {
-                Color::Reset
-            }),
+                C_RESET
+            },
             stats.exec.not_run,
-            SetForegroundColor(Color::Reset),
         );
     }
 
@@ -212,22 +211,15 @@ impl TUI {
         if value.as_ref().is_empty() {
             return;
         }
+        let c = SetForegroundColor(color);
         println!(
-            "{}{}{}{}",
-            SetForegroundColor(color),
-            name,
-            Attribute::Reset,
+            "{A_BOLD}{c}{name}{C_RESET}{A_RESET}{}",
             value.as_ref().trim()
         );
     }
 
     fn line() {
         let columns = terminal::size().map_or(80, |x| x.0 as usize);
-        println!(
-            "{}{}{}",
-            SetForegroundColor(Color::Red),
-            "-".repeat(columns),
-            Attribute::Reset,
-        );
+        println!("{C_RED}{}{C_RESET}", "-".repeat(columns));
     }
 }
