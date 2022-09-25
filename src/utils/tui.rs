@@ -1,5 +1,5 @@
 use crate::executors::ExecutionResult;
-use crate::{Command, SchedulerStats};
+use crate::{config, Command, SchedulerStats};
 use bstr::ByteSlice;
 use crossterm::cursor::{RestorePosition, SavePosition};
 use crossterm::style::{Attribute, Color, SetForegroundColor};
@@ -88,7 +88,7 @@ impl TUI {
         Self::field(
             "command:   ",
             Color::Blue,
-            command.executor.command_line().as_str(),
+            Self::format_command_line(&command.executor.args_with_executable()).as_str(),
         );
         if let Some(env) = command.executor.env() {
             Self::field(
@@ -196,6 +196,31 @@ impl TUI {
             },
             stats.exec.not_run,
         );
+    }
+
+    pub fn format_command_line(args_with_executable: &Vec<String>) -> String {
+        let mut iter = args_with_executable.iter().map(|x| {
+            if x.is_empty() {
+                "\"\"".to_string()
+            } else if x.contains(' ') {
+                format!("\"{x}\"")
+            } else {
+                x.to_string()
+            }
+        });
+        let max_len = config::UI_COMMAND_ARGS_LIMIT
+            .map(|x| x + 1) // + 1 for the executable
+            .unwrap_or(usize::MAX);
+        if args_with_executable.len() > max_len {
+            iter.take(max_len)
+                .chain(std::iter::once(format!(
+                    "{A_BOLD}{C_BLUE}<... {} more args>{C_RESET}{A_RESET}",
+                    args_with_executable.len() - max_len
+                )))
+                .join(" ")
+        } else {
+            iter.join(" ")
+        }
     }
 
     fn clear_status(&mut self) {

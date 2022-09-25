@@ -1,5 +1,4 @@
 use crate::CGroup;
-use itertools::Itertools;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -29,21 +28,6 @@ impl Executor {
             Executor::CustomCommand(c) => c.args_with_executable(),
             Executor::Task(t) => t.args_with_executable(),
         }
-    }
-
-    pub fn command_line(&self) -> String {
-        self.args_with_executable()
-            .iter()
-            .map(|x| {
-                if x.is_empty() {
-                    "\"\"".to_string()
-                } else if x.contains(' ') {
-                    format!("\"{x}\"")
-                } else {
-                    x.to_string()
-                }
-            })
-            .join(" ")
     }
 
     pub fn env(&self) -> Option<&HashMap<String, String>> {
