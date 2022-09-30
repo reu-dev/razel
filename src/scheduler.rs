@@ -134,7 +134,7 @@ mod tests {
     use crate::{Arena, ScheduleState};
 
     fn create(available_slots: usize, executables: Vec<&str>) -> Scheduler {
-        let mut ready_or_running = Scheduler::new(available_slots);
+        let mut scheduler = Scheduler::new(available_slots);
         let mut commands: Arena<Command> = Default::default();
         for executable in &executables {
             let id = commands.alloc_with_id(|id| Command {
@@ -150,10 +150,10 @@ mod tests {
                 reverse_deps: vec![],
                 schedule_state: ScheduleState::New,
             });
-            ready_or_running.push_ready(&commands[id]);
+            scheduler.push_ready(&commands[id]);
         }
-        assert_eq!(ready_or_running.ready(), executables.len());
-        ready_or_running
+        assert_eq!(scheduler.ready(), executables.len());
+        scheduler
     }
 
     #[test]

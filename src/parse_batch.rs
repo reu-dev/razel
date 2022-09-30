@@ -7,17 +7,14 @@ use log::info;
 
 use crate::{config, parse_cli, Razel, Rules};
 
-pub fn parse_command(
-    scheduler: &mut Razel,
-    command_line: Vec<String>,
-) -> Result<(), anyhow::Error> {
+pub fn parse_command(razel: &mut Razel, command_line: Vec<String>) -> Result<(), anyhow::Error> {
     let rules = Rules::new();
-    create_command(scheduler, &rules, "command".into(), command_line.clone())
+    create_command(razel, &rules, "command".into(), command_line.clone())
         .with_context(|| command_line.join(" "))
 }
 
-pub fn parse_batch_file(scheduler: &mut Razel, file_name: &String) -> Result<(), anyhow::Error> {
-    scheduler.set_workspace_dir(Path::new(file_name).parent().unwrap())?;
+pub fn parse_batch_file(razel: &mut Razel, file_name: &String) -> Result<(), anyhow::Error> {
+    razel.set_workspace_dir(Path::new(file_name).parent().unwrap())?;
     let rules = Rules::new();
     let file = File::open(file_name).with_context(|| file_name.clone())?;
     let file_buffered = BufReader::new(file);
@@ -30,23 +27,23 @@ pub fn parse_batch_file(scheduler: &mut Razel, file_name: &String) -> Result<(),
             let name = format!("{}:{}", file_name, line_number + 1);
             let command_line: Vec<String> =
                 line.split_whitespace().map(|x| x.to_string()).collect();
-            create_command(scheduler, &rules, name.clone(), command_line.clone())
+            create_command(razel, &rules, name.clone(), command_line.clone())
                 .with_context(|| command_line.join(" "))
                 .with_context(|| format!("Failed to add command: {name}"))?;
         }
     }
-    info!("Added {} commands from {}", scheduler.len(), file_name);
+    info!("Added {} commands from {}", razel.len(), file_name);
     Ok(())
 }
 
 fn create_command(
-    scheduler: &mut Razel,
+    razel: &mut Razel,
     rules: &Rules,
     name: String,
     command_line: Vec<String>,
 ) -> Result<(), anyhow::Error> {
     if command_line.first().unwrap() == config::EXECUTABLE {
-        parse_cli(command_line, scheduler, Some(name))?
+        parse_cli(command_line, razel, Some(name))?
     } else {
         let (inputs, outputs) = if let Some(files) = rules.parse_command(&command_line)? {
             (files.inputs, files.outputs)
@@ -56,7 +53,7 @@ fn create_command(
         let mut i = command_line.into_iter();
         let program = i.next().unwrap();
         let args = i.collect();
-        scheduler.push_custom_command(name, program, args, Default::default(), inputs, outputs)?;
+        razel.push_custom_command(name, program, args, Default::default(), inputs, outputs)?;
     }
     Ok(())
 }

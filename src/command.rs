@@ -57,12 +57,8 @@ impl CommandBuilder {
         });
     }
 
-    pub fn input(
-        &mut self,
-        path: &String,
-        scheduler: &mut Razel,
-    ) -> Result<PathBuf, anyhow::Error> {
-        scheduler.input_file(path.clone()).map(|file| {
+    pub fn input(&mut self, path: &String, razel: &mut Razel) -> Result<PathBuf, anyhow::Error> {
+        razel.input_file(path.clone()).map(|file| {
             self.map_exec_path(path, &file.exec_path.to_str().unwrap().into());
             self.map_out_path(path, &file.out_path.to_str().unwrap().into());
             self.inputs.push(file.id);
@@ -73,13 +69,13 @@ impl CommandBuilder {
     pub fn inputs(
         &mut self,
         paths: &Vec<String>,
-        scheduler: &mut Razel,
+        razel: &mut Razel,
     ) -> Result<Vec<PathBuf>, anyhow::Error> {
         self.inputs.reserve(paths.len());
         paths
             .iter()
             .map(|path| {
-                let file = scheduler.input_file(path.clone())?;
+                let file = razel.input_file(path.clone())?;
                 self.map_exec_path(path, &file.exec_path.to_str().unwrap().into());
                 self.map_out_path(path, &file.out_path.to_str().unwrap().into());
                 self.inputs.push(file.id);
@@ -88,12 +84,8 @@ impl CommandBuilder {
             .collect()
     }
 
-    pub fn output(
-        &mut self,
-        path: &String,
-        scheduler: &mut Razel,
-    ) -> Result<PathBuf, anyhow::Error> {
-        scheduler.output_file(path).map(|file| {
+    pub fn output(&mut self, path: &String, razel: &mut Razel) -> Result<PathBuf, anyhow::Error> {
+        razel.output_file(path).map(|file| {
             self.map_exec_path(path, &file.exec_path.to_str().unwrap().into());
             self.map_out_path(path, &file.out_path.to_str().unwrap().into());
             self.outputs.push(file.id);
@@ -104,13 +96,13 @@ impl CommandBuilder {
     pub fn outputs(
         &mut self,
         paths: &Vec<String>,
-        scheduler: &mut Razel,
+        razel: &mut Razel,
     ) -> Result<Vec<PathBuf>, anyhow::Error> {
         self.outputs.reserve(paths.len());
         paths
             .iter()
             .map(|path| {
-                let file = scheduler.output_file(path)?;
+                let file = razel.output_file(path)?;
                 self.map_exec_path(path, &file.exec_path.to_str().unwrap().into());
                 self.map_out_path(path, &file.out_path.to_str().unwrap().into());
                 self.outputs.push(file.id);
@@ -123,9 +115,9 @@ impl CommandBuilder {
         &mut self,
         executable: String,
         env: HashMap<String, String>,
-        scheduler: &mut Razel,
+        razel: &mut Razel,
     ) -> Result<(), anyhow::Error> {
-        let file = scheduler.executable(executable)?;
+        let file = razel.executable(executable)?;
         self.inputs.push(file.id);
         self.executor = Some(Executor::CustomCommand(CustomCommandExecutor {
             executable: file.exec_path.to_str().unwrap().into(),

@@ -165,8 +165,8 @@ mod tests {
 
     #[tokio::test]
     async fn exec_ok() {
-        let mut scheduler = Razel::new();
-        let command = scheduler
+        let mut razel = Razel::new();
+        let command = razel
             .push_custom_command(
                 "test".into(),
                 "cmake".into(),
@@ -175,7 +175,7 @@ mod tests {
                 vec![],
                 vec![],
             )
-            .map(|id| scheduler.get_command(id).unwrap())
+            .map(|id| razel.get_command(id).unwrap())
             .unwrap()
             .clone();
         let result = command.executor.exec(None, None).await;
@@ -187,8 +187,8 @@ mod tests {
 
     #[tokio::test]
     async fn exec_fail_to_start() {
-        let mut scheduler = Razel::new();
-        let command = scheduler
+        let mut razel = Razel::new();
+        let command = razel
             .push_custom_command(
                 "test".into(),
                 "./hopefully-not-existing-command-to-test-razel".into(),
@@ -197,7 +197,7 @@ mod tests {
                 vec![],
                 vec![],
             )
-            .map(|id| scheduler.get_command(id).unwrap())
+            .map(|id| razel.get_command(id).unwrap())
             .unwrap();
         let result = command.executor.exec(None, None).await;
         assert!(!result.success());
@@ -208,8 +208,8 @@ mod tests {
 
     #[tokio::test]
     async fn exec_failed_to_run() {
-        let mut scheduler = Razel::new();
-        let command = scheduler
+        let mut razel = Razel::new();
+        let command = razel
             .push_custom_command(
                 "test".into(),
                 "cmake".into(),
@@ -218,7 +218,7 @@ mod tests {
                 vec![],
                 vec![],
             )
-            .map(|id| scheduler.get_command(id).unwrap())
+            .map(|id| razel.get_command(id).unwrap())
             .unwrap();
         let result = command.executor.exec(None, None).await;
         assert!(!result.success());
@@ -229,8 +229,8 @@ mod tests {
 
     #[tokio::test]
     async fn exec_stdout() {
-        let mut scheduler = Razel::new();
-        let command = scheduler
+        let mut razel = Razel::new();
+        let command = razel
             .push_custom_command(
                 "test".into(),
                 "cmake".into(),
@@ -239,7 +239,7 @@ mod tests {
                 vec![],
                 vec![],
             )
-            .map(|id| scheduler.get_command(id).unwrap())
+            .map(|id| razel.get_command(id).unwrap())
             .unwrap();
         let result = command.executor.exec(None, None).await;
         assert!(result.success());
@@ -252,8 +252,8 @@ mod tests {
 
     #[tokio::test]
     async fn exec_stderr() {
-        let mut scheduler = Razel::new();
-        let command = scheduler
+        let mut razel = Razel::new();
+        let command = razel
             .push_custom_command(
                 "test".into(),
                 "cmake".into(),
@@ -262,7 +262,7 @@ mod tests {
                 vec![],
                 vec![],
             )
-            .map(|id| scheduler.get_command(id).unwrap())
+            .map(|id| razel.get_command(id).unwrap())
             .unwrap();
         let result = command.executor.exec(None, None).await;
         assert!(!result.success());
@@ -276,8 +276,8 @@ mod tests {
     /* TODO
     #[tokio::test]
     async fn exec_kill() {
-        let mut scheduler = Scheduler::new();
-        let command = scheduler
+        let mut razel = Scheduler::new();
+        let command = razel
             .push_custom_command(
                 "test".into(),
                 "cmake".into(),
@@ -286,7 +286,7 @@ mod tests {
                 vec![],
                 vec![],
             )
-            .map(|id| scheduler.get_command(id).unwrap())
+            .map(|id| razel.get_command(id).unwrap())
             .unwrap();
         let result = command.executor.exec().await;
         assert!(!result.success());

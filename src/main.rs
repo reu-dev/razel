@@ -20,15 +20,15 @@ async fn main() -> Result<(), anyhow::Error> {
         std::process::exit(1);
     }));
 
-    let mut scheduler = Razel::new();
+    let mut razel = Razel::new();
     parse_cli(
         std::env::args_os()
             .map(|x| x.into_string().unwrap())
             .collect(),
-        &mut scheduler,
+        &mut razel,
         None,
     )?;
-    let stats = scheduler.run().await?;
+    let stats = razel.run().await?;
     debug!(
         "preparation: {:.3}s, execution: {:.3}s",
         stats.preparation_duration.as_secs_f32(),
@@ -54,30 +54,30 @@ mod main {
             .try_init();
         // run without reading cache
         {
-            let mut scheduler = Razel::new();
-            scheduler.read_cache = false;
-            scheduler.clean();
+            let mut razel = Razel::new();
+            razel.read_cache = false;
+            razel.clean();
             parse_cli(
                 args.iter().map(|&x| x.into()).collect(),
-                &mut scheduler,
+                &mut razel,
                 args.get(2).map(|&x| x.into()),
             )
             .unwrap();
-            let act_stats = scheduler.run().await.unwrap();
+            let act_stats = razel.run().await.unwrap();
             assert_eq!(act_stats.exec, exp_stats);
             assert_eq!(act_stats.cache_hits, 0);
         }
         // run with reading cache
         {
-            let mut scheduler = Razel::new();
-            scheduler.clean();
+            let mut razel = Razel::new();
+            razel.clean();
             parse_cli(
                 args.iter().map(|&x| x.into()).collect(),
-                &mut scheduler,
+                &mut razel,
                 args.get(2).map(|&x| x.into()),
             )
             .unwrap();
-            let act_stats = scheduler.run().await.unwrap();
+            let act_stats = razel.run().await.unwrap();
             assert_eq!(act_stats.exec, exp_stats);
             assert_eq!(act_stats.cache_hits, exp_stats.succeeded);
         }

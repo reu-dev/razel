@@ -45,10 +45,10 @@ struct Exec {
 }
 
 impl Exec {
-    fn apply(&self, scheduler: &mut Razel) -> Result<(), anyhow::Error> {
+    fn apply(&self, razel: &mut Razel) -> Result<(), anyhow::Error> {
         match Path::new(&self.file).extension().and_then(OsStr::to_str) {
-            Some("jsonl") => parse_jsonl_file(scheduler, &self.file),
-            _ => parse_batch_file(scheduler, &self.file),
+            Some("jsonl") => parse_jsonl_file(razel, &self.file),
+            _ => parse_batch_file(razel, &self.file),
         }
     }
 }
@@ -77,13 +77,9 @@ struct CsvConcatTask {
 }
 
 impl CsvConcatTask {
-    fn build(
-        self,
-        builder: &mut CommandBuilder,
-        scheduler: &mut Razel,
-    ) -> Result<(), anyhow::Error> {
-        let inputs = builder.inputs(&self.input, scheduler)?;
-        let output = builder.output(&self.output, scheduler)?;
+    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
+        let inputs = builder.inputs(&self.input, razel)?;
+        let output = builder.output(&self.output, razel)?;
         builder.task_executor(Arc::new(move || {
             tasks::csv_concat(inputs.clone(), output.clone())
         }));
@@ -106,13 +102,9 @@ struct CsvFilterTask {
 }
 
 impl CsvFilterTask {
-    fn build(
-        self,
-        builder: &mut CommandBuilder,
-        scheduler: &mut Razel,
-    ) -> Result<(), anyhow::Error> {
-        let input = builder.input(&self.input, scheduler)?;
-        let output = builder.output(&self.output, scheduler)?;
+    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
+        let input = builder.input(&self.input, razel)?;
+        let output = builder.output(&self.output, razel)?;
         builder.task_executor(Arc::new(move || {
             tasks::csv_filter(
                 input.clone(),
@@ -134,12 +126,8 @@ struct WriteFileTask {
 }
 
 impl WriteFileTask {
-    fn build(
-        self,
-        builder: &mut CommandBuilder,
-        scheduler: &mut Razel,
-    ) -> Result<(), anyhow::Error> {
-        let output = builder.output(&self.file, scheduler)?;
+    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
+        let output = builder.output(&self.file, razel)?;
         builder.task_executor(Arc::new(move || {
             tasks::write_file(output.clone(), self.lines.clone())
         }));
@@ -154,13 +142,9 @@ struct EnsureEqualTask {
 }
 
 impl EnsureEqualTask {
-    fn build(
-        self,
-        builder: &mut CommandBuilder,
-        scheduler: &mut Razel,
-    ) -> Result<(), anyhow::Error> {
-        let file1 = builder.input(&self.file1, scheduler)?;
-        let file2 = builder.input(&self.file2, scheduler)?;
+    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
+        let file1 = builder.input(&self.file1, razel)?;
+        let file2 = builder.input(&self.file2, razel)?;
         builder.task_executor(Arc::new(move || {
             tasks::ensure_equal(file1.clone(), file2.clone())
         }));
@@ -175,13 +159,9 @@ struct EnsureNotEqualTask {
 }
 
 impl EnsureNotEqualTask {
-    fn build(
-        self,
-        builder: &mut CommandBuilder,
-        scheduler: &mut Razel,
-    ) -> Result<(), anyhow::Error> {
-        let file1 = builder.input(&self.file1, scheduler)?;
-        let file2 = builder.input(&self.file2, scheduler)?;
+    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
+        let file1 = builder.input(&self.file1, razel)?;
+        let file2 = builder.input(&self.file2, razel)?;
         builder.task_executor(Arc::new(move || {
             tasks::ensure_not_equal(file1.clone(), file2.clone())
         }));
@@ -191,36 +171,36 @@ impl EnsureNotEqualTask {
 
 pub fn parse_cli(
     args: Vec<String>,
-    scheduler: &mut Razel,
+    razel: &mut Razel,
     name: Option<String>,
 ) -> Result<(), anyhow::Error> {
     let cli = Cli::try_parse_from(args.iter())?;
     match cli.command {
-        CliCommands::Command { command } => parse_command(scheduler, command),
-        CliCommands::Task(task) => match_task(scheduler, name.unwrap(), task, args),
-        CliCommands::Exec(opts) => opts.apply(scheduler),
+        CliCommands::Command { command } => parse_command(razel, command),
+        CliCommands::Task(task) => match_task(razel, name.unwrap(), task, args),
+        CliCommands::Exec(opts) => opts.apply(razel),
         CliCommands::Info => {
-            scheduler.show_info();
+            razel.show_info();
             std::process::exit(0);
         }
     }
 }
 
 fn match_task(
-    scheduler: &mut Razel,
+    razel: &mut Razel,
     name: String,
     task: CliTasks,
     args: Vec<String>,
 ) -> Result<(), anyhow::Error> {
     let mut builder = CommandBuilder::new(name, args);
     match task {
-        CliTasks::CsvConcat(x) => x.build(&mut builder, scheduler),
-        CliTasks::CsvFilter(x) => x.build(&mut builder, scheduler),
-        CliTasks::EnsureEqual(x) => x.build(&mut builder, scheduler),
-        CliTasks::EnsureNotEqual(x) => x.build(&mut builder, scheduler),
-        CliTasks::WriteFile(x) => x.build(&mut builder, scheduler),
+        CliTasks::CsvConcat(x) => x.build(&mut builder, razel),
+        CliTasks::CsvFilter(x) => x.build(&mut builder, razel),
+        CliTasks::EnsureEqual(x) => x.build(&mut builder, razel),
+        CliTasks::EnsureNotEqual(x) => x.build(&mut builder, razel),
+        CliTasks::WriteFile(x) => x.build(&mut builder, razel),
     }?;
-    scheduler.push(builder)?;
+    razel.push(builder)?;
     Ok(())
 }
 

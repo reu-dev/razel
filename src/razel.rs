@@ -74,7 +74,7 @@ pub struct Razel {
     /// single Linux cgroup for all commands to trigger OOM killer
     cgroup: Option<CGroup>,
     waiting: HashSet<CommandId>,
-    ready_or_running: Scheduler,
+    scheduler: Scheduler,
     succeeded: Vec<CommandId>,
     failed: Vec<CommandId>,
     cache_hits: usize,
@@ -112,7 +112,7 @@ impl Razel {
             commands: Default::default(),
             cgroup,
             waiting: Default::default(),
-            ready_or_running: Scheduler::new(worker_threads),
+            scheduler: Scheduler::new(worker_threads),
             succeeded: vec![],
             failed: vec![],
             cache_hits: 0,
@@ -238,7 +238,7 @@ impl Razel {
         let (tx, mut rx) = mpsc::channel(32);
         let execution_start = Instant::now();
         self.start_ready_commands(&tx);
-        while self.ready_or_running.len() != 0 {
+        while self.scheduler.len() != 0 {
             if let Some((id, execution_result, action_result)) = rx.recv().await {
                 self.on_command_finished(id, &execution_result, action_result);
                 if execution_result.status == ExecutionStatus::SystemError {
@@ -247,14 +247,14 @@ impl Razel {
                 self.start_ready_commands(&tx);
             }
         }
-        assert_eq!(self.ready_or_running.running(), 0);
+        assert_eq!(self.scheduler.running(), 0);
         self.remove_outputs_of_not_run_actions_from_out_dir();
         Sandbox::cleanup();
         let stats = SchedulerStats {
             exec: SchedulerExecStats {
                 succeeded: self.succeeded.len(),
                 failed: self.failed.len(),
-                not_run: self.waiting.len() + self.ready_or_running.ready(),
+                not_run: self.waiting.len() + self.scheduler.ready(),
             },
             cache_hits: self.cache_hits,
             preparation_duration: execution_start.duration_since(preparation_start),
@@ -364,7 +364,7 @@ impl Razel {
             }
             if command.unfinished_deps.is_empty() {
                 command.schedule_state = ScheduleState::Ready;
-                self.ready_or_running.push_ready(command);
+                self.scheduler.push_ready(command);
             } else {
                 command.schedule_state = ScheduleState::Waiting;
                 self.waiting.insert(command.id);
@@ -374,7 +374,7 @@ impl Razel {
             self.commands[id].reverse_deps.push(rdep);
         }
         self.check_for_circular_dependencies();
-        assert_ne!(!self.ready_or_running.len(), 0);
+        assert_ne!(!self.scheduler.len(), 0);
     }
 
     fn check_for_circular_dependencies(&self) {
@@ -404,11 +404,7 @@ impl Razel {
     }
 
     fn remove_outputs_of_not_run_actions_from_out_dir(&self) {
-        for command_id in self
-            .waiting
-            .iter()
-            .chain(self.ready_or_running.ready_ids().iter())
-        {
+        for command_id in self.waiting.iter().chain(self.scheduler.ready_ids().iter()) {
             for file_id in &self.commands[*command_id].outputs {
                 fs::remove_file(&self.files[*file_id].out_path).ok();
             }
@@ -479,7 +475,7 @@ impl Razel {
     }
 
     fn start_ready_commands(&mut self, tx: &Sender<ExecutionResultChannel>) {
-        while let Some(id) = self.ready_or_running.pop_ready_and_run() {
+        while let Some(id) = self.scheduler.pop_ready_and_run() {
             self.start_next_command(id, tx.clone());
         }
         self.update_status();
@@ -490,8 +486,8 @@ impl Razel {
             self.succeeded.len(),
             self.cache_hits,
             self.failed.len(),
-            self.ready_or_running.running(),
-            self.waiting.len() + self.ready_or_running.ready(),
+            self.scheduler.running(),
+            self.waiting.len() + self.scheduler.ready(),
         );
     }
 
@@ -733,7 +729,7 @@ impl Razel {
         execution_result: &ExecutionResult,
         action_result: Option<ActionResult>,
     ) {
-        let retry = self.ready_or_running.set_finished_and_get_retry_flag(
+        let retry = self.scheduler.set_finished_and_get_retry_flag(
             id,
             execution_result.status == ExecutionStatus::Killed,
         );
@@ -778,7 +774,7 @@ impl Razel {
             if rdep.unfinished_deps.is_empty() {
                 rdep.schedule_state = ScheduleState::Ready;
                 self.waiting.remove(&rdep_id);
-                self.ready_or_running.push_ready(rdep);
+                self.scheduler.push_ready(rdep);
             }
         }
     }
@@ -864,13 +860,13 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn parallel_real_time_test() {
-        let mut scheduler = Razel::new();
-        scheduler.read_cache = false;
-        let threads = scheduler.worker_threads;
+        let mut razel = Razel::new();
+        razel.read_cache = false;
+        let threads = razel.worker_threads;
         let n = threads * 3;
         let sleep_duration = 0.5;
         for i in 0..n {
-            scheduler
+            razel
                 .push_custom_command(
                     format!("{}", i),
                     "cmake".into(),
@@ -881,8 +877,8 @@ mod tests {
                 )
                 .unwrap();
         }
-        assert_eq!(scheduler.len(), n);
-        let stats = scheduler.run().await.unwrap();
+        assert_eq!(razel.len(), n);
+        let stats = razel.run().await.unwrap();
         assert_eq!(
             stats.exec,
             SchedulerExecStats {

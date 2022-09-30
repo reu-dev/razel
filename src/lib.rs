@@ -1,8 +1,8 @@
+pub use crate::razel::*;
 pub use cli::*;
 pub use command::*;
 pub use file::*;
 pub use parse_batch::*;
-pub use razel::*;
 pub use rules::*;
 pub use sandbox::*;
 pub use scheduler::*;

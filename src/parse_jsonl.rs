@@ -9,8 +9,8 @@ use serde::Deserialize;
 
 use crate::{config, parse_cli, Razel};
 
-pub fn parse_jsonl_file(scheduler: &mut Razel, file_name: &String) -> Result<(), anyhow::Error> {
-    scheduler.set_workspace_dir(Path::new(file_name).parent().unwrap())?;
+pub fn parse_jsonl_file(razel: &mut Razel, file_name: &String) -> Result<(), anyhow::Error> {
+    razel.set_workspace_dir(Path::new(file_name).parent().unwrap())?;
     let file = File::open(file_name).with_context(|| file_name.clone())?;
     let file_buffered = BufReader::new(file);
     for (line_number, line_result) in file_buffered.lines().enumerate() {
@@ -29,7 +29,7 @@ pub fn parse_jsonl_file(scheduler: &mut Razel, file_name: &String) -> Result<(),
         })?;
         match json {
             RazelJson::CustomCommand(c) => {
-                scheduler.push_custom_command(
+                razel.push_custom_command(
                     c.name,
                     c.executable,
                     c.args,
@@ -42,12 +42,12 @@ pub fn parse_jsonl_file(scheduler: &mut Razel, file_name: &String) -> Result<(),
                 let mut args: Vec<String> =
                     vec![config::EXECUTABLE.into(), "task".into(), t.task.into()];
                 args.extend(&mut t.args.iter().map(|x| x.into()));
-                parse_cli(args.clone(), scheduler, Some(t.name.clone()))
+                parse_cli(args.clone(), razel, Some(t.name.clone()))
                     .with_context(|| format!("{}\n{}", t.name, args.join(" ")))?
             }
         }
     }
-    info!("Added {} commands from {}", scheduler.len(), file_name);
+    info!("Added {} commands from {}", razel.len(), file_name);
     Ok(())
 }
 
