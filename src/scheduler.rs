@@ -12,7 +12,7 @@ struct ReadyItem {
 }
 
 /// Keeps track of ready/running commands and selects next to run depending on resources
-pub struct ReadyOrRunning {
+pub struct Scheduler {
     available_slots: usize,
     used_slots: usize,
     // TODO sort by weight, e.g. recursive number of rdeps
@@ -22,7 +22,7 @@ pub struct ReadyOrRunning {
     group_to_slots: HashMap<String, usize>,
 }
 
-impl ReadyOrRunning {
+impl Scheduler {
     pub fn new(available_slots: usize) -> Self {
         Self {
             available_slots,
@@ -133,8 +133,8 @@ mod tests {
     use crate::executors::CustomCommandExecutor;
     use crate::{Arena, ScheduleState};
 
-    fn create(available_slots: usize, executables: Vec<&str>) -> ReadyOrRunning {
-        let mut ready_or_running = ReadyOrRunning::new(available_slots);
+    fn create(available_slots: usize, executables: Vec<&str>) -> Scheduler {
+        let mut ready_or_running = Scheduler::new(available_slots);
         let mut commands: Arena<Command> = Default::default();
         for executable in &executables {
             let id = commands.alloc_with_id(|id| Command {

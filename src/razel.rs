@@ -16,7 +16,7 @@ use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor};
 use crate::{
     bazel_remote_exec, config, Arena, CGroup, Command, CommandBuilder, CommandId, File, FileId,
-    ReadyOrRunning, Sandbox, TUI,
+    Sandbox, Scheduler, TUI,
 };
 
 #[derive(Debug, PartialEq)]
@@ -74,7 +74,7 @@ pub struct Razel {
     /// single Linux cgroup for all commands to trigger OOM killer
     cgroup: Option<CGroup>,
     waiting: HashSet<CommandId>,
-    ready_or_running: ReadyOrRunning,
+    ready_or_running: Scheduler,
     succeeded: Vec<CommandId>,
     failed: Vec<CommandId>,
     cache_hits: usize,
@@ -112,7 +112,7 @@ impl Razel {
             commands: Default::default(),
             cgroup,
             waiting: Default::default(),
-            ready_or_running: ReadyOrRunning::new(worker_threads),
+            ready_or_running: Scheduler::new(worker_threads),
             succeeded: vec![],
             failed: vec![],
             cache_hits: 0,
