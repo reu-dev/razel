@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::executors::{CustomCommandExecutor, Executor, TaskExecutor, TaskFn};
-use crate::{ArenaId, FileId, ScheduleState, Scheduler};
+use crate::{ArenaId, FileId, Razel, ScheduleState};
 
 pub struct Command {
     pub id: CommandId,
@@ -60,7 +60,7 @@ impl CommandBuilder {
     pub fn input(
         &mut self,
         path: &String,
-        scheduler: &mut Scheduler,
+        scheduler: &mut Razel,
     ) -> Result<PathBuf, anyhow::Error> {
         scheduler.input_file(path.clone()).map(|file| {
             self.map_exec_path(path, &file.exec_path.to_str().unwrap().into());
@@ -73,7 +73,7 @@ impl CommandBuilder {
     pub fn inputs(
         &mut self,
         paths: &Vec<String>,
-        scheduler: &mut Scheduler,
+        scheduler: &mut Razel,
     ) -> Result<Vec<PathBuf>, anyhow::Error> {
         self.inputs.reserve(paths.len());
         paths
@@ -91,7 +91,7 @@ impl CommandBuilder {
     pub fn output(
         &mut self,
         path: &String,
-        scheduler: &mut Scheduler,
+        scheduler: &mut Razel,
     ) -> Result<PathBuf, anyhow::Error> {
         scheduler.output_file(path).map(|file| {
             self.map_exec_path(path, &file.exec_path.to_str().unwrap().into());
@@ -104,7 +104,7 @@ impl CommandBuilder {
     pub fn outputs(
         &mut self,
         paths: &Vec<String>,
-        scheduler: &mut Scheduler,
+        scheduler: &mut Razel,
     ) -> Result<Vec<PathBuf>, anyhow::Error> {
         self.outputs.reserve(paths.len());
         paths
@@ -123,7 +123,7 @@ impl CommandBuilder {
         &mut self,
         executable: String,
         env: HashMap<String, String>,
-        scheduler: &mut Scheduler,
+        scheduler: &mut Razel,
     ) -> Result<(), anyhow::Error> {
         let file = scheduler.executable(executable)?;
         self.inputs.push(file.id);

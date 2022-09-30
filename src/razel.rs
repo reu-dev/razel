@@ -55,7 +55,7 @@ impl SchedulerExecStats {
 
 type ExecutionResultChannel = (CommandId, ExecutionResult, Option<ActionResult>);
 
-pub struct Scheduler {
+pub struct Razel {
     pub read_cache: bool,
     worker_threads: usize,
     /// absolute directory to resolve relative paths of input/output files
@@ -81,8 +81,8 @@ pub struct Scheduler {
     tui: TUI,
 }
 
-impl Scheduler {
-    pub fn new() -> Scheduler {
+impl Razel {
+    pub fn new() -> Razel {
         let worker_threads = num_cpus::get();
         assert!(worker_threads > 0);
         let current_dir = env::current_dir().unwrap();
@@ -98,7 +98,7 @@ impl Scheduler {
                 None
             }
         };
-        Scheduler {
+        Razel {
             read_cache: true,
             worker_threads,
             workspace_dir,
@@ -858,13 +858,13 @@ mod tests {
     use approx::assert_abs_diff_eq;
     use serial_test::serial;
 
-    use crate::{Scheduler, SchedulerExecStats};
+    use crate::{Razel, SchedulerExecStats};
 
     /// Test that commands are actually run in parallel limited by Scheduler::worker_threads
     #[tokio::test]
     #[serial]
     async fn parallel_real_time_test() {
-        let mut scheduler = Scheduler::new();
+        let mut scheduler = Razel::new();
         scheduler.read_cache = false;
         let threads = scheduler.worker_threads;
         let n = threads * 3;

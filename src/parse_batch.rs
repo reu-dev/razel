@@ -5,10 +5,10 @@ use std::path::Path;
 use anyhow::Context;
 use log::info;
 
-use crate::{config, parse_cli, Rules, Scheduler};
+use crate::{config, parse_cli, Razel, Rules};
 
 pub fn parse_command(
-    scheduler: &mut Scheduler,
+    scheduler: &mut Razel,
     command_line: Vec<String>,
 ) -> Result<(), anyhow::Error> {
     let rules = Rules::new();
@@ -16,10 +16,7 @@ pub fn parse_command(
         .with_context(|| command_line.join(" "))
 }
 
-pub fn parse_batch_file(
-    scheduler: &mut Scheduler,
-    file_name: &String,
-) -> Result<(), anyhow::Error> {
+pub fn parse_batch_file(scheduler: &mut Razel, file_name: &String) -> Result<(), anyhow::Error> {
     scheduler.set_workspace_dir(Path::new(file_name).parent().unwrap())?;
     let rules = Rules::new();
     let file = File::open(file_name).with_context(|| file_name.clone())?;
@@ -43,7 +40,7 @@ pub fn parse_batch_file(
 }
 
 fn create_command(
-    scheduler: &mut Scheduler,
+    scheduler: &mut Razel,
     rules: &Rules,
     name: String,
     command_line: Vec<String>,

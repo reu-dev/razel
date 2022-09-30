@@ -2,10 +2,10 @@ pub use cli::*;
 pub use command::*;
 pub use file::*;
 pub use parse_batch::*;
+pub use razel::*;
 pub use ready_or_running::*;
 pub use rules::*;
 pub use sandbox::*;
-pub use scheduler::*;
 pub use utils::*;
 
 mod cli;
@@ -14,10 +14,10 @@ pub mod config;
 mod file;
 mod parse_batch;
 mod parse_jsonl;
+mod razel;
 mod ready_or_running;
 mod rules;
 mod sandbox;
-mod scheduler;
 
 pub mod bazel_remote_exec {
     pub use build::bazel::remote::execution::v2::*;

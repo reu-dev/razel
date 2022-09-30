@@ -1,7 +1,7 @@
 use log::{debug, LevelFilter};
 use simplelog::*;
 
-use razel::{parse_cli, Scheduler};
+use razel::{parse_cli, Razel};
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -20,7 +20,7 @@ async fn main() -> Result<(), anyhow::Error> {
         std::process::exit(1);
     }));
 
-    let mut scheduler = Scheduler::new();
+    let mut scheduler = Razel::new();
     parse_cli(
         std::env::args_os()
             .map(|x| x.into_string().unwrap())
@@ -44,7 +44,7 @@ async fn main() -> Result<(), anyhow::Error> {
 mod main {
     use serial_test::serial;
 
-    use razel::{config, parse_cli, Scheduler, SchedulerExecStats};
+    use razel::{config, parse_cli, Razel, SchedulerExecStats};
 
     /// For simplification all tests use the same binary directory and therefore need to be run in serial
     async fn test_main(args: Vec<&str>, exp_stats: SchedulerExecStats) {
@@ -54,7 +54,7 @@ mod main {
             .try_init();
         // run without reading cache
         {
-            let mut scheduler = Scheduler::new();
+            let mut scheduler = Razel::new();
             scheduler.read_cache = false;
             scheduler.clean();
             parse_cli(
@@ -69,7 +69,7 @@ mod main {
         }
         // run with reading cache
         {
-            let mut scheduler = Scheduler::new();
+            let mut scheduler = Razel::new();
             scheduler.clean();
             parse_cli(
                 args.iter().map(|&x| x.into()).collect(),

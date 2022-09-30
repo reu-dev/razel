@@ -6,7 +6,7 @@ use std::sync::Arc;
 use clap::{AppSettings, Args, Parser, Subcommand};
 
 use crate::parse_jsonl::parse_jsonl_file;
-use crate::{parse_batch_file, parse_command, tasks, CommandBuilder, Scheduler};
+use crate::{parse_batch_file, parse_command, tasks, CommandBuilder, Razel};
 
 #[derive(Parser)]
 #[clap(name = "razel")]
@@ -45,7 +45,7 @@ struct Exec {
 }
 
 impl Exec {
-    fn apply(&self, scheduler: &mut Scheduler) -> Result<(), anyhow::Error> {
+    fn apply(&self, scheduler: &mut Razel) -> Result<(), anyhow::Error> {
         match Path::new(&self.file).extension().and_then(OsStr::to_str) {
             Some("jsonl") => parse_jsonl_file(scheduler, &self.file),
             _ => parse_batch_file(scheduler, &self.file),
@@ -80,7 +80,7 @@ impl CsvConcatTask {
     fn build(
         self,
         builder: &mut CommandBuilder,
-        scheduler: &mut Scheduler,
+        scheduler: &mut Razel,
     ) -> Result<(), anyhow::Error> {
         let inputs = builder.inputs(&self.input, scheduler)?;
         let output = builder.output(&self.output, scheduler)?;
@@ -109,7 +109,7 @@ impl CsvFilterTask {
     fn build(
         self,
         builder: &mut CommandBuilder,
-        scheduler: &mut Scheduler,
+        scheduler: &mut Razel,
     ) -> Result<(), anyhow::Error> {
         let input = builder.input(&self.input, scheduler)?;
         let output = builder.output(&self.output, scheduler)?;
@@ -137,7 +137,7 @@ impl WriteFileTask {
     fn build(
         self,
         builder: &mut CommandBuilder,
-        scheduler: &mut Scheduler,
+        scheduler: &mut Razel,
     ) -> Result<(), anyhow::Error> {
         let output = builder.output(&self.file, scheduler)?;
         builder.task_executor(Arc::new(move || {
@@ -157,7 +157,7 @@ impl EnsureEqualTask {
     fn build(
         self,
         builder: &mut CommandBuilder,
-        scheduler: &mut Scheduler,
+        scheduler: &mut Razel,
     ) -> Result<(), anyhow::Error> {
         let file1 = builder.input(&self.file1, scheduler)?;
         let file2 = builder.input(&self.file2, scheduler)?;
@@ -178,7 +178,7 @@ impl EnsureNotEqualTask {
     fn build(
         self,
         builder: &mut CommandBuilder,
-        scheduler: &mut Scheduler,
+        scheduler: &mut Razel,
     ) -> Result<(), anyhow::Error> {
         let file1 = builder.input(&self.file1, scheduler)?;
         let file2 = builder.input(&self.file2, scheduler)?;
@@ -191,7 +191,7 @@ impl EnsureNotEqualTask {
 
 pub fn parse_cli(
     args: Vec<String>,
-    scheduler: &mut Scheduler,
+    scheduler: &mut Razel,
     name: Option<String>,
 ) -> Result<(), anyhow::Error> {
     let cli = Cli::try_parse_from(args.iter())?;
@@ -207,7 +207,7 @@ pub fn parse_cli(
 }
 
 fn match_task(
-    scheduler: &mut Scheduler,
+    scheduler: &mut Razel,
     name: String,
     task: CliTasks,
     args: Vec<String>,

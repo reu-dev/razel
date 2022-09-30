@@ -161,11 +161,11 @@ impl CustomCommandExecutor {
 #[cfg(test)]
 mod tests {
     use crate::executors::ExecutionStatus;
-    use crate::Scheduler;
+    use crate::Razel;
 
     #[tokio::test]
     async fn exec_ok() {
-        let mut scheduler = Scheduler::new();
+        let mut scheduler = Razel::new();
         let command = scheduler
             .push_custom_command(
                 "test".into(),
@@ -187,7 +187,7 @@ mod tests {
 
     #[tokio::test]
     async fn exec_fail_to_start() {
-        let mut scheduler = Scheduler::new();
+        let mut scheduler = Razel::new();
         let command = scheduler
             .push_custom_command(
                 "test".into(),
@@ -208,7 +208,7 @@ mod tests {
 
     #[tokio::test]
     async fn exec_failed_to_run() {
-        let mut scheduler = Scheduler::new();
+        let mut scheduler = Razel::new();
         let command = scheduler
             .push_custom_command(
                 "test".into(),
@@ -229,7 +229,7 @@ mod tests {
 
     #[tokio::test]
     async fn exec_stdout() {
-        let mut scheduler = Scheduler::new();
+        let mut scheduler = Razel::new();
         let command = scheduler
             .push_custom_command(
                 "test".into(),
@@ -252,7 +252,7 @@ mod tests {
 
     #[tokio::test]
     async fn exec_stderr() {
-        let mut scheduler = Scheduler::new();
+        let mut scheduler = Razel::new();
         let command = scheduler
             .push_custom_command(
                 "test".into(),
