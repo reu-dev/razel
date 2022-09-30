@@ -225,6 +225,31 @@ impl Razel {
         self.commands.get(id)
     }
 
+    pub fn list_commands(&mut self) {
+        self.create_dependency_graph();
+        while let Some(id) = self.scheduler.pop_ready_and_run() {
+            let command = &mut self.commands[id];
+            println!("# {}", command.name);
+            println!(
+                "{}",
+                TUI::format_command_line(&command.executor.args_with_executable())
+            );
+            command.schedule_state = ScheduleState::Succeeded;
+            for rdep_id in command.reverse_deps.clone() {
+                let rdep = &mut self.commands[rdep_id];
+                assert_eq!(rdep.schedule_state, ScheduleState::Waiting);
+                assert!(!rdep.unfinished_deps.is_empty());
+                rdep.unfinished_deps
+                    .swap_remove(rdep.unfinished_deps.iter().position(|x| *x == id).unwrap());
+                if rdep.unfinished_deps.is_empty() {
+                    rdep.schedule_state = ScheduleState::Ready;
+                    self.waiting.remove(&rdep_id);
+                    self.scheduler.push_ready(rdep);
+                }
+            }
+        }
+    }
+
     pub async fn run(&mut self) -> Result<SchedulerStats, anyhow::Error> {
         let preparation_start = Instant::now();
         if self.commands.is_empty() {

@@ -31,6 +31,13 @@ enum CliCommands {
     /// Execute commands from a razel.jsonl or batch file
     #[clap(visible_alias = "build", visible_alias = "test")]
     Exec(Exec),
+    /// List commands from a razel.jsonl or batch file
+    #[clap(visible_alias = "ls", visible_alias = "show-only")]
+    ListCommands {
+        /// file with commands to list
+        #[clap(short, long, default_value = "razel.jsonl")]
+        file: String,
+    },
     // TODO add Debug subcommand
     /// Show info about configuration, cache, ...
     Info,
@@ -42,15 +49,6 @@ struct Exec {
     /// file with commands to execute
     #[clap(short, long, default_value = "razel.jsonl")]
     file: String,
-}
-
-impl Exec {
-    fn apply(&self, razel: &mut Razel) -> Result<(), anyhow::Error> {
-        match Path::new(&self.file).extension().and_then(OsStr::to_str) {
-            Some("jsonl") => parse_jsonl_file(razel, &self.file),
-            _ => parse_batch_file(razel, &self.file),
-        }
-    }
 }
 
 #[derive(Subcommand)]
@@ -178,11 +176,23 @@ pub fn parse_cli(
     match cli.command {
         CliCommands::Command { command } => parse_command(razel, command),
         CliCommands::Task(task) => match_task(razel, name.unwrap(), task, args),
-        CliCommands::Exec(opts) => opts.apply(razel),
+        CliCommands::Exec(exec) => apply_file(razel, &exec.file),
+        CliCommands::ListCommands { file } => {
+            apply_file(razel, &file)?;
+            razel.list_commands();
+            std::process::exit(0);
+        }
         CliCommands::Info => {
             razel.show_info();
             std::process::exit(0);
         }
+    }
+}
+
+fn apply_file(razel: &mut Razel, file: &String) -> Result<(), anyhow::Error> {
+    match Path::new(file).extension().and_then(OsStr::to_str) {
+        Some("jsonl") => parse_jsonl_file(razel, file),
+        _ => parse_batch_file(razel, file),
     }
 }
 
