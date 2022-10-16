@@ -24,15 +24,7 @@ pub fn csv_concat(inputs: Vec<PathBuf>, output: PathBuf) -> Result<(), anyhow::E
     Ok(())
 }
 
-pub fn csv_filter(
-    input: PathBuf,
-    output: PathBuf,
-    cols: Vec<String>,
-    fields: Vec<(String, String)>,
-) -> Result<(), anyhow::Error> {
-    if !fields.is_empty() {
-        todo!();
-    }
+pub fn csv_filter(input: PathBuf, output: PathBuf, cols: Vec<String>) -> Result<(), anyhow::Error> {
     let mut reader = csv::Reader::from_path(input)?;
     let headers = reader.headers()?;
     let indices: Vec<usize> = if !cols.is_empty() {

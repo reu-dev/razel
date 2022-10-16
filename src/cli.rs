@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::ffi::OsStr;
 use std::path::Path;
 use std::sync::Arc;
@@ -94,9 +93,6 @@ struct CsvFilterTask {
     /// Col names to keep - all other cols are dropped
     #[clap(short, long = "col", multiple_values(true))]
     cols: Vec<String>,
-    /// Fields to keep: Field=Value
-    #[clap(short, long = "field", parse(try_from_str = parse_key_val), multiple_occurrences(true), multiple_values(true))]
-    fields: Vec<(String, String)>,
 }
 
 impl CsvFilterTask {
@@ -104,12 +100,7 @@ impl CsvFilterTask {
         let input = builder.input(&self.input, razel)?;
         let output = builder.output(&self.output, razel)?;
         builder.task_executor(Arc::new(move || {
-            tasks::csv_filter(
-                input.clone(),
-                output.clone(),
-                self.cols.clone(),
-                self.fields.clone(),
-            )
+            tasks::csv_filter(input.clone(), output.clone(), self.cols.clone())
         }));
         Ok(())
     }
@@ -212,18 +203,4 @@ fn match_task(
     }?;
     razel.push(builder)?;
     Ok(())
-}
-
-/// Parse a single key-value pair
-fn parse_key_val<T, U>(s: &str) -> Result<(T, U), Box<dyn Error + Send + Sync + 'static>>
-where
-    T: std::str::FromStr,
-    T::Err: Error + Send + Sync + 'static,
-    U: std::str::FromStr,
-    U::Err: Error + Send + Sync + 'static,
-{
-    let pos = s
-        .find('=')
-        .ok_or_else(|| format!("invalid KEY=value: no `=` found in `{}`", s))?;
-    Ok((s[..pos].parse()?, s[pos + 1..].parse()?))
 }
