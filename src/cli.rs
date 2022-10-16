@@ -2,7 +2,7 @@ use std::ffi::OsStr;
 use std::path::Path;
 use std::sync::Arc;
 
-use clap::{AppSettings, Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 use crate::parse_jsonl::parse_jsonl_file;
 use crate::{parse_batch_file, parse_command, tasks, CommandBuilder, Razel};
@@ -10,7 +10,6 @@ use crate::{parse_batch_file, parse_command, tasks, CommandBuilder, Razel};
 #[derive(Parser)]
 #[clap(name = "razel")]
 #[clap(author, version, about, long_about = None)]
-#[clap(global_setting(AppSettings::DeriveDisplayOrder))]
 #[clap(infer_subcommands = true)]
 struct Cli {
     #[clap(subcommand)]
@@ -91,7 +90,7 @@ struct CsvFilterTask {
     #[clap(short, long)]
     output: String,
     /// Col names to keep - all other cols are dropped
-    #[clap(short, long = "col", multiple_values(true))]
+    #[clap(short, long = "col", num_args = 0..)]
     cols: Vec<String>,
 }
 

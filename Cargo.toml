@@ -11,37 +11,37 @@ default-run = "razel"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.56"
-async-trait = "0.1.53"
+anyhow = "1.0.65"
+async-trait = "0.1.57"
 base16ct = { version = "0.1", features = ["alloc"] }
-bstr = "0.2"
-clap = { version = "3.1.6", features = ["derive"] }
-crossterm = "0.23.2"
+bstr = "1.0"
+clap = { version = "4.0.15", features = ["derive"] }
+crossterm = "0.25.0"
 csv = "1.1.6"
 directories = "4.0"
-itertools = "0.10.3"
-log = "0.4.14"
-num_cpus = "1.8.0"  # TODO replace with std::thread::available_parallelism() once it works in docker: https://github.com/rust-lang/rust/pull/97925
-prost = "0.10"
-prost-types = "0.10"
-serde = { version = "1.0.136", features = ["derive"] }
-serde_json = "1.0.79"
+itertools = "0.10.5"
+log = "0.4.17"
+num_cpus = "1.13.1"  # TODO replace with std::thread::available_parallelism() once it works in docker: https://github.com/rust-lang/rust/pull/97925
+prost = "0.11"
+prost-types = "0.11"
+serde = { version = "1.0.145", features = ["derive"] }
+serde_json = "1.0.86"
 sha2 = "0.10"
-simplelog = "0.11.2"
-tokio = { version = "1.18.2", features = ["full"] }
-which = "4.2"
+simplelog = "0.12.0"
+tokio = { version = "1.21.2", features = ["full"] }
+which = "4.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-procfs = { version = "0.13.2", features = [] }
+procfs = { version = "0.14.1", features = [] }
 
 [build-dependencies]
-prost-build = "0.10"
-tonic-build = "0.7"
+prost-build = "0.11"
+tonic-build = "0.8"
 
 [dev-dependencies]
 approx = "0.5.1"
-env_logger = "0.9.0"
-serial_test = "0.6.0"
+env_logger = "0.9.1"
+serial_test = "0.9.0"
 temp-dir = "0.1"
 
 
