@@ -1,4 +1,4 @@
-use clap::{AppSettings, Parser};
+use clap::Parser;
 use std::process::ExitCode;
 use std::thread::sleep;
 use std::time::Duration;
@@ -6,7 +6,6 @@ use std::time::Duration;
 #[derive(Parser)]
 #[clap(name = "razel-test")]
 #[clap(author, version, about, long_about = None)]
-#[clap(global_setting(AppSettings::DeriveDisplayOrder))]
 struct Args {
     /// Allocate memory [bytes]
     #[clap(short, long)]
