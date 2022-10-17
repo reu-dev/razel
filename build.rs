@@ -1,10 +1,8 @@
 // build script to generate code from bazel remote execution protobuf files
 
 fn main() {
-    let files = vec![
-        "src/bazel_remote_exec/proto/build/bazel/remote/execution/v2/remote_execution.proto",
-        "src/bazel_remote_exec/proto/google/rpc/code.proto",
-    ];
+    let files =
+        vec!["src/bazel_remote_exec/proto/build/bazel/remote/execution/v2/remote_execution.proto"];
     for x in &files {
         println!("cargo:rerun-if-changed={}", x);
     }

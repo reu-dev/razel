@@ -6,9 +6,10 @@ mod tests {
     use crate::bazel_remote_exec::content_addressable_storage_client::ContentAddressableStorageClient;
     use crate::bazel_remote_exec::{
         batch_update_blobs_request, ActionResult, BatchReadBlobsRequest, BatchUpdateBlobsRequest,
-        Code, Digest, GetActionResultRequest, GetCapabilitiesRequest, ServerCapabilities,
+        Digest, GetActionResultRequest, GetCapabilitiesRequest, ServerCapabilities,
         UpdateActionResultRequest,
     };
+    use tonic::Code;
 
     const INSTANCE_NAME: &str = "";
     const CACHE_URL: &str = "grpc://localhost:9092";

@@ -21,7 +21,6 @@ mod scheduler;
 
 pub mod bazel_remote_exec {
     pub use build::bazel::remote::execution::v2::*;
-    pub use google::rpc::Code;
 
     mod google {
         mod protobuf {
