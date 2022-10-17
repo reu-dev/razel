@@ -66,22 +66,6 @@ impl Cache {
     }
 }
 
-pub trait ActionCache {
-    /// like rpc GetActionResult(GetActionResultRequest) returns (ActionResult)
-    fn get_action_result(&self, digest: MessageDigest) -> Option<ActionResult>;
-
-    /// like rpc UpdateActionResult(UpdateActionResultRequest) returns (ActionResult)
-    fn push_action_result(&self, digest: MessageDigest, result: ActionResult);
-}
-
-pub trait ContentAddressableStorage {
-    // like rpc BatchReadBlobs(BatchReadBlobsRequest) returns (BatchReadBlobsResponse)
-    fn get_blob(&self, digest: BlobDigest) -> Option<Vec<u8>>;
-
-    /// like rpc BatchUpdateBlobs(BatchUpdateBlobsRequest) returns (BatchUpdateBlobsResponse)
-    fn push_blob(&self, digest: BlobDigest, blob: Vec<u8>);
-}
-
 pub type MessageDigest = Digest;
 pub type BlobDigest = Digest;
 
@@ -121,6 +105,14 @@ impl Digest {
         }
     }
 
+    pub fn for_string(text: &String) -> MessageDigest {
+        use sha2::Digest;
+        bazel_remote_exec::Digest {
+            hash: Self::hex(&Sha256::digest(text.as_bytes())),
+            size_bytes: text.len() as i64,
+        }
+    }
+
     fn hex(input: &[u8]) -> String {
         base16ct::lower::encode_string(input)
     }
@@ -148,7 +140,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn small_file() {
+    async fn digest_for_small_file() {
         let path = "test/data/a.csv";
         let act = super::Digest::for_file(&path).await.unwrap();
         let exp = digest_file_sha256_simple(&path).unwrap();
@@ -176,10 +168,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bigger_file() {
+    async fn digest_for_bigger_file() {
         let path = "Cargo.lock";
         let act = super::Digest::for_file(&path).await.unwrap();
         let exp = digest_file_sha256_simple(&path).unwrap();
         assert_eq!(act, exp);
+    }
+
+    #[test]
+    fn digest_for_string() {
+        assert_eq!(
+            super::Digest::for_string(&"Hello World!".into()),
+            super::Digest {
+                // echo -n "Hello World!" | sha256sum
+                hash: "7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069".into(),
+                size_bytes: 12
+            }
+        );
     }
 }

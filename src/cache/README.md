@@ -13,3 +13,13 @@ read cache for `Action`:
 3. request `ActionResult` from remote ac cache
     * if received, query missing blobs from `ActionResult::output_files`
     * store `ActionResult` and received blobs in local cache
+
+## Remote Cache implementations
+
+* https://github.com/buchgr/bazel-remote
+
+    ```shell
+    docker run -p 9092:9092 buchgr/bazel-remote-cache --max_size 1
+    ```
+
+* https://github.com/allada/turbo-cache

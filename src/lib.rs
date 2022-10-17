@@ -21,6 +21,7 @@ mod scheduler;
 
 pub mod bazel_remote_exec {
     pub use build::bazel::remote::execution::v2::*;
+    pub use google::rpc::Code;
 
     mod google {
         mod protobuf {
@@ -31,7 +32,7 @@ pub mod bazel_remote_exec {
             include!("bazel_remote_exec/gen/google.rpc.rs");
         }
 
-        mod longrunning {
+        pub mod longrunning {
             include!("bazel_remote_exec/gen/google.longrunning.rs");
         }
 
@@ -61,9 +62,11 @@ pub mod bazel_remote_exec {
 pub mod cache {
     pub use cache::*;
     pub use local_cache::*;
+    pub use remote_cache::*;
 
     mod cache;
     mod local_cache;
+    mod remote_cache;
 }
 
 pub mod executors {
