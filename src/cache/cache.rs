@@ -8,11 +8,12 @@ use tokio::io::{AsyncReadExt, BufReader};
 
 use crate::bazel_remote_exec;
 use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
-use crate::cache::LocalCache;
+use crate::cache::{GrpcRemoteCache, LocalCache};
 
-#[derive(Clone)]
+#[derive(Clone)] // TODO is Cache::clone() a good idea?
 pub struct Cache {
     pub local_cache: LocalCache,
+    remote_cache: Option<GrpcRemoteCache>,
 }
 
 impl Cache {
@@ -20,6 +21,7 @@ impl Cache {
         Ok(Self {
             local_cache: LocalCache::new(workspace_dir)
                 .with_context(|| "Failed to create local cache")?,
+            remote_cache: None, // TODO
         })
     }
 
@@ -41,6 +43,9 @@ impl Cache {
         digest: &MessageDigest,
         result: &ActionResult,
     ) -> Result<(), anyhow::Error> {
+        if let Some(remote_cache) = &self.remote_cache {
+            remote_cache.push_action_result(digest.clone(), result.clone());
+        }
         self.local_cache.push_action_result(digest, result).await
     }
 
@@ -50,9 +55,14 @@ impl Cache {
         out_dir: &PathBuf,
         exec_path: &PathBuf,
     ) -> Result<OutputFile, anyhow::Error> {
-        self.local_cache
+        let (output_file, cache_path) = self
+            .local_cache
             .move_output_file_into_cache(sandbox_dir, out_dir, exec_path)
-            .await
+            .await?;
+        if let Some(remote_cache) = &self.remote_cache {
+            remote_cache.push_blob(output_file.digest.clone().unwrap(), cache_path);
+        }
+        Ok(output_file)
     }
 
     pub async fn symlink_output_files_into_out_dir(
@@ -182,7 +192,7 @@ mod tests {
             super::Digest {
                 // echo -n "Hello World!" | sha256sum
                 hash: "7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069".into(),
-                size_bytes: 12
+                size_bytes: 12,
             }
         );
     }

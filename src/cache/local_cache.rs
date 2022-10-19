@@ -93,7 +93,7 @@ impl LocalCache {
         sandbox_dir: &Option<PathBuf>,
         out_dir: &PathBuf,
         exec_path: &PathBuf,
-    ) -> Result<OutputFile, anyhow::Error> {
+    ) -> Result<(OutputFile, PathBuf), anyhow::Error> {
         let src = sandbox_dir
             .as_ref()
             .map_or(exec_path.clone(), |x| x.join(exec_path));
@@ -108,13 +108,16 @@ impl LocalCache {
         tokio::fs::rename(&src, &dst)
             .await
             .with_context(|| format!("mv {:?} -> {:?}", src, dst))?;
-        Ok(OutputFile {
-            path,
-            digest: Some(digest),
-            is_executable: false,
-            contents: vec![],
-            node_properties: None,
-        })
+        Ok((
+            OutputFile {
+                path,
+                digest: Some(digest),
+                is_executable: false,
+                contents: vec![],
+                node_properties: None,
+            },
+            dst,
+        ))
     }
 
     pub async fn symlink_output_files_into_out_dir(
