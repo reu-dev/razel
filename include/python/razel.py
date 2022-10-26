@@ -4,7 +4,7 @@ from __future__ import annotations
 import abc
 import json
 import os
-from typing import ClassVar, List, Optional
+from typing import ClassVar, List, Optional, Any
 
 
 class Razel:
@@ -129,7 +129,7 @@ class Command(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def json(self) -> dict[str, str]:
+    def json(self) -> dict[str, Any]:
         pass
 
 
@@ -161,7 +161,7 @@ class CustomCommand(Command):
     def command_line(self) -> str:
         return "TODO"
 
-    def json(self) -> dict[str, str | List[str] | dict[str, str]]:
+    def json(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "executable": self.executable,
