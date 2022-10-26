@@ -4,11 +4,12 @@ from __future__ import annotations
 import abc
 import json
 import os
-from typing import ClassVar, Optional, Any
+from typing import ClassVar, Final, Optional, Any
 
 
 class Razel:
     _instance: ClassVar[Optional[Razel]] = None
+    OUT_DIR: Final = "razel-out"
 
     def __init__(self, workspace_dir: str) -> None:
         self._workspace_dir = workspace_dir
@@ -40,14 +41,20 @@ class Razel:
         assert isinstance(command, CustomCommand)  # For type-checking only
         return command
 
-    def add_task(self):
-        pass  # TODO
+    def add_task(self, name: str, task: str, args: list[str | File]) -> Task:
+        name = Razel._sanitize_name(name)
+        command = Task(name, task, args)
+        command = self._add(command)
+        assert isinstance(command, Task)  # For type-checking only
+        return command
 
     def ensure_equal(self, file1: File, file2: File) -> None:
-        pass  # TODO
+        name = f"{file1.basename}##shouldEqual##{file2.basename}"
+        self._add(Task(name, "ensure-equal", [file1, file2]))
 
     def ensure_not_equal(self, file1: File, file2: File) -> None:
-        pass  # TODO
+        name = f"{file1.basename}##shouldNotEqual##{file2.basename}"
+        self._add(Task(name, "ensure-not-equal", [file1, file2]))
 
     def write_razel_file(self) -> None:
         with open(os.path.join(self._workspace_dir, "razel.jsonl"), "w", encoding="utf-8") as file:
@@ -159,7 +166,19 @@ class CustomCommand(Command):
         return self._env
 
     def command_line(self) -> str:
-        return "TODO"
+        return " ".join(
+            [
+                f"./{self.executable}",
+                *[
+                    x
+                    if not isinstance(x, File)
+                    else x.file_name
+                    if x.is_data
+                    else os.path.join(Razel.OUT_DIR, x.file_name)
+                    for x in self.args
+                ],
+            ]
+        )
 
     def json(self) -> dict[str, Any]:
         return {
@@ -169,4 +188,52 @@ class CustomCommand(Command):
             "inputs": [x.file_name for x in self.args if isinstance(x, File) and x.created_by != self],
             "outputs": [x.file_name for x in self.outputs],
             "env": self.env,
+        }
+
+
+class Task(Command):
+    @staticmethod
+    def write_file(path: str, lines: list[str]) -> File:
+        file = Razel.instance().add_output_file(path)
+        Razel.instance().add_task(path, "write-file", [file, *lines])
+        return file
+
+    def __init__(self, name: str, task: str, args: list[str | File]) -> None:
+        super().__init__(name, [x for x in args if isinstance(x, File) and not x.is_data and x.created_by is None])
+
+        self._task = task
+        self._args = args
+
+        for output in self.outputs:
+            output._created_by = self
+
+    @property
+    def task(self) -> str:
+        return self._task
+
+    @property
+    def args(self) -> list[str | File]:
+        return self._args
+
+    def command_line(self) -> str:
+        return " ".join(
+            [
+                "razel",
+                self.task,
+                *[
+                    x
+                    if not isinstance(x, File)
+                    else x.file_name
+                    if x.is_data
+                    else os.path.join(Razel.OUT_DIR, x.file_name)
+                    for x in self.args
+                ],
+            ]
+        )
+
+    def json(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "task": self.task,
+            "args": [x.file_name if isinstance(x, File) else x for x in self.args],
         }
