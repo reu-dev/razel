@@ -4,7 +4,7 @@ from __future__ import annotations
 import abc
 import json
 import os
-from typing import ClassVar, Final, Optional, Any
+from typing import ClassVar, Final, Optional, Any, TypeVar
 
 
 class Razel:
@@ -37,16 +37,12 @@ class Razel:
     ) -> CustomCommand:
         name = self._sanitize_name(name)
         command = CustomCommand(name, self._rel_path(executable), args, env)
-        command = self._add(command)
-        assert isinstance(command, CustomCommand)  # For type-checking only
-        return command
+        return self._add(command)
 
     def add_task(self, name: str, task: str, args: list[str | File]) -> Task:
         name = Razel._sanitize_name(name)
         command = Task(name, task, args)
-        command = self._add(command)
-        assert isinstance(command, Task)  # For type-checking only
-        return command
+        return self._add(command)
 
     def ensure_equal(self, file1: File, file2: File) -> None:
         name = f"{file1.basename}##shouldEqual##{file2.basename}"
@@ -62,12 +58,16 @@ class Razel:
                 json.dump(command.json(), file)
                 file.write("\n")
 
-    def _add(self, command: Command) -> Command:
+    # Generic type used to ensure that _add() takes and returns the same type.
+    _Command = TypeVar("_Command", bound="Command")
+
+    def _add(self, command: _Command) -> _Command:
         for existing in self._commands:
             if existing.name == command.name:
                 assert (
                     existing.json() == command.json()
                 ), f"conflicting actions: {command.name}:\n{existing.command_line()}\n{command.command_line()}"
+                assert isinstance(existing, type(command))
                 return existing
 
         self._commands.append(command)
