@@ -4,7 +4,7 @@ from __future__ import annotations
 import abc
 import json
 import os
-from typing import ClassVar, List, Optional, Any
+from typing import ClassVar, Optional, Any
 
 
 class Razel:
@@ -12,7 +12,7 @@ class Razel:
 
     def __init__(self, workspace_dir: str) -> None:
         self._workspace_dir = workspace_dir
-        self._commands: List[Command] = []
+        self._commands: list[Command] = []
 
     @staticmethod
     def init(workspace_dir: str) -> Razel:
@@ -32,7 +32,7 @@ class Razel:
         return File(self._rel_path(path), False, None)
 
     def add_command(
-        self, name: str, executable: str, args: List[str | File], env: Optional[dict[str, str]] = None
+        self, name: str, executable: str, args: list[str | File], env: Optional[dict[str, str]] = None
     ) -> CustomCommand:
         name = self._sanitize_name(name)
         command = CustomCommand(name, self._rel_path(executable), args, env)
@@ -107,7 +107,7 @@ class File:
 
 
 class Command(abc.ABC):
-    def __init__(self, name: str, outputs: List[File]) -> None:
+    def __init__(self, name: str, outputs: list[File]) -> None:
         self._name = name
         self._outputs = outputs
 
@@ -116,7 +116,7 @@ class Command(abc.ABC):
         return self._name
 
     @property
-    def outputs(self) -> List[File]:
+    def outputs(self) -> list[File]:
         return self._outputs
 
     @property
@@ -135,7 +135,7 @@ class Command(abc.ABC):
 
 class CustomCommand(Command):
     def __init__(
-        self, name: str, executable: str, args: List[str | File], env: Optional[dict[str, str]] = None
+        self, name: str, executable: str, args: list[str | File], env: Optional[dict[str, str]] = None
     ) -> None:
         super().__init__(name, [x for x in args if isinstance(x, File) and not x.is_data and x.created_by is None])
 
@@ -151,7 +151,7 @@ class CustomCommand(Command):
         return self._executable
 
     @property
-    def args(self) -> List[str | File]:
+    def args(self) -> list[str | File]:
         return self._args
 
     @property
