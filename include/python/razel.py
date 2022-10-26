@@ -5,6 +5,7 @@ import abc
 import json
 import os
 from typing import ClassVar, Final, Optional, Any, TypeVar
+from collections.abc import Mapping, Sequence
 
 
 class Razel:
@@ -33,13 +34,13 @@ class Razel:
         return File(self._rel_path(path), False, None)
 
     def add_command(
-        self, name: str, executable: str, args: list[str | File], env: Optional[dict[str, str]] = None
+        self, name: str, executable: str, args: Sequence[str | File], env: Optional[Mapping[str, str]] = None
     ) -> CustomCommand:
         name = self._sanitize_name(name)
         command = CustomCommand(name, self._rel_path(executable), args, env)
         return self._add(command)
 
-    def add_task(self, name: str, task: str, args: list[str | File]) -> Task:
+    def add_task(self, name: str, task: str, args: Sequence[str | File]) -> Task:
         name = Razel._sanitize_name(name)
         command = Task(name, task, args)
         return self._add(command)
@@ -114,7 +115,7 @@ class File:
 
 
 class Command(abc.ABC):
-    def __init__(self, name: str, outputs: list[File]) -> None:
+    def __init__(self, name: str, outputs: Sequence[File]) -> None:
         self._name = name
         self._outputs = outputs
 
@@ -123,7 +124,7 @@ class Command(abc.ABC):
         return self._name
 
     @property
-    def outputs(self) -> list[File]:
+    def outputs(self) -> Sequence[File]:
         return self._outputs
 
     @property
@@ -136,13 +137,13 @@ class Command(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def json(self) -> dict[str, Any]:
+    def json(self) -> Mapping[str, Any]:
         pass
 
 
 class CustomCommand(Command):
     def __init__(
-        self, name: str, executable: str, args: list[str | File], env: Optional[dict[str, str]] = None
+        self, name: str, executable: str, args: Sequence[str | File], env: Optional[Mapping[str, str]] = None
     ) -> None:
         super().__init__(name, [x for x in args if isinstance(x, File) and not x.is_data and x.created_by is None])
 
@@ -158,11 +159,11 @@ class CustomCommand(Command):
         return self._executable
 
     @property
-    def args(self) -> list[str | File]:
+    def args(self) -> Sequence[str | File]:
         return self._args
 
     @property
-    def env(self) -> dict[str, str]:
+    def env(self) -> Mapping[str, str]:
         return self._env
 
     def command_line(self) -> str:
@@ -180,7 +181,7 @@ class CustomCommand(Command):
             ]
         )
 
-    def json(self) -> dict[str, Any]:
+    def json(self) -> Mapping[str, Any]:
         return {
             "name": self.name,
             "executable": self.executable,
@@ -193,12 +194,12 @@ class CustomCommand(Command):
 
 class Task(Command):
     @staticmethod
-    def write_file(path: str, lines: list[str]) -> File:
+    def write_file(path: str, lines: Sequence[str]) -> File:
         file = Razel.instance().add_output_file(path)
         Razel.instance().add_task(path, "write-file", [file, *lines])
         return file
 
-    def __init__(self, name: str, task: str, args: list[str | File]) -> None:
+    def __init__(self, name: str, task: str, args: Sequence[str | File]) -> None:
         super().__init__(name, [x for x in args if isinstance(x, File) and not x.is_data and x.created_by is None])
 
         self._task = task
@@ -212,7 +213,7 @@ class Task(Command):
         return self._task
 
     @property
-    def args(self) -> list[str | File]:
+    def args(self) -> Sequence[str | File]:
         return self._args
 
     def command_line(self) -> str:
@@ -231,7 +232,7 @@ class Task(Command):
             ]
         )
 
-    def json(self) -> dict[str, Any]:
+    def json(self) -> Mapping[str, Any]:
         return {
             "name": self.name,
             "task": self.task,
