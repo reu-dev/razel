@@ -7,6 +7,7 @@ pub use rules::*;
 pub use sandbox::*;
 pub use scheduler::*;
 pub use utils::*;
+pub use measurements::*;
 
 mod cli;
 mod command;
@@ -18,6 +19,7 @@ mod razel;
 mod rules;
 mod sandbox;
 mod scheduler;
+mod measurements;
 
 pub mod bazel_remote_exec {
     pub use build::bazel::remote::execution::v2::*;
