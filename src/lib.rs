@@ -2,24 +2,24 @@ pub use crate::razel::*;
 pub use cli::*;
 pub use command::*;
 pub use file::*;
+pub use measurements::*;
 pub use parse_batch::*;
 pub use rules::*;
 pub use sandbox::*;
 pub use scheduler::*;
 pub use utils::*;
-pub use measurements::*;
 
 mod cli;
 mod command;
 pub mod config;
 mod file;
+mod measurements;
 mod parse_batch;
 mod parse_jsonl;
 mod razel;
 mod rules;
 mod sandbox;
 mod scheduler;
-mod measurements;
 
 pub mod bazel_remote_exec {
     pub use build::bazel::remote::execution::v2::*;
