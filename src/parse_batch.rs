@@ -5,7 +5,7 @@ use std::path::Path;
 use anyhow::Context;
 use log::info;
 
-use crate::{config, parse_cli, Razel, Rules};
+use crate::{config, parse_cli_within_file, Razel, Rules};
 
 pub fn parse_command(razel: &mut Razel, command_line: Vec<String>) -> Result<(), anyhow::Error> {
     let rules = Rules::new();
@@ -43,7 +43,7 @@ fn create_command(
     command_line: Vec<String>,
 ) -> Result<(), anyhow::Error> {
     if command_line.first().unwrap() == config::EXECUTABLE {
-        parse_cli(command_line, razel, Some(name))?
+        parse_cli_within_file(razel, command_line, &name)?
     } else {
         let (inputs, outputs) = if let Some(files) = rules.parse_command(&command_line)? {
             (files.inputs, files.outputs)

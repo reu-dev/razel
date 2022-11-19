@@ -17,7 +17,7 @@ static C_RESET: SetForegroundColor = SetForegroundColor(Color::Reset);
 
 /// Terminal user interface
 pub struct TUI {
-    verbose: bool,
+    pub verbose: bool,
     status_printed: bool,
     is_tty: bool,
 }
@@ -32,6 +32,9 @@ impl TUI {
     }
 
     pub fn command_succeeded(&mut self, command: &Command, execution_result: &ExecutionResult) {
+        if !self.verbose {
+            return;
+        }
         self.clear_status();
         Self::field(
             format!("{:?} ", execution_result.status).as_str(),
@@ -45,21 +48,19 @@ impl TUI {
                 command.name.clone()
             },
         );
-        if self.verbose {
-            let stdout = execution_result.stdout.to_str_lossy();
-            let stderr = execution_result.stderr.to_str_lossy();
-            let print_stream_name = !stdout.is_empty() && !stderr.is_empty();
-            Self::field(
-                if print_stream_name { "stdout:\n" } else { "" },
-                Color::Blue,
-                &stdout,
-            );
-            Self::field(
-                if print_stream_name { "stderr:\n" } else { "" },
-                Color::Blue,
-                &stderr,
-            );
-        }
+        let stdout = execution_result.stdout.to_str_lossy();
+        let stderr = execution_result.stderr.to_str_lossy();
+        let print_stream_name = !stdout.is_empty() && !stderr.is_empty();
+        Self::field(
+            if print_stream_name { "stdout:\n" } else { "" },
+            Color::Blue,
+            &stdout,
+        );
+        Self::field(
+            if print_stream_name { "stderr:\n" } else { "" },
+            Color::Blue,
+            &stderr,
+        );
     }
 
     pub fn command_retry(&mut self, command: &Command, execution_result: &ExecutionResult) {

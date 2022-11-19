@@ -1,3 +1,4 @@
+use anyhow::bail;
 use std::ffi::OsStr;
 use std::path::Path;
 use std::sync::Arc;
@@ -47,6 +48,27 @@ struct Exec {
     /// File with commands to execute
     #[clap(short, long, default_value = "razel.jsonl")]
     file: String,
+    #[clap(flatten)]
+    run_args: RunArgs,
+}
+
+#[derive(Args, Debug)]
+pub struct RunArgs {
+    /// Do not stop on first failure
+    #[clap(short, long, visible_alias = "keep-running")]
+    pub keep_going: bool,
+    /// Show verbose output
+    #[clap(short, long)]
+    pub verbose: bool,
+}
+
+impl Default for RunArgs {
+    fn default() -> Self {
+        Self {
+            keep_going: false,
+            verbose: true,
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -157,26 +179,49 @@ impl EnsureNotEqualTask {
     }
 }
 
-pub fn parse_cli(
-    args: Vec<String>,
-    razel: &mut Razel,
-    name: Option<String>,
-) -> Result<(), anyhow::Error> {
+pub fn parse_cli(args: Vec<String>, razel: &mut Razel) -> Result<Option<RunArgs>, anyhow::Error> {
     let cli = Cli::try_parse_from(args.iter())?;
-    match cli.command {
-        CliCommands::Command { command } => parse_command(razel, command),
-        CliCommands::Task(task) => match_task(razel, name.unwrap(), task, args),
-        CliCommands::Exec(exec) => apply_file(razel, &exec.file),
+    Ok(match cli.command {
+        CliCommands::Command { command } => {
+            parse_command(razel, command)?;
+            Some(Default::default())
+        }
+        CliCommands::Task(task) => {
+            match_task(razel, "task".to_string(), task, args)?;
+            Some(Default::default())
+        }
+        CliCommands::Exec(exec) => {
+            apply_file(razel, &exec.file)?;
+            Some(exec.run_args)
+        }
         CliCommands::ListCommands { file } => {
             apply_file(razel, &file)?;
             razel.list_commands();
-            std::process::exit(0);
+            None
         }
         CliCommands::Info => {
             razel.show_info();
-            std::process::exit(0);
+            None
         }
+    })
+}
+
+pub fn parse_cli_within_file(
+    razel: &mut Razel,
+    args: Vec<String>,
+    name: &str,
+) -> Result<(), anyhow::Error> {
+    let cli = Cli::try_parse_from(args.iter())?;
+    match cli.command {
+        CliCommands::Command { command } => {
+            parse_command(razel, command)?;
+        }
+        CliCommands::Task(task) => {
+            match_task(razel, name.to_owned(), task, args)?;
+        }
+        _ => bail!("Razel subcommand not allowed within files"),
     }
+    Ok(())
 }
 
 fn apply_file(razel: &mut Razel, file: &String) -> Result<(), anyhow::Error> {

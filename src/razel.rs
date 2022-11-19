@@ -256,11 +256,16 @@ impl Razel {
         }
     }
 
-    pub async fn run(&mut self) -> Result<SchedulerStats, anyhow::Error> {
+    pub async fn run(
+        &mut self,
+        keep_going: bool,
+        verbose: bool,
+    ) -> Result<SchedulerStats, anyhow::Error> {
         let preparation_start = Instant::now();
         if self.commands.is_empty() {
             bail!("no commands added");
         }
+        self.tui.verbose = verbose;
         Sandbox::cleanup();
         self.create_dependency_graph();
         self.remove_unknown_files_from_out_dir(&self.out_dir).ok();
@@ -269,16 +274,20 @@ impl Razel {
         let (tx, mut rx) = mpsc::channel(32);
         let execution_start = Instant::now();
         self.start_ready_commands(&tx);
-        while !self.scheduler.is_empty() {
+        let mut start_more_commands = true;
+        while self.scheduler.running() != 0 {
             if let Some((id, execution_result, action_result)) = rx.recv().await {
                 self.on_command_finished(id, &execution_result, action_result);
-                if execution_result.status == ExecutionStatus::SystemError {
-                    break;
+                if execution_result.status == ExecutionStatus::SystemError
+                    || (!execution_result.success() && !keep_going)
+                {
+                    start_more_commands = false;
                 }
-                self.start_ready_commands(&tx);
+                if start_more_commands {
+                    self.start_ready_commands(&tx);
+                }
             }
         }
-        assert_eq!(self.scheduler.running(), 0);
         self.remove_outputs_of_not_run_actions_from_out_dir();
         Sandbox::cleanup();
         self.measurements
@@ -921,7 +930,7 @@ mod tests {
                 .unwrap();
         }
         assert_eq!(razel.len(), n);
-        let stats = razel.run().await.unwrap();
+        let stats = razel.run(false, true).await.unwrap();
         assert_eq!(
             stats.exec,
             SchedulerExecStats {
