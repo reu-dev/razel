@@ -66,7 +66,7 @@ impl ExecutionResult {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ExecutionStatus {
     NotStarted,
     FailedToStart,

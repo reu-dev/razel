@@ -40,7 +40,7 @@ pub fn parse_jsonl_file(razel: &mut Razel, file_name: &String) -> Result<(), any
             }
             RazelJson::Task(t) => {
                 let mut args: Vec<String> =
-                    vec![config::EXECUTABLE.into(), "task".into(), t.task.into()];
+                    vec![config::EXECUTABLE.into(), "task".into(), t.task];
                 args.extend(&mut t.args.iter().map(|x| x.into()));
                 parse_cli(args.clone(), razel, Some(t.name.clone()))
                     .with_context(|| format!("{}\n{}", t.name, args.join(" ")))?

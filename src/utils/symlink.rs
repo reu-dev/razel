@@ -33,7 +33,7 @@ fn symlink_file(src: &PathBuf, dst: &PathBuf) -> io::Result<()> {
 
 #[cfg(target_family = "unix")]
 fn symlink_file(src: &PathBuf, dst: &PathBuf) -> io::Result<()> {
-    std::os::unix::fs::symlink(&src, &dst)
+    std::os::unix::fs::symlink(src, dst)
 }
 
 #[cfg(test)]

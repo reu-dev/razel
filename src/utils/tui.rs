@@ -94,14 +94,11 @@ impl TUI {
             Self::field(
                 "env:       ",
                 Color::Blue,
-                format!(
-                    "{}",
-                    env.iter()
-                        .sorted_unstable_by(|a, b| Ord::cmp(&a.0, &b.0))
-                        .map(|x| format!("{}={}", x.0, x.1))
-                        .join(" ")
-                )
-                .as_str(),
+                env.iter()
+                    .sorted_unstable_by(|a, b| Ord::cmp(&a.0, &b.0))
+                    .map(|x| format!("{}={}", x.0, x.1))
+                    .join(" ")
+                    .as_str(),
             );
         }
         Self::field(
@@ -224,11 +221,9 @@ impl TUI {
     }
 
     fn clear_status(&mut self) {
-        if self.is_tty {
-            if self.status_printed {
-                print!("{}{:>80}{}", RestorePosition, "", RestorePosition);
-                self.status_printed = false;
-            }
+        if self.is_tty && self.status_printed {
+            print!("{}{:>80}{}", RestorePosition, "", RestorePosition);
+            self.status_printed = false;
         }
     }
 
@@ -246,5 +241,11 @@ impl TUI {
     fn line() {
         let columns = terminal::size().map_or(80, |x| x.0 as usize);
         println!("{C_RED}{}{C_RESET}", "-".repeat(columns));
+    }
+}
+
+impl Default for TUI {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -36,7 +36,7 @@ impl CGroup {
     pub fn create(&self, controller: &str) -> Result<(), anyhow::Error> {
         let path = self.path(controller, "x");
         let dir = path.parent().unwrap();
-        fs::create_dir_all(&dir).with_context(|| format!("Failed to create dir {:?}", dir))?;
+        fs::create_dir_all(dir).with_context(|| format!("Failed to create dir {:?}", dir))?;
         Ok(())
     }
 

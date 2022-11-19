@@ -19,7 +19,7 @@ use crate::{
     Measurements, Sandbox, Scheduler, TUI,
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ScheduleState {
     New,
     /// Command can not yet be executed because dependencies are still missing
@@ -40,7 +40,7 @@ pub struct SchedulerStats {
     pub execution_duration: Duration,
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct SchedulerExecStats {
     pub succeeded: usize,
     pub failed: usize,
@@ -173,6 +173,10 @@ impl Razel {
         self.commands.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.commands.is_empty()
+    }
+
     pub fn show_info(&self) {
         println!(
             "output directory: {:?}",
@@ -265,7 +269,7 @@ impl Razel {
         let (tx, mut rx) = mpsc::channel(32);
         let execution_start = Instant::now();
         self.start_ready_commands(&tx);
-        while self.scheduler.len() != 0 {
+        while !self.scheduler.is_empty() {
             if let Some((id, execution_result, action_result)) = rx.recv().await {
                 self.on_command_finished(id, &execution_result, action_result);
                 if execution_result.status == ExecutionStatus::SystemError {
@@ -498,7 +502,7 @@ impl Razel {
             .dedup();
         for x in dirs {
             fs::create_dir_all(x)
-                .with_context(|| format!("Failed to create output directory: {:?}", x.clone()))?;
+                .with_context(|| format!("Failed to create output directory: {:?}", x))?;
         }
         Ok(())
     }
@@ -583,6 +587,7 @@ impl Razel {
         });
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn exec_action_with_cache(
         action_digest: &MessageDigest,
         cache: &Cache,
@@ -594,27 +599,26 @@ impl Razel {
         cgroup: Option<CGroup>,
         out_dir: &PathBuf,
     ) -> Result<(ExecutionResult, Option<ActionResult>), anyhow::Error> {
-        let (execution_result, action_result) = if let Some(x) =
-            Self::get_action_from_cache(&action_digest, &cache, read_cache).await
-        {
-            x
-        } else {
-            Self::exec_action(
-                &action_digest,
-                &cache,
-                &executor,
-                &input_paths,
-                &output_paths,
-                &sandbox,
-                cgroup,
-                &out_dir,
-            )
-            .await
-            .context("exec_action()")?
-        };
+        let (execution_result, action_result) =
+            if let Some(x) = Self::get_action_from_cache(action_digest, cache, read_cache).await {
+                x
+            } else {
+                Self::exec_action(
+                    action_digest,
+                    cache,
+                    executor,
+                    input_paths,
+                    output_paths,
+                    sandbox,
+                    cgroup,
+                    out_dir,
+                )
+                .await
+                .context("exec_action()")?
+            };
         if let Some(action_result) = &action_result {
             cache
-                .symlink_output_files_into_out_dir(action_result, &out_dir)
+                .symlink_output_files_into_out_dir(action_result, out_dir)
                 .await
                 .context("symlink_output_files_into_out_dir()")?;
         }
@@ -627,7 +631,7 @@ impl Razel {
         read_cache: bool,
     ) -> Option<(ExecutionResult, Option<ActionResult>)> {
         if read_cache {
-            if let Some(action_result) = cache.get_action_result(&action_digest).await {
+            if let Some(action_result) = cache.get_action_result(action_digest).await {
                 let exit_code = Some(action_result.exit_code);
                 let metadata = action_result.execution_metadata.as_ref();
                 let execution_result = ExecutionResult {
@@ -647,6 +651,7 @@ impl Razel {
         None
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn exec_action(
         action_digest: &MessageDigest,
         cache: &Cache,
@@ -659,7 +664,7 @@ impl Razel {
     ) -> Result<(ExecutionResult, Option<ActionResult>), anyhow::Error> {
         if let Some(sandbox) = &sandbox {
             sandbox
-                .create(&input_paths, &output_paths)
+                .create(input_paths, output_paths)
                 .await
                 .context("Sandbox::create()")?;
         } else {
@@ -675,12 +680,12 @@ impl Razel {
         let action_result = if execution_result.success() {
             Some(
                 Self::cache_action_result(
-                    &action_digest,
+                    action_digest,
                     &execution_result,
-                    &output_paths,
+                    output_paths,
                     sandbox.as_ref().map(|x| x.dir.clone()),
-                    &out_dir,
-                    &cache,
+                    out_dir,
+                    cache,
                 )
                 .await
                 .with_context(|| "cache_action_result()")?,
@@ -873,12 +878,17 @@ impl Razel {
             symlinks: vec![],
             node_properties: None,
         };
-        let bzl_action = bazel_remote_exec::Action {
+        bazel_remote_exec::Action {
             command_digest: Some(Digest::for_message(&bzl_command)),
             input_root_digest: Some(Digest::for_message(&bzl_input_root)),
             ..Default::default()
-        };
-        bzl_action
+        }
+    }
+}
+
+impl Default for Razel {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

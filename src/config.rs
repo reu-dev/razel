@@ -16,7 +16,7 @@ pub static RESPONSE_FILE_PREFIX: &str = "@";
 /// TODO actually it could be way higher, e.g. on Linux: "getconf ARG_MAX"
 pub static RESPONSE_FILE_MIN_ARGS_LEN: usize = 4096;
 
-pub fn select_cache_dir(workspace_dir: &PathBuf) -> Result<PathBuf, anyhow::Error> {
+pub fn select_cache_dir(workspace_dir: &Path) -> Result<PathBuf, anyhow::Error> {
     let project_dirs = ProjectDirs::from("", "reu-dev", EXECUTABLE).unwrap();
     let home_cache: PathBuf = project_dirs.cache_dir().into();
     std::fs::create_dir_all(&home_cache)?;
@@ -61,12 +61,12 @@ mod tests {
 
     fn check_cache_dir(workspace_dir: &PathBuf) {
         println!("workspace_dir: {:?}", workspace_dir);
-        let cache_dir = select_cache_dir(&workspace_dir).unwrap();
+        let cache_dir = select_cache_dir(workspace_dir).unwrap();
         println!("cache_dir:     {:?}", cache_dir);
         assert!(cache_dir.is_absolute());
         assert_eq!(
-            device_of_dir(&cache_dir.parent().unwrap()).unwrap(),
-            device_of_dir(&workspace_dir.parent().unwrap()).unwrap()
+            device_of_dir(cache_dir.parent().unwrap()).unwrap(),
+            device_of_dir(workspace_dir.parent().unwrap()).unwrap()
         );
     }
 

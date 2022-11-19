@@ -19,7 +19,7 @@ pub struct LocalCache {
 }
 
 impl LocalCache {
-    pub fn new(workspace_dir: &PathBuf) -> Result<Self, anyhow::Error> {
+    pub fn new(workspace_dir: &Path) -> Result<Self, anyhow::Error> {
         let dir = select_cache_dir(workspace_dir)?;
         let ac_dir = dir.join("ac");
         let cas_dir = dir.join("cas");
@@ -100,7 +100,7 @@ impl LocalCache {
         assert!(!src.is_symlink(), "src must not be a symlink: {:?}", src);
         let digest = Digest::for_file(&src).await?;
         let dst = self.cas_dir.join(&digest.hash);
-        let path: String = exec_path.strip_prefix(&out_dir).map_or_else(
+        let path: String = exec_path.strip_prefix(out_dir).map_or_else(
             |_| exec_path.to_str().unwrap().into(),
             |x| x.to_str().unwrap().into(),
         );
@@ -120,7 +120,7 @@ impl LocalCache {
     pub async fn symlink_output_files_into_out_dir(
         &self,
         action_result: &ActionResult,
-        out_dir: &PathBuf,
+        out_dir: &Path,
     ) -> Result<(), anyhow::Error> {
         assert!(!out_dir.starts_with(&self.cas_dir));
         for file in &action_result.output_files {

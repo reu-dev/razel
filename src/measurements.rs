@@ -33,12 +33,12 @@ impl Measurements {
         }
     }
 
-    pub fn collect(&mut self, command_name: &String, execution_result: &ExecutionResult) {
+    pub fn collect(&mut self, command_name: &str, execution_result: &ExecutionResult) {
         let mut measurements = self.capture(execution_result.stdout.to_str_lossy().as_ref());
         if measurements.is_empty() {
             return;
         }
-        measurements[0] = command_name.clone();
+        measurements[0] = command_name.to_owned();
         measurements[1] = format!("{:?}", execution_result.status);
         self.rows.push(measurements);
     }
@@ -77,6 +77,12 @@ impl Measurements {
         }
         writer.flush()?;
         Ok(())
+    }
+}
+
+impl Default for Measurements {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

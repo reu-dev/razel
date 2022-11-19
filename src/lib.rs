@@ -21,6 +21,7 @@ mod rules;
 mod sandbox;
 mod scheduler;
 
+#[allow(clippy::all)]
 pub mod bazel_remote_exec {
     pub use build::bazel::remote::execution::v2::*;
 
@@ -64,6 +65,7 @@ pub mod cache {
     pub use cache::*;
     pub use local_cache::*;
 
+    #[allow(clippy::module_inception)]
     mod cache;
     mod local_cache;
 }

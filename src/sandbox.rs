@@ -47,11 +47,11 @@ impl Sandbox {
             let src = fs::canonicalize(&input)
                 .await
                 .with_context(|| format!("Error in canonicalize({:?})", input))?;
-            let dst = self.dir.join(&input);
+            let dst = self.dir.join(input);
             force_symlink(&src, &dst).await?;
         }
         for output in outputs {
-            let output_abs = self.dir.join(&output);
+            let output_abs = self.dir.join(output);
             let dir = output_abs.parent().unwrap();
             fs::create_dir_all(&dir)
                 .await

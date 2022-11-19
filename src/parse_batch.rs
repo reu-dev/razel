@@ -21,7 +21,7 @@ pub fn parse_batch_file(razel: &mut Razel, file_name: &String) -> Result<(), any
     for (line_number, line) in file_buffered.lines().enumerate() {
         if let Ok(line) = line {
             let line_trimmed = line.trim();
-            if line_trimmed.is_empty() || line_trimmed.starts_with("#") {
+            if line_trimmed.is_empty() || line_trimmed.starts_with('#') {
                 continue;
             }
             let name = format!("{}:{}", file_name, line_number + 1);

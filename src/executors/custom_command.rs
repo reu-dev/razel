@@ -37,7 +37,7 @@ impl CustomCommandExecutor {
             .env_clear()
             .envs(&self.env)
             .args(response_file_args.as_ref().unwrap_or(&self.args))
-            .current_dir(sandbox_dir.unwrap_or(".".into()))
+            .current_dir(sandbox_dir.unwrap_or_else(|| ".".into()))
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -176,8 +176,7 @@ mod tests {
                 vec![],
             )
             .map(|id| razel.get_command(id).unwrap())
-            .unwrap()
-            .clone();
+            .unwrap();
         let result = command.executor.exec(None, None).await;
         assert!(result.success());
         assert_eq!(result.status, ExecutionStatus::Success);
