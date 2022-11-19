@@ -32,7 +32,7 @@ enum CliCommands {
     /// List commands from a razel.jsonl or batch file
     #[clap(visible_alias = "ls", visible_alias = "show-only")]
     ListCommands {
-        /// file with commands to list
+        /// File with commands to list
         #[clap(short, long, default_value = "razel.jsonl")]
         file: String,
     },
@@ -44,7 +44,7 @@ enum CliCommands {
 
 #[derive(Args, Debug)]
 struct Exec {
-    /// file with commands to execute
+    /// File with commands to execute
     #[clap(short, long, default_value = "razel.jsonl")]
     file: String,
 }
@@ -65,10 +65,10 @@ enum CliTasks {
 
 #[derive(Args, Debug)]
 struct CsvConcatTask {
-    /// input csv files
+    /// Input csv files
     #[clap(required = true)]
     input: Vec<String>,
-    /// concatenated file to create
+    /// Concatenated file to create
     output: String,
 }
 
@@ -107,9 +107,9 @@ impl CsvFilterTask {
 
 #[derive(Args, Debug)]
 struct WriteFileTask {
-    /// file to create
+    /// File to create
     file: String,
-    /// lines to write
+    /// Lines to write
     lines: Vec<String>,
 }
 
