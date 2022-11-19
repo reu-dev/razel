@@ -57,7 +57,7 @@ impl GrpcRemoteCache {
             .into_inner();
         let cache_capabilities = capabilities
             .cache_capabilities
-            .ok_or(anyhow!("ServerCapabilities::cache_capabilities missing"))?;
+            .ok_or_else(|| anyhow!("ServerCapabilities::cache_capabilities missing"))?;
         if !cache_capabilities
             .digest_functions
             .contains(&digest_function::Value::Sha256.into())
@@ -217,14 +217,13 @@ mod tests {
             .await;
         println!("{:?}", response);
         let capabilities = response.unwrap().into_inner();
-        assert_eq!(
+        assert!(
             capabilities
                 .cache_capabilities
                 .unwrap()
                 .action_cache_update_capabilities
                 .unwrap()
-                .update_enabled,
-            true
+                .update_enabled
         );
     }
 
