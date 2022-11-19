@@ -16,7 +16,7 @@ use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor};
 use crate::{
     bazel_remote_exec, config, Arena, CGroup, Command, CommandBuilder, CommandId, File, FileId,
-    Sandbox, Scheduler, TUI,
+    Measurements, Sandbox, Scheduler, TUI,
 };
 
 #[derive(Debug, PartialEq)]
@@ -79,6 +79,7 @@ pub struct Razel {
     failed: Vec<CommandId>,
     cache_hits: usize,
     tui: TUI,
+    measurements: Measurements,
 }
 
 impl Razel {
@@ -117,6 +118,7 @@ impl Razel {
             failed: vec![],
             cache_hits: 0,
             tui: TUI::new(),
+            measurements: Measurements::new(),
         }
     }
 
@@ -275,6 +277,8 @@ impl Razel {
         assert_eq!(self.scheduler.running(), 0);
         self.remove_outputs_of_not_run_actions_from_out_dir();
         Sandbox::cleanup();
+        self.measurements
+            .write_csv(&self.out_dir.join("measurements.csv"))?;
         let stats = SchedulerStats {
             exec: SchedulerExecStats {
                 succeeded: self.succeeded.len(),
@@ -760,11 +764,15 @@ impl Razel {
         );
         if retry {
             self.on_command_retry(id, execution_result);
-        } else if execution_result.success() {
-            self.set_output_file_digests(action_result.unwrap().output_files);
-            self.on_command_succeeded(id, execution_result);
         } else {
-            self.on_command_failed(id, execution_result);
+            self.measurements
+                .collect(&self.commands[id].name, execution_result);
+            if execution_result.success() {
+                self.set_output_file_digests(action_result.unwrap().output_files);
+                self.on_command_succeeded(id, execution_result);
+            } else {
+                self.on_command_failed(id, execution_result);
+            }
         }
     }
 
