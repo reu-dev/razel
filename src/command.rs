@@ -41,26 +41,26 @@ impl CommandBuilder {
         }
     }
 
-    fn map_exec_path(&mut self, original: &String, mapped: &String) {
+    fn map_exec_path(&mut self, original: &String, mapped: &str) {
         self.args_with_exec_paths.iter_mut().for_each(|x| {
             if x == original {
-                *x = mapped.clone()
+                *x = mapped.to_owned()
             }
         });
     }
 
-    fn map_out_path(&mut self, original: &String, mapped: &String) {
+    fn map_out_path(&mut self, original: &String, mapped: &str) {
         self.args_with_out_paths.iter_mut().for_each(|x| {
             if x == original {
-                *x = mapped.clone()
+                *x = mapped.to_owned()
             }
         });
     }
 
     pub fn input(&mut self, path: &String, razel: &mut Razel) -> Result<PathBuf, anyhow::Error> {
         razel.input_file(path.clone()).map(|file| {
-            self.map_exec_path(path, &file.exec_path.to_str().unwrap().into());
-            self.map_out_path(path, &file.out_path.to_str().unwrap().into());
+            self.map_exec_path(path, file.exec_path.to_str().unwrap());
+            self.map_out_path(path, file.out_path.to_str().unwrap());
             self.inputs.push(file.id);
             file.out_path.clone()
         })
@@ -76,8 +76,8 @@ impl CommandBuilder {
             .iter()
             .map(|path| {
                 let file = razel.input_file(path.clone())?;
-                self.map_exec_path(path, &file.exec_path.to_str().unwrap().into());
-                self.map_out_path(path, &file.out_path.to_str().unwrap().into());
+                self.map_exec_path(path, file.exec_path.to_str().unwrap());
+                self.map_out_path(path, file.out_path.to_str().unwrap());
                 self.inputs.push(file.id);
                 Ok(file.out_path.clone())
             })
@@ -86,8 +86,8 @@ impl CommandBuilder {
 
     pub fn output(&mut self, path: &String, razel: &mut Razel) -> Result<PathBuf, anyhow::Error> {
         razel.output_file(path).map(|file| {
-            self.map_exec_path(path, &file.exec_path.to_str().unwrap().into());
-            self.map_out_path(path, &file.out_path.to_str().unwrap().into());
+            self.map_exec_path(path, file.exec_path.to_str().unwrap());
+            self.map_out_path(path, file.out_path.to_str().unwrap());
             self.outputs.push(file.id);
             file.out_path.clone()
         })
@@ -103,8 +103,8 @@ impl CommandBuilder {
             .iter()
             .map(|path| {
                 let file = razel.output_file(path)?;
-                self.map_exec_path(path, &file.exec_path.to_str().unwrap().into());
-                self.map_out_path(path, &file.out_path.to_str().unwrap().into());
+                self.map_exec_path(path, file.exec_path.to_str().unwrap());
+                self.map_out_path(path, file.out_path.to_str().unwrap());
                 self.outputs.push(file.id);
                 Ok(file.out_path.clone())
             })

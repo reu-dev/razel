@@ -17,7 +17,7 @@ pub struct Cache {
 }
 
 impl Cache {
-    pub fn new(workspace_dir: &PathBuf) -> Result<Self, anyhow::Error> {
+    pub fn new(workspace_dir: &Path) -> Result<Self, anyhow::Error> {
         Ok(Self {
             local_cache: LocalCache::new(workspace_dir)
                 .with_context(|| "Failed to create local cache")?,
@@ -68,7 +68,7 @@ impl Cache {
     pub async fn symlink_output_files_into_out_dir(
         &self,
         action_result: &ActionResult,
-        out_dir: &PathBuf,
+        out_dir: &Path,
     ) -> Result<(), anyhow::Error> {
         self.local_cache
             .symlink_output_files_into_out_dir(action_result, out_dir)
@@ -153,7 +153,7 @@ mod tests {
     async fn digest_for_small_file() {
         let path = "test/data/a.csv";
         let act = super::Digest::for_file(&path).await.unwrap();
-        let exp = digest_file_sha256_simple(&path).unwrap();
+        let exp = digest_file_sha256_simple(path).unwrap();
         assert_eq!(act, exp);
         // check vs: sha256sum test/data/a.csv line endings
         if act.size_bytes == 18 {
@@ -181,7 +181,7 @@ mod tests {
     async fn digest_for_bigger_file() {
         let path = "Cargo.lock";
         let act = super::Digest::for_file(&path).await.unwrap();
-        let exp = digest_file_sha256_simple(&path).unwrap();
+        let exp = digest_file_sha256_simple(path).unwrap();
         assert_eq!(act, exp);
     }
 

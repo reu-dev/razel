@@ -2,6 +2,7 @@ pub use crate::razel::*;
 pub use cli::*;
 pub use command::*;
 pub use file::*;
+pub use measurements::*;
 pub use parse_batch::*;
 pub use rules::*;
 pub use sandbox::*;
@@ -12,6 +13,7 @@ mod cli;
 mod command;
 pub mod config;
 mod file;
+mod measurements;
 mod parse_batch;
 mod parse_jsonl;
 mod razel;
@@ -19,6 +21,7 @@ mod rules;
 mod sandbox;
 mod scheduler;
 
+#[allow(clippy::all)]
 pub mod bazel_remote_exec {
     pub use build::bazel::remote::execution::v2::*;
 
@@ -63,6 +66,7 @@ pub mod cache {
     pub use local_cache::*;
     pub use remote_cache::*;
 
+    #[allow(clippy::module_inception)]
     mod cache;
     mod local_cache;
     mod remote_cache;

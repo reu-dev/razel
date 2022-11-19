@@ -13,6 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - run: cargo fmt --check
+      - run: cargo clippy --bins --tests
 
   tests:
     name: Test ${{ matrix.os }}
@@ -56,6 +57,8 @@ jobs:
           key: ${{ runner.os }}-deno-${{ hashFiles('include/deno/razel.ts') }}
 
       - run: deno run -A test/deno.ts
+
+      - run: cargo build
 
       - run: cargo run -- info
 

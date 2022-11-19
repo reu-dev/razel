@@ -87,6 +87,18 @@ The idea to build fast and correct is based on [Bazel](https://bazel.build/). Ra
 the [Bazel Remote Execution API](https://github.com/bazelbuild/remote-apis/blob/main/build/bazel/remote/execution/v2/remote_execution.proto)
 for caching.
 
+## Features
+
+### Measurements
+
+Razel parses the stdout of executed commands to capture runtime measurements and writes them to `razel-out/measurements.csv`.
+Currently, the `<CTestMeasurement>` and `<DartMeasurement>` tags as used by [CTest/CDash](https://cmake.org/cmake/help/latest/command/ctest_test.html#additional-test-measurements) are supported:
+```
+<CTestMeasurement type="numeric/double" name="score">12.3</CTestMeasurement>
+<CTestMeasurement type="text/string" name="result">ok</CTestMeasurement>
+```
+Supporting custom formats is planned.
+
 ## Goals / Ideas
 
 * built-in convenience functions/tasks

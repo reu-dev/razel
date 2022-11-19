@@ -68,6 +68,12 @@ impl Rules {
     }
 }
 
+impl Default for Rules {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 struct Rule {
     executable: String,
     options: HashMap<String, Arg>,
