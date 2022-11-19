@@ -4,7 +4,8 @@ A command executor with caching. It is:
 
 * Fast: caching avoids repeated execution of commands which haven't changed
 * Reliable: commands are executed in a sandbox to detect missing dependencies
-* Easy to use: commands are specified using a high-level TypeScript API and convenience functions/tasks are built-in
+* Easy to use: commands are specified using a high-level TypeScript or Python API and convenience functions/tasks are
+  built-in
 * Made for: data processing pipelines with executables working on files and many dependencies between those
 
 Razel is not the best choice for building software, especially there's no built-in support for compiler setup and header
