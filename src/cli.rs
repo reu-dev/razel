@@ -1,11 +1,11 @@
 use anyhow::bail;
+use clap::{Args, Parser, Subcommand};
 use std::ffi::OsStr;
 use std::path::Path;
 use std::sync::Arc;
 
-use clap::{Args, Parser, Subcommand};
-
 use crate::parse_jsonl::parse_jsonl_file;
+use crate::tasks::DownloadFileTask;
 use crate::{parse_batch_file, parse_command, tasks, CommandBuilder, Razel};
 
 #[derive(Parser)]
@@ -79,6 +79,8 @@ enum CliTasks {
     CsvFilter(CsvFilterTask),
     /// Write a text file
     WriteFile(WriteFileTask),
+    /// Download a file
+    DownloadFile(DownloadFileTaskBuilder),
     /// Ensure that two files are equal
     EnsureEqual(EnsureEqualTask),
     /// Ensure that two files are not equal
@@ -141,6 +143,25 @@ impl WriteFileTask {
         builder.task_executor(Arc::new(move || {
             tasks::write_file(output.clone(), self.lines.clone())
         }));
+        Ok(())
+    }
+}
+
+#[derive(Args, Debug)]
+struct DownloadFileTaskBuilder {
+    #[clap(short, long)]
+    url: String,
+    #[clap(short, long)]
+    output: String,
+}
+
+impl DownloadFileTaskBuilder {
+    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
+        let output = builder.output(&self.output, razel)?;
+        builder.async_task_executor(DownloadFileTask {
+            url: self.url,
+            output,
+        });
         Ok(())
     }
 }
@@ -241,9 +262,10 @@ fn match_task(
     match task {
         CliTasks::CsvConcat(x) => x.build(&mut builder, razel),
         CliTasks::CsvFilter(x) => x.build(&mut builder, razel),
+        CliTasks::WriteFile(x) => x.build(&mut builder, razel),
+        CliTasks::DownloadFile(x) => x.build(&mut builder, razel),
         CliTasks::EnsureEqual(x) => x.build(&mut builder, razel),
         CliTasks::EnsureNotEqual(x) => x.build(&mut builder, razel),
-        CliTasks::WriteFile(x) => x.build(&mut builder, razel),
     }?;
     razel.push(builder)?;
     Ok(())

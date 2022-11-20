@@ -205,7 +205,8 @@ impl Razel {
     pub fn push(&mut self, builder: CommandBuilder) -> Result<CommandId, anyhow::Error> {
         // TODO check if name is unique
         let id = self.commands.alloc_with_id(|id| builder.build(id));
-        if let Executor::Task(_) = &self.commands[id].executor {
+        if !matches!(&self.commands[id].executor, Executor::CustomCommand(_)) {
+            // add razel executable to command hash
             // TODO set digest to razel version once stable
             let self_file_id = self.lazy_self_file_id()?;
             self.commands[id].inputs.push(self_file_id);

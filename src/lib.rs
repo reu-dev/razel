@@ -95,10 +95,11 @@ pub mod utils {
 }
 
 pub mod tasks {
+    pub use self::csv::*;
+    pub use http::*;
     pub use tools::*;
 
-    pub use self::csv::*;
-
     mod csv;
+    mod http;
     mod tools;
 }

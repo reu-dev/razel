@@ -126,6 +126,7 @@ impl Scheduler {
         // could also use the command line with file arguments stripped
         match &command.executor {
             Executor::CustomCommand(c) => c.executable.clone(),
+            Executor::AsyncTask(_) => String::new(),
             Executor::Task(_) => String::new(),
         }
     }

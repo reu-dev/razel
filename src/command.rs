@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use crate::executors::{CustomCommandExecutor, Executor, TaskExecutor, TaskFn};
+use crate::executors::{
+    AsyncTask, AsyncTaskExecutor, CustomCommandExecutor, Executor, TaskExecutor, TaskFn,
+};
 use crate::{ArenaId, FileId, Razel, ScheduleState};
 
 pub struct Command {
@@ -125,6 +128,13 @@ impl CommandBuilder {
             env,
         }));
         Ok(())
+    }
+
+    pub fn async_task_executor(&mut self, task: impl AsyncTask + Send + Sync + 'static) {
+        self.executor = Some(Executor::AsyncTask(AsyncTaskExecutor {
+            task: Arc::new(task),
+            args: self.args_with_out_paths.clone(),
+        }));
     }
 
     pub fn task_executor(&mut self, f: TaskFn) {

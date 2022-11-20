@@ -1,13 +1,16 @@
 use crate::CGroup;
+use anyhow::Error;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
+use std::time::Instant;
 
-use crate::executors::{CustomCommandExecutor, TaskExecutor};
+use crate::executors::{AsyncTaskExecutor, CustomCommandExecutor, TaskExecutor};
 
 #[derive(Clone)]
 pub enum Executor {
     CustomCommand(CustomCommandExecutor),
+    AsyncTask(AsyncTaskExecutor),
     Task(TaskExecutor),
 }
 
@@ -19,6 +22,7 @@ impl Executor {
     ) -> ExecutionResult {
         match self {
             Executor::CustomCommand(c) => c.exec(sandbox_dir, cgroup).await,
+            Executor::AsyncTask(x) => x.exec(sandbox_dir).await,
             Executor::Task(t) => t.exec().await,
         }
     }
@@ -26,6 +30,7 @@ impl Executor {
     pub fn args_with_executable(&self) -> Vec<String> {
         match self {
             Executor::CustomCommand(c) => c.args_with_executable(),
+            Executor::AsyncTask(x) => x.args_with_executable(),
             Executor::Task(t) => t.args_with_executable(),
         }
     }
@@ -33,6 +38,7 @@ impl Executor {
     pub fn env(&self) -> Option<&HashMap<String, String>> {
         match self {
             Executor::CustomCommand(x) => Some(&x.env),
+            Executor::AsyncTask(_) => None,
             Executor::Task(_) => None,
         }
     }
@@ -44,6 +50,7 @@ impl Executor {
     pub fn use_sandbox(&self) -> bool {
         match self {
             Executor::CustomCommand(_) => true,
+            Executor::AsyncTask(_) => true,
             Executor::Task(_) => false,
         }
     }
@@ -61,6 +68,22 @@ pub struct ExecutionResult {
 }
 
 impl ExecutionResult {
+    pub fn for_task(result: Result<(), Error>, execution_start: Instant) -> Self {
+        match result {
+            Ok(()) => Self {
+                status: ExecutionStatus::Success,
+                exit_code: Some(0),
+                duration: Some(execution_start.elapsed()),
+                ..Default::default()
+            },
+            Err(e) => Self {
+                status: ExecutionStatus::Failed,
+                error: Some(e),
+                ..Default::default()
+            },
+        }
+    }
+
     pub fn success(&self) -> bool {
         self.status == ExecutionStatus::Success
     }
