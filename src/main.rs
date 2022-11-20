@@ -52,6 +52,12 @@ mod main {
             .filter_level(log::LevelFilter::Debug)
             .is_test(true)
             .try_init();
+        // exit on panic in any thread
+        let default_panic = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            default_panic(info);
+            std::process::exit(1);
+        }));
         // run without reading cache
         {
             let mut razel = Razel::new();
