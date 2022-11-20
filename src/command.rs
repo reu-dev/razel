@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::executors::{
-    AsyncTask, AsyncTaskExecutor, CustomCommandExecutor, Executor, TaskExecutor, TaskFn,
+    AsyncTask, AsyncTaskExecutor, BlockingTaskExecutor, CustomCommandExecutor, Executor, TaskFn,
 };
 use crate::{ArenaId, FileId, Razel, ScheduleState};
 
@@ -137,8 +137,8 @@ impl CommandBuilder {
         }));
     }
 
-    pub fn task_executor(&mut self, f: TaskFn) {
-        self.executor = Some(Executor::Task(TaskExecutor {
+    pub fn blocking_task_executor(&mut self, f: TaskFn) {
+        self.executor = Some(Executor::BlockingTask(BlockingTaskExecutor {
             f,
             args: self.args_with_out_paths.clone(),
         }));

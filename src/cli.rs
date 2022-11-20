@@ -87,6 +87,31 @@ enum CliTasks {
     EnsureNotEqual(EnsureNotEqualTask),
 }
 
+impl CliTasks {
+    pub fn build_command(
+        self,
+        razel: &mut Razel,
+        name: String,
+        args: Vec<String>,
+    ) -> Result<(), anyhow::Error> {
+        let mut builder = CommandBuilder::new(name, args);
+        match self {
+            CliTasks::CsvConcat(x) => x.build(&mut builder, razel),
+            CliTasks::CsvFilter(x) => x.build(&mut builder, razel),
+            CliTasks::WriteFile(x) => x.build(&mut builder, razel),
+            CliTasks::DownloadFile(x) => x.build(&mut builder, razel),
+            CliTasks::EnsureEqual(x) => x.build(&mut builder, razel),
+            CliTasks::EnsureNotEqual(x) => x.build(&mut builder, razel),
+        }?;
+        razel.push(builder)?;
+        Ok(())
+    }
+}
+
+trait TaskBuilder {
+    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error>;
+}
+
 #[derive(Args, Debug)]
 struct CsvConcatTask {
     /// Input csv files
@@ -96,11 +121,11 @@ struct CsvConcatTask {
     output: String,
 }
 
-impl CsvConcatTask {
+impl TaskBuilder for CsvConcatTask {
     fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
         let inputs = builder.inputs(&self.input, razel)?;
         let output = builder.output(&self.output, razel)?;
-        builder.task_executor(Arc::new(move || {
+        builder.blocking_task_executor(Arc::new(move || {
             tasks::csv_concat(inputs.clone(), output.clone())
         }));
         Ok(())
@@ -118,11 +143,11 @@ struct CsvFilterTask {
     cols: Vec<String>,
 }
 
-impl CsvFilterTask {
+impl TaskBuilder for CsvFilterTask {
     fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
         let input = builder.input(&self.input, razel)?;
         let output = builder.output(&self.output, razel)?;
-        builder.task_executor(Arc::new(move || {
+        builder.blocking_task_executor(Arc::new(move || {
             tasks::csv_filter(input.clone(), output.clone(), self.cols.clone())
         }));
         Ok(())
@@ -137,10 +162,10 @@ struct WriteFileTask {
     lines: Vec<String>,
 }
 
-impl WriteFileTask {
+impl TaskBuilder for WriteFileTask {
     fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
         let output = builder.output(&self.file, razel)?;
-        builder.task_executor(Arc::new(move || {
+        builder.blocking_task_executor(Arc::new(move || {
             tasks::write_file(output.clone(), self.lines.clone())
         }));
         Ok(())
@@ -155,7 +180,7 @@ struct DownloadFileTaskBuilder {
     output: String,
 }
 
-impl DownloadFileTaskBuilder {
+impl TaskBuilder for DownloadFileTaskBuilder {
     fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
         let output = builder.output(&self.output, razel)?;
         builder.async_task_executor(DownloadFileTask {
@@ -172,11 +197,11 @@ struct EnsureEqualTask {
     file2: String,
 }
 
-impl EnsureEqualTask {
+impl TaskBuilder for EnsureEqualTask {
     fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
         let file1 = builder.input(&self.file1, razel)?;
         let file2 = builder.input(&self.file2, razel)?;
-        builder.task_executor(Arc::new(move || {
+        builder.blocking_task_executor(Arc::new(move || {
             tasks::ensure_equal(file1.clone(), file2.clone())
         }));
         Ok(())
@@ -189,11 +214,11 @@ struct EnsureNotEqualTask {
     file2: String,
 }
 
-impl EnsureNotEqualTask {
+impl TaskBuilder for EnsureNotEqualTask {
     fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
         let file1 = builder.input(&self.file1, razel)?;
         let file2 = builder.input(&self.file2, razel)?;
-        builder.task_executor(Arc::new(move || {
+        builder.blocking_task_executor(Arc::new(move || {
             tasks::ensure_not_equal(file1.clone(), file2.clone())
         }));
         Ok(())
@@ -208,7 +233,7 @@ pub fn parse_cli(args: Vec<String>, razel: &mut Razel) -> Result<Option<RunArgs>
             Some(Default::default())
         }
         CliCommands::Task(task) => {
-            match_task(razel, "task".to_string(), task, args)?;
+            task.build_command(razel, "task".to_string(), args)?;
             Some(Default::default())
         }
         CliCommands::Exec(exec) => {
@@ -238,7 +263,7 @@ pub fn parse_cli_within_file(
             parse_command(razel, command)?;
         }
         CliCommands::Task(task) => {
-            match_task(razel, name.to_owned(), task, args)?;
+            task.build_command(razel, name.to_owned(), args)?;
         }
         _ => bail!("Razel subcommand not allowed within files"),
     }
@@ -250,23 +275,4 @@ fn apply_file(razel: &mut Razel, file: &String) -> Result<(), anyhow::Error> {
         Some("jsonl") => parse_jsonl_file(razel, file),
         _ => parse_batch_file(razel, file),
     }
-}
-
-fn match_task(
-    razel: &mut Razel,
-    name: String,
-    task: CliTasks,
-    args: Vec<String>,
-) -> Result<(), anyhow::Error> {
-    let mut builder = CommandBuilder::new(name, args);
-    match task {
-        CliTasks::CsvConcat(x) => x.build(&mut builder, razel),
-        CliTasks::CsvFilter(x) => x.build(&mut builder, razel),
-        CliTasks::WriteFile(x) => x.build(&mut builder, razel),
-        CliTasks::DownloadFile(x) => x.build(&mut builder, razel),
-        CliTasks::EnsureEqual(x) => x.build(&mut builder, razel),
-        CliTasks::EnsureNotEqual(x) => x.build(&mut builder, razel),
-    }?;
-    razel.push(builder)?;
-    Ok(())
 }

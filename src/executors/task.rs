@@ -8,12 +8,12 @@ use crate::executors::ExecutionResult;
 pub type TaskFn = Arc<dyn Fn() -> Result<(), anyhow::Error> + Send + Sync>;
 
 #[derive(Clone)]
-pub struct TaskExecutor {
+pub struct BlockingTaskExecutor {
     pub f: TaskFn,
     pub args: Vec<String>,
 }
 
-impl TaskExecutor {
+impl BlockingTaskExecutor {
     pub async fn exec(&self) -> ExecutionResult {
         let execution_start = Instant::now();
         let result = (self.f)();

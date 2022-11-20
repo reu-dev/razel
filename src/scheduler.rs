@@ -127,7 +127,7 @@ impl Scheduler {
         match &command.executor {
             Executor::CustomCommand(c) => c.executable.clone(),
             Executor::AsyncTask(_) => String::new(),
-            Executor::Task(_) => String::new(),
+            Executor::BlockingTask(_) => String::new(),
         }
     }
 }
