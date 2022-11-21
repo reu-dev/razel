@@ -49,11 +49,11 @@ razel exec -f test/batch.sh
 
 Razel is in active development and **not** ready for production. CLI and format of `razel.jsonl` will likely change.
 
-| OS      | Status | Note                               |
-|---------|--------|------------------------------------|
-| Linux   | ✓      | stable, main development platform  |
-| Mac     | (✓)    | tested in CI                       |
-| Windows | ✘      | not yet tested, likely not working |
+| OS      | Status | Note                              |
+|---------|--------|-----------------------------------|
+| Linux   | ✓      | stable, main development platform |
+| Mac     | ✓      | used and tested in CI             |
+| Windows | (✓)    | tested in CI only                 |
 
 | Feature                                   | Status  | Note                                                       |
 |-------------------------------------------|---------|------------------------------------------------------------|
