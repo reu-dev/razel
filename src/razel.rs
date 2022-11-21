@@ -649,8 +649,8 @@ impl Razel {
                     exit_code,
                     error: None,
                     cache_hit: true,
-                    stdout: vec![], // TODO
-                    stderr: vec![], // TODO
+                    stdout: action_result.stdout_raw.clone(),
+                    stderr: action_result.stderr_raw.clone(),
                     duration: metadata
                         .and_then(|x| x.virtual_execution_duration.as_ref())
                         .map(|x| Duration::new(x.seconds as u64, x.nanos as u32)),
@@ -730,7 +730,7 @@ impl Razel {
                     .context("move_output_file_into_cache()")?,
             );
         }
-        let action_result = ActionResult {
+        let mut action_result = ActionResult {
             output_files,
             output_file_symlinks: vec![],
             output_symlinks: vec![],
@@ -761,6 +761,13 @@ impl Razel {
                 auxiliary_metadata: vec![],
             }),
         };
+        // TODO add stdout/stderr files
+        if !execution_result.stdout.is_empty() && execution_result.stdout.len() < 1000 {
+            action_result.stdout_raw = execution_result.stdout.clone();
+        }
+        if !execution_result.stderr.is_empty() && execution_result.stderr.len() < 1000 {
+            action_result.stderr_raw = execution_result.stderr.clone();
+        }
         cache
             .push_action_result(action_digest, &action_result)
             .await?;
