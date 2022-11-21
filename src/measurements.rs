@@ -21,11 +21,17 @@ impl Measurements {
             re: vec![
                 // see https://cmake.org/cmake/help/latest/command/ctest_test.html#additional-test-measurements
                 Regex::new(
-                    r#"<CTestMeasurement name="(?P<key>[^"]+)" type="[^"]+">(?P<value>[^<]+)</CTestMeasurement>"#,
+                    r#"<CTestMeasurement\s+type="[^"]+"\s+name="(?P<key>[^"]+)">(?P<value>[^<]+)</CTestMeasurement>"#,
+                ).unwrap(),
+                Regex::new(
+                    r#"<CTestMeasurement\s+name="(?P<key>[^"]+)"\s+type="[^"]+">(?P<value>[^<]+)</CTestMeasurement>"#,
                 ).unwrap(),
                 // <DartMeasurement> is an old version of <CTestMeasurement>
                 Regex::new(
-                    r#"<DartMeasurement name="(?P<key>[^"]+)" type="[^"]+">(?P<value>[^<]+)</DartMeasurement>"#,
+                    r#"<DartMeasurement\s+type="[^"]+"\s+name="(?P<key>[^"]+)">(?P<value>[^<]+)</DartMeasurement>"#,
+                ).unwrap(),
+                Regex::new(
+                    r#"<DartMeasurement\s+name="(?P<key>[^"]+)"\s+type="[^"]+">(?P<value>[^<]+)</DartMeasurement>"#,
                 ).unwrap(),
             ],
             cols: HashMap::from([("command".into(), 0), ("status".into(), 1)]),
@@ -97,7 +103,7 @@ mod tests {
         let mut measurements = Measurements::new();
         assert_eq!(
             measurements.capture(
-                r#"<CTestMeasurement name="score" type="numeric/float">12.3</CTestMeasurement>"#,
+                r#"<CTestMeasurement type="numeric/float" name="score">12.3</CTestMeasurement>"#,
             ),
             vec!["".to_string(), "".to_string(), "12.3".to_string()]
         );
@@ -109,7 +115,7 @@ mod tests {
         let mut measurements = Measurements::new();
         assert_eq!(
             measurements.capture(
-                r#"<DartMeasurement name="score" type="numeric/float">12.3</DartMeasurement>"#,
+                r#"<DartMeasurement type="numeric/float" name="score">12.3</DartMeasurement>"#,
             ),
             vec!["".to_string(), "".to_string(), "12.3".to_string()]
         );
@@ -121,18 +127,25 @@ mod tests {
         let mut measurements = Measurements::new();
         assert_eq!(
             measurements.capture(
-                r#"<CTestMeasurement name="score" type="numeric/float">12.3</CTestMeasurement>
-                <DartMeasurement name="color" type="text/string">blue</DartMeasurement>
+                r#"
+                <CTestMeasurement type="numeric/float" name="score">12.3</CTestMeasurement>
+                <CTestMeasurement  name="cost"  type="numeric/integer">3</CTestMeasurement>
+                <DartMeasurement type="text/string" name="color_fg">blue</DartMeasurement>
+                <DartMeasurement name="color bg" type="text/string">grey</DartMeasurement>
                 "#,
             ),
             vec![
                 "".to_string(),
                 "".to_string(),
                 "12.3".to_string(),
-                "blue".to_string()
+                "3".to_string(),
+                "blue".to_string(),
+                "grey".to_string()
             ]
         );
         assert_eq!(measurements.cols.get("score"), Some(&FIXED_COLS));
-        assert_eq!(measurements.cols.get("color"), Some(&(FIXED_COLS + 1)));
+        assert_eq!(measurements.cols.get("cost"), Some(&(FIXED_COLS + 1)));
+        assert_eq!(measurements.cols.get("color_fg"), Some(&(FIXED_COLS + 2)));
+        assert_eq!(measurements.cols.get("color bg"), Some(&(FIXED_COLS + 3)));
     }
 }
