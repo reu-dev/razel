@@ -97,14 +97,18 @@ impl LocalCache {
         let src = sandbox_dir
             .as_ref()
             .map_or(exec_path.clone(), |x| x.join(exec_path));
-        assert!(!src.is_symlink(), "src must not be a symlink: {:?}", src);
+        if src.is_symlink() {
+            bail!("output file must not be a symlink: {:?}", src);
+        }
         let digest = Digest::for_file(&src).await?;
         let dst = self.cas_dir.join(&digest.hash);
         let path: String = exec_path.strip_prefix(out_dir).map_or_else(
             |_| exec_path.to_str().unwrap().into(),
             |x| x.to_str().unwrap().into(),
         );
-        assert!(Path::new(&path).is_relative());
+        if !Path::new(&path).is_relative() {
+            bail!("path should be relative: {}", path);
+        }
         tokio::fs::rename(&src, &dst)
             .await
             .with_context(|| format!("mv {:?} -> {:?}", src, dst))?;
@@ -122,7 +126,9 @@ impl LocalCache {
         action_result: &ActionResult,
         out_dir: &Path,
     ) -> Result<(), anyhow::Error> {
-        assert!(!out_dir.starts_with(&self.cas_dir));
+        if out_dir.starts_with(&self.cas_dir) {
+            bail!("out_dir should not be within cas dir: {:?}", out_dir);
+        }
         for file in &action_result.output_files {
             let cas_path = self.cas_dir.join(&file.digest.as_ref().unwrap().hash);
             let out_path = out_dir.join(&file.path);
