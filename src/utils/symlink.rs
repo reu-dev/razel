@@ -1,4 +1,4 @@
-use anyhow::Context;
+use anyhow::{bail, Context};
 use std::fs;
 use std::io;
 use std::path::PathBuf;
@@ -6,7 +6,9 @@ use tokio::task::spawn_blocking;
 
 /// Force creating a symlink: overwrite existing file and create parent directories
 pub async fn force_symlink(src: &PathBuf, dst: &PathBuf) -> Result<(), anyhow::Error> {
-    assert_ne!(src, dst);
+    if src == dst {
+        bail!("symlink dst must not equal src: {:?}", dst);
+    }
     {
         let src = src.clone();
         let dst = dst.clone();
