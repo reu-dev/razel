@@ -242,6 +242,7 @@ impl Razel {
                 TUI::format_command_line(&command.executor.args_with_executable())
             );
             command.schedule_state = ScheduleState::Succeeded;
+            self.scheduler.set_finished_and_get_retry_flag(id, false);
             for rdep_id in command.reverse_deps.clone() {
                 let rdep = &mut self.commands[rdep_id];
                 assert_eq!(rdep.schedule_state, ScheduleState::Waiting);
