@@ -50,11 +50,11 @@ razel exec -f test/batch.sh
 
 Razel is in active development and **not** ready for production. CLI and format of `razel.jsonl` will likely change.
 
-| OS      | Status | Note                               |
-|---------|--------|------------------------------------|
-| Linux   | ✓      | stable, main development platform  |
-| Mac     | (✓)    | tested in CI                       |
-| Windows | ✘      | not yet tested, likely not working |
+| OS      | Status | Note                              |
+|---------|--------|-----------------------------------|
+| Linux   | ✓      | stable, main development platform |
+| Mac     | ✓      | used and tested in CI             |
+| Windows | (✓)    | tested in CI only                 |
 
 | Feature                                   | Status  | Note                                                       |
 |-------------------------------------------|---------|------------------------------------------------------------|
@@ -87,6 +87,18 @@ Razel is in active development and **not** ready for production. CLI and format 
 The idea to build fast and correct is based on [Bazel](https://bazel.build/). Razel uses data structures from
 the [Bazel Remote Execution API](https://github.com/bazelbuild/remote-apis/blob/main/build/bazel/remote/execution/v2/remote_execution.proto)
 for caching.
+
+## Features
+
+### Measurements
+
+Razel parses the stdout of executed commands to capture runtime measurements and writes them to `razel-out/measurements.csv`.
+Currently, the `<CTestMeasurement>` and `<DartMeasurement>` tags as used by [CTest/CDash](https://cmake.org/cmake/help/latest/command/ctest_test.html#additional-test-measurements) are supported:
+```
+<CTestMeasurement type="numeric/double" name="score">12.3</CTestMeasurement>
+<CTestMeasurement type="text/string" name="result">ok</CTestMeasurement>
+```
+Supporting custom formats is planned.
 
 ## Goals / Ideas
 

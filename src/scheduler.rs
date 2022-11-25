@@ -49,6 +49,10 @@ impl Scheduler {
         self.ready_items.len() + self.running_items.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.ready_items.is_empty() && self.running_items.is_empty()
+    }
+
     pub fn push_ready(&mut self, command: &Command) {
         let group = Self::group_for_command(command);
         let slots = self.slots_for_group(&group);
@@ -122,12 +126,14 @@ impl Scheduler {
         // could also use the command line with file arguments stripped
         match &command.executor {
             Executor::CustomCommand(c) => c.executable.clone(),
-            Executor::Task(_) => String::new(),
+            Executor::AsyncTask(_) => String::new(),
+            Executor::BlockingTask(_) => String::new(),
         }
     }
 }
 
 #[cfg(test)]
+#[allow(clippy::bool_assert_comparison)]
 mod tests {
     use super::*;
     use crate::executors::CustomCommandExecutor;

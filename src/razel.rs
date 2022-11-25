@@ -16,10 +16,10 @@ use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor};
 use crate::{
     bazel_remote_exec, config, Arena, CGroup, Command, CommandBuilder, CommandId, File, FileId,
-    Sandbox, Scheduler, TUI,
+    Measurements, Sandbox, Scheduler, TUI,
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ScheduleState {
     New,
     /// Command can not yet be executed because dependencies are still missing
@@ -40,7 +40,7 @@ pub struct SchedulerStats {
     pub execution_duration: Duration,
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct SchedulerExecStats {
     pub succeeded: usize,
     pub failed: usize,
@@ -79,6 +79,7 @@ pub struct Razel {
     failed: Vec<CommandId>,
     cache_hits: usize,
     tui: TUI,
+    measurements: Measurements,
 }
 
 impl Razel {
@@ -117,6 +118,7 @@ impl Razel {
             failed: vec![],
             cache_hits: 0,
             tui: TUI::new(),
+            measurements: Measurements::new(),
         }
     }
 
@@ -171,6 +173,10 @@ impl Razel {
         self.commands.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.commands.is_empty()
+    }
+
     pub fn show_info(&self) {
         println!(
             "output directory: {:?}",
@@ -199,7 +205,8 @@ impl Razel {
     pub fn push(&mut self, builder: CommandBuilder) -> Result<CommandId, anyhow::Error> {
         // TODO check if name is unique
         let id = self.commands.alloc_with_id(|id| builder.build(id));
-        if let Executor::Task(_) = &self.commands[id].executor {
+        if !matches!(&self.commands[id].executor, Executor::CustomCommand(_)) {
+            // add razel executable to command hash
             // TODO set digest to razel version once stable
             let self_file_id = self.lazy_self_file_id()?;
             self.commands[id].inputs.push(self_file_id);
@@ -235,6 +242,7 @@ impl Razel {
                 TUI::format_command_line(&command.executor.args_with_executable())
             );
             command.schedule_state = ScheduleState::Succeeded;
+            self.scheduler.set_finished_and_get_retry_flag(id, false);
             for rdep_id in command.reverse_deps.clone() {
                 let rdep = &mut self.commands[rdep_id];
                 assert_eq!(rdep.schedule_state, ScheduleState::Waiting);
@@ -250,11 +258,16 @@ impl Razel {
         }
     }
 
-    pub async fn run(&mut self) -> Result<SchedulerStats, anyhow::Error> {
+    pub async fn run(
+        &mut self,
+        keep_going: bool,
+        verbose: bool,
+    ) -> Result<SchedulerStats, anyhow::Error> {
         let preparation_start = Instant::now();
         if self.commands.is_empty() {
             bail!("no commands added");
         }
+        self.tui.verbose = verbose;
         Sandbox::cleanup();
         self.create_dependency_graph();
         self.remove_unknown_files_from_out_dir(&self.out_dir).ok();
@@ -263,18 +276,24 @@ impl Razel {
         let (tx, mut rx) = mpsc::channel(32);
         let execution_start = Instant::now();
         self.start_ready_commands(&tx);
-        while self.scheduler.len() != 0 {
+        let mut start_more_commands = true;
+        while self.scheduler.running() != 0 {
             if let Some((id, execution_result, action_result)) = rx.recv().await {
                 self.on_command_finished(id, &execution_result, action_result);
-                if execution_result.status == ExecutionStatus::SystemError {
-                    break;
+                if execution_result.status == ExecutionStatus::SystemError
+                    || (!execution_result.success() && !keep_going)
+                {
+                    start_more_commands = false;
                 }
-                self.start_ready_commands(&tx);
+                if start_more_commands {
+                    self.start_ready_commands(&tx);
+                }
             }
         }
-        assert_eq!(self.scheduler.running(), 0);
         self.remove_outputs_of_not_run_actions_from_out_dir();
         Sandbox::cleanup();
+        self.measurements
+            .write_csv(&self.out_dir.join("measurements.csv"))?;
         let stats = SchedulerStats {
             exec: SchedulerExecStats {
                 succeeded: self.succeeded.len(),
@@ -494,7 +513,7 @@ impl Razel {
             .dedup();
         for x in dirs {
             fs::create_dir_all(x)
-                .with_context(|| format!("Failed to create output directory: {:?}", x.clone()))?;
+                .with_context(|| format!("Failed to create output directory: {:?}", x))?;
         }
         Ok(())
     }
@@ -579,6 +598,7 @@ impl Razel {
         });
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn exec_action_with_cache(
         action_digest: &MessageDigest,
         cache: &Cache,
@@ -590,27 +610,26 @@ impl Razel {
         cgroup: Option<CGroup>,
         out_dir: &PathBuf,
     ) -> Result<(ExecutionResult, Option<ActionResult>), anyhow::Error> {
-        let (execution_result, action_result) = if let Some(x) =
-            Self::get_action_from_cache(&action_digest, &cache, read_cache).await
-        {
-            x
-        } else {
-            Self::exec_action(
-                &action_digest,
-                &cache,
-                &executor,
-                &input_paths,
-                &output_paths,
-                &sandbox,
-                cgroup,
-                &out_dir,
-            )
-            .await
-            .context("exec_action()")?
-        };
+        let (execution_result, action_result) =
+            if let Some(x) = Self::get_action_from_cache(action_digest, cache, read_cache).await {
+                x
+            } else {
+                Self::exec_action(
+                    action_digest,
+                    cache,
+                    executor,
+                    input_paths,
+                    output_paths,
+                    sandbox,
+                    cgroup,
+                    out_dir,
+                )
+                .await
+                .context("exec_action()")?
+            };
         if let Some(action_result) = &action_result {
             cache
-                .symlink_output_files_into_out_dir(action_result, &out_dir)
+                .symlink_output_files_into_out_dir(action_result, out_dir)
                 .await
                 .context("symlink_output_files_into_out_dir()")?;
         }
@@ -623,7 +642,7 @@ impl Razel {
         read_cache: bool,
     ) -> Option<(ExecutionResult, Option<ActionResult>)> {
         if read_cache {
-            if let Some(action_result) = cache.get_action_result(&action_digest).await {
+            if let Some(action_result) = cache.get_action_result(action_digest).await {
                 let exit_code = Some(action_result.exit_code);
                 let metadata = action_result.execution_metadata.as_ref();
                 let execution_result = ExecutionResult {
@@ -631,8 +650,8 @@ impl Razel {
                     exit_code,
                     error: None,
                     cache_hit: true,
-                    stdout: vec![], // TODO
-                    stderr: vec![], // TODO
+                    stdout: action_result.stdout_raw.clone(),
+                    stderr: action_result.stderr_raw.clone(),
                     duration: metadata
                         .and_then(|x| x.virtual_execution_duration.as_ref())
                         .map(|x| Duration::new(x.seconds as u64, x.nanos as u32)),
@@ -643,6 +662,7 @@ impl Razel {
         None
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn exec_action(
         action_digest: &MessageDigest,
         cache: &Cache,
@@ -655,7 +675,7 @@ impl Razel {
     ) -> Result<(ExecutionResult, Option<ActionResult>), anyhow::Error> {
         if let Some(sandbox) = &sandbox {
             sandbox
-                .create(&input_paths, &output_paths)
+                .create(input_paths, output_paths)
                 .await
                 .context("Sandbox::create()")?;
         } else {
@@ -671,12 +691,12 @@ impl Razel {
         let action_result = if execution_result.success() {
             Some(
                 Self::cache_action_result(
-                    &action_digest,
+                    action_digest,
                     &execution_result,
-                    &output_paths,
+                    output_paths,
                     sandbox.as_ref().map(|x| x.dir.clone()),
-                    &out_dir,
-                    &cache,
+                    out_dir,
+                    cache,
                 )
                 .await
                 .with_context(|| "cache_action_result()")?,
@@ -711,7 +731,7 @@ impl Razel {
                     .context("move_output_file_into_cache()")?,
             );
         }
-        let action_result = ActionResult {
+        let mut action_result = ActionResult {
             output_files,
             output_file_symlinks: vec![],
             output_symlinks: vec![],
@@ -742,6 +762,13 @@ impl Razel {
                 auxiliary_metadata: vec![],
             }),
         };
+        // TODO add stdout/stderr files
+        if !execution_result.stdout.is_empty() && execution_result.stdout.len() < 1000 {
+            action_result.stdout_raw = execution_result.stdout.clone();
+        }
+        if !execution_result.stderr.is_empty() && execution_result.stderr.len() < 1000 {
+            action_result.stderr_raw = execution_result.stderr.clone();
+        }
         cache
             .push_action_result(action_digest, &action_result)
             .await?;
@@ -760,11 +787,15 @@ impl Razel {
         );
         if retry {
             self.on_command_retry(id, execution_result);
-        } else if execution_result.success() {
-            self.set_output_file_digests(action_result.unwrap().output_files);
-            self.on_command_succeeded(id, execution_result);
         } else {
-            self.on_command_failed(id, execution_result);
+            self.measurements
+                .collect(&self.commands[id].name, execution_result);
+            if execution_result.success() {
+                self.set_output_file_digests(action_result.unwrap().output_files);
+                self.on_command_succeeded(id, execution_result);
+            } else {
+                self.on_command_failed(id, execution_result);
+            }
         }
     }
 
@@ -865,12 +896,17 @@ impl Razel {
             symlinks: vec![],
             node_properties: None,
         };
-        let bzl_action = bazel_remote_exec::Action {
+        bazel_remote_exec::Action {
             command_digest: Some(Digest::for_message(&bzl_command)),
             input_root_digest: Some(Digest::for_message(&bzl_input_root)),
             ..Default::default()
-        };
-        bzl_action
+        }
+    }
+}
+
+impl Default for Razel {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -903,7 +939,7 @@ mod tests {
                 .unwrap();
         }
         assert_eq!(razel.len(), n);
-        let stats = razel.run().await.unwrap();
+        let stats = razel.run(false, true).await.unwrap();
         assert_eq!(
             stats.exec,
             SchedulerExecStats {

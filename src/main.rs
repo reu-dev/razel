@@ -21,21 +21,21 @@ async fn main() -> Result<(), anyhow::Error> {
     }));
 
     let mut razel = Razel::new();
-    parse_cli(
+    if let Some(run_args) = parse_cli(
         std::env::args_os()
             .map(|x| x.into_string().unwrap())
             .collect(),
         &mut razel,
-        None,
-    )?;
-    let stats = razel.run().await?;
-    debug!(
-        "preparation: {:.3}s, execution: {:.3}s",
-        stats.preparation_duration.as_secs_f32(),
-        stats.execution_duration.as_secs_f32()
-    );
-    if !stats.exec.finished_successfully() {
-        std::process::exit(1);
+    )? {
+        let stats = razel.run(run_args.keep_going, run_args.verbose).await?;
+        debug!(
+            "preparation: {:.3}s, execution: {:.3}s",
+            stats.preparation_duration.as_secs_f32(),
+            stats.execution_duration.as_secs_f32()
+        );
+        if !stats.exec.finished_successfully() {
+            std::process::exit(1);
+        }
     }
     Ok(())
 }
@@ -52,18 +52,21 @@ mod main {
             .filter_level(log::LevelFilter::Debug)
             .is_test(true)
             .try_init();
+        // exit on panic in any thread
+        let default_panic = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            default_panic(info);
+            std::process::exit(1);
+        }));
         // run without reading cache
         {
             let mut razel = Razel::new();
             razel.read_cache = false;
             razel.clean();
-            parse_cli(
-                args.iter().map(|&x| x.into()).collect(),
-                &mut razel,
-                args.get(2).map(|&x| x.into()),
-            )
-            .unwrap();
-            let act_stats = razel.run().await.unwrap();
+            parse_cli(args.iter().map(|&x| x.into()).collect(), &mut razel)
+                .unwrap()
+                .unwrap();
+            let act_stats = razel.run(false, true).await.unwrap();
             assert_eq!(act_stats.exec, exp_stats);
             assert_eq!(act_stats.cache_hits, 0);
         }
@@ -71,13 +74,10 @@ mod main {
         {
             let mut razel = Razel::new();
             razel.clean();
-            parse_cli(
-                args.iter().map(|&x| x.into()).collect(),
-                &mut razel,
-                args.get(2).map(|&x| x.into()),
-            )
-            .unwrap();
-            let act_stats = razel.run().await.unwrap();
+            parse_cli(args.iter().map(|&x| x.into()).collect(), &mut razel)
+                .unwrap()
+                .unwrap();
+            let act_stats = razel.run(false, true).await.unwrap();
             assert_eq!(act_stats.exec, exp_stats);
             assert_eq!(act_stats.cache_hits, exp_stats.succeeded);
         }

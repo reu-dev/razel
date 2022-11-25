@@ -15,9 +15,9 @@ const c = razel.addTask('c.csv', 'csv-concat', [a, b, razel.addOutputFile('c.csv
 razel.addTask('filtered.csv', 'csv-filter', ['-i', c, '-o', razel.addOutputFile('filtered.csv'), '-c', 'a', 'xyz'])
     .output
     .ensureEqual(f);
-// add command: use cmake to copy a file
-const d = razel.addCommand('d.csv', 'cmake', ['-E', 'copy', a, razel.addOutputFile('d.csv')]).output;
-razel.addCommand('e.csv', 'cmake', ['-E', 'copy', d, razel.addOutputFile('e.csv')])
+// add commands to copy a file
+const d = razel.addCommand('d.csv', 'cp', [a, razel.addOutputFile('d.csv')]).output;
+razel.addCommand('e.csv', 'cp', [d, razel.addOutputFile('e.csv')])
     .output
     .ensureEqual(a);
 
