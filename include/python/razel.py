@@ -56,7 +56,7 @@ class Razel:
     def write_razel_file(self) -> None:
         with open(os.path.join(self._workspace_dir, "razel.jsonl"), "w", encoding="utf-8") as file:
             for command in self._commands:
-                json.dump(command.json(), file)
+                json.dump(command.json(), file,  separators=(',', ':'))
                 file.write("\n")
 
     # Generic type used to ensure that _add() takes and returns the same type.
