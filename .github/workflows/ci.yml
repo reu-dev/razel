@@ -59,7 +59,13 @@ jobs:
           path: .deno-cache/deps
           key: ${{ runner.os }}-deno-${{ hashFiles('include/deno/razel.ts') }}
 
+      # test Deno API
       - run: deno run -A test/deno.ts
+      - run: git diff --exit-code test/razel.jsonl
+
+      # test Python API
+      - run: python test/python.py
+      - run: git diff --exit-code test/razel.jsonl
 
       - run: cargo build
 
