@@ -42,7 +42,7 @@ razel exec -f test/razel.jsonl
 
 ### Python API
 
-See [Python API](include/python/razel.py).
+The [Python API](include/python/razel.py) requires Python >= 3.8.
 Run the [example Python script](test/python.py) to create `test/razel.jsonl` and execute it with Razel:
 
 ```bash
