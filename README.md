@@ -46,7 +46,7 @@ See [Python API](include/python/razel.py).
 Run the [example Python script](test/python.py) to create `test/razel.jsonl` and execute it with Razel:
 
 ```bash
-python test/python.py
+python3 test/python.py
 razel exec -f test/razel.jsonl
 ```
 

@@ -5,8 +5,8 @@ const workspaceDir = path.resolve(path.dirname(path.fromFileUrl(import.meta.url)
 const razel = Razel.init(workspaceDir);
 
 // data/a.csv and data/f.csv are two input files
-const a = razel.addDataFile(path.join('data', 'a.csv'));
-const f = razel.addDataFile(path.join('data', 'f.csv'));
+const a = razel.addDataFile('data/a.csv');
+const f = razel.addDataFile('data/f.csv');
 // add task to verify that they differ
 a.ensureNotEqual(f);
 // add tasks to create additional files and compare the final output to a data file

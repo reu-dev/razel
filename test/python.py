@@ -10,8 +10,8 @@ workspace_dir = path.dirname(path.abspath(__file__))
 razel = Razel.init(workspace_dir)
 
 # data/a.csv and data/f.csv are two input files
-a = razel.add_data_file(path.join('data', 'a.csv'))
-f = razel.add_data_file(path.join('data', 'f.csv'))
+a = razel.add_data_file('data/a.csv')
+f = razel.add_data_file('data/f.csv')
 # add task to verify that they differ
 a.ensure_not_equal(f)
 # add tasks to create additional files and compare the final output to a data file
