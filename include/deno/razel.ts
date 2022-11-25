@@ -51,7 +51,7 @@ export class Razel {
 
     writeRazelFile() {
         const json = this.commands.map(x => JSON.stringify(x.json()));
-        Deno.writeTextFileSync(path.join(this.workspaceDir, 'razel.jsonl'), json.join('\n'));
+        Deno.writeTextFileSync(path.join(this.workspaceDir, 'razel.jsonl'), json.join('\n') + '\n');
     }
 
     private add(command: Command): Command {

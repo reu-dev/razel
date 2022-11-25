@@ -4,7 +4,8 @@ A command executor with caching. It is:
 
 * Fast: caching avoids repeated execution of commands which haven't changed
 * Reliable: commands are executed in a sandbox to detect missing dependencies
-* Easy to use: commands are specified using a high-level TypeScript API and convenience functions/tasks are built-in
+* Easy to use: commands are specified using a high-level TypeScript or Python API and convenience functions/tasks are
+  built-in
 * Made for: data processing pipelines with executables working on files and many dependencies between those
 
 Razel is not the best choice for building software, especially there's no built-in support for compiler setup and header
@@ -22,24 +23,39 @@ cd razel/
 cargo install --locked --path .
 ```
 
-### Example: TypeScript API
-
-Install [Deno](https://deno.land/) to use the TypeScript API. [TypeScript example file](test/deno.ts)
-
-```bash
-# create razel.jsonl from test/deno.ts 
-deno run --allow-write=. test/deno.ts
-
-# execute commands from razel.jsonl
+The native input format for Razel is a `razel.jsonl` file, see the example [test/razel.jsonl](test/razel.jsonl).
+```
 razel exec -f test/razel.jsonl
 ```
 
-Instead of TypeScript, your favorite scripting language could be used to create a `razel.jsonl` file.
+The prefered way to create a `razel.jsonl` file is using one of the high-level APIs.
 
-### Example: Batch file
+### TypeScript API
 
-Razel can directly execute a file containing commands. Input and output files need to be specified, which is WIP.
-[Batch example file](test/batch.sh)
+Install [Deno](https://deno.land/) to use the [TypeScript API](include/deno/razel.ts).
+Run the [example Deno script](test/deno.ts) to create `test/razel.jsonl` and execute it with Razel:
+
+```bash
+deno run --allow-write=. test/deno.ts
+razel exec -f test/razel.jsonl
+```
+
+### Python API
+
+The [Python API](include/python/razel.py) requires Python >= 3.8.
+Run the [example Python script](test/python.py) to create `test/razel.jsonl` and execute it with Razel:
+
+```bash
+python3 test/python.py
+razel exec -f test/razel.jsonl
+```
+
+### Batch file
+
+In addition to `razel.jsonl`, Razel can directly execute a batch file containing commands.
+Input and output files need to be specified, which is WIP.
+
+Execute the example [test/batch.sh](test/batch.sh) with Razel:
 
 ```bash
 razel exec -f test/batch.sh
