@@ -15,7 +15,7 @@ dependencies.
 
 ## Getting Started
 
-Use [rustup](https://rustup.rs/) to install Rust. Clone and build Razel:
+Use [rustup](https://rustup.rs/) to install Rust. Install `protobuf-compiler`. Clone and build Razel:
 
 ```bash
 git clone https://github.com/reu-dev/razel.git
