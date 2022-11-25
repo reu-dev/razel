@@ -149,7 +149,7 @@ class CustomCommand(Command):
 
         self._executable = executable
         self._args = args
-        self._env = env or {}
+        self._env = env
 
         for out in self.outputs:
             out._created_by = self
@@ -163,7 +163,7 @@ class CustomCommand(Command):
         return self._args
 
     @property
-    def env(self) -> Mapping[str, str]:
+    def env(self) -> Optional[Mapping[str, str]]:
         return self._env
 
     def command_line(self) -> str:
@@ -182,14 +182,16 @@ class CustomCommand(Command):
         )
 
     def json(self) -> Mapping[str, Any]:
-        return {
+        j = {
             "name": self.name,
             "executable": self.executable,
             "args": [x.file_name if isinstance(x, File) else x for x in self.args],
             "inputs": [x.file_name for x in self.args if isinstance(x, File) and x.created_by != self],
-            "outputs": [x.file_name for x in self.outputs],
-            "env": self.env,
+            "outputs": [x.file_name for x in self.outputs]
         }
+        if self.env:
+            j["env"] = self.env
+        return j
 
 
 class Task(Command):
