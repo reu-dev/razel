@@ -16,7 +16,7 @@ use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor};
 use crate::{
     bazel_remote_exec, config, Arena, CGroup, Command, CommandBuilder, CommandId, File, FileId,
-    Measurements, Sandbox, Scheduler, TUI,
+    FileType, Measurements, Sandbox, Scheduler, TUI,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -66,6 +66,7 @@ pub struct Razel {
     out_dir: PathBuf,
     cache: Cache,
     files: Arena<File>,
+    /// maps paths relative to current_dir (without out_dir prefix) to <File>s
     path_to_file_id: HashMap<PathBuf, FileId>,
     which_to_file_id: HashMap<String, FileId>,
     /// razel executable - used in Action::input_root_digest for versioning tasks
@@ -308,17 +309,51 @@ impl Razel {
         Ok(stats)
     }
 
-    /// Register an executable to be used for a command
+    /// Register an executable file
     pub fn executable(&mut self, arg: String) -> Result<&File, anyhow::Error> {
-        if arg.contains('.') {
-            self.input_file(arg)
-        } else if let Some(x) = self.which_to_file_id.get(&arg) {
+        let path = Path::new(&arg);
+        let (file_type, abs_path) = if let Some(x) = arg.strip_prefix("./") {
+            (FileType::ExecutableInWorkspace, self.workspace_dir.join(x))
+        } else if path.is_absolute() {
+            match path.strip_prefix(&self.workspace_dir) {
+                Ok(_) => (FileType::ExecutableInWorkspace, path.to_path_buf()),
+                _ => (FileType::SystemExecutable, path.to_path_buf()),
+            }
+        } else {
+            // relative path or system binary name
+            let abs = self.workspace_dir.join(path);
+            let cwd_path = abs.strip_prefix(&self.current_dir).unwrap().to_path_buf();
+            if let Some(id) = self.path_to_file_id.get(&cwd_path) {
+                return Ok(&self.files[*id]);
+            } else if arg.contains('/') || abs.exists() {
+                (FileType::ExecutableInWorkspace, abs)
+            } else {
+                return self.executable_which(arg);
+            }
+        };
+        assert!(abs_path.is_absolute());
+        let cwd_path = if file_type == FileType::SystemExecutable {
+            abs_path
+        } else {
+            self.rel_path(&abs_path.to_str().unwrap().into())?
+        };
+        self.input_file_for_rel_path(arg, file_type, cwd_path)
+    }
+
+    fn executable_which(&mut self, arg: String) -> Result<&File, anyhow::Error> {
+        if let Some(x) = self.which_to_file_id.get(&arg) {
             Ok(&self.files[*x])
         } else {
             let path =
                 which(&arg).with_context(|| format!("executable not found: {:?}", arg.clone()))?;
             debug!("which({}) => {:?}", arg, path);
-            let id = self.input_file(path.to_str().unwrap().into())?.id;
+            let id = self
+                .input_file_for_rel_path(
+                    arg.clone(),
+                    FileType::SystemExecutable,
+                    path.to_str().unwrap().into(),
+                )?
+                .id;
             self.which_to_file_id.insert(arg, id);
             Ok(&self.files[id])
         }
@@ -326,26 +361,34 @@ impl Razel {
 
     pub fn input_file(&mut self, arg: String) -> Result<&File, anyhow::Error> {
         let rel_path = self.rel_path(&arg)?;
+        self.input_file_for_rel_path(arg, FileType::NormalFile, rel_path)
+    }
+
+    fn input_file_for_rel_path(
+        &mut self,
+        arg: String,
+        file_type: FileType,
+        rel_path: PathBuf,
+    ) -> Result<&File, anyhow::Error> {
         let id = self
             .path_to_file_id
             .get(&rel_path)
             .cloned()
             .unwrap_or_else(|| {
-                let id = self.files.alloc_with_id(|id| File {
-                    id,
-                    arg,
-                    exec_path: rel_path.clone(),
-                    out_path: rel_path.clone(),
-                    creating_command: None,
-                    digest: None,
-                });
+                let id = self
+                    .files
+                    .alloc_with_id(|id| File::new(id, arg, file_type, rel_path.clone()));
                 self.path_to_file_id.insert(rel_path, id);
                 id
             });
         Ok(&self.files[id])
     }
 
-    pub fn output_file(&mut self, arg: &String) -> Result<&File, anyhow::Error> {
+    pub fn output_file(
+        &mut self,
+        arg: &String,
+        file_type: FileType,
+    ) -> Result<&File, anyhow::Error> {
         let rel_path = self.rel_path(arg)?;
         if let Some(file) = self.path_to_file_id.get(&rel_path).map(|x| &self.files[*x]) {
             if let Some(creating_command) = file.creating_command {
@@ -361,13 +404,8 @@ impl Razel {
                 );
             }
         }
-        let id = self.files.alloc_with_id(|id| File {
-            id,
-            creating_command: None, // will be patched in Scheduler::push()
-            exec_path: rel_path.clone(),
-            out_path: self.out_dir.join(&rel_path),
-            arg: arg.clone(),
-            digest: None,
+        let id = self.files.alloc_with_id(|id| {
+            File::new(id, arg.clone(), file_type, self.out_dir.join(&rel_path))
         });
         self.path_to_file_id.insert(rel_path, id);
         Ok(&self.files[id])
@@ -436,7 +474,7 @@ impl Razel {
                     if self
                         .path_to_file_id
                         .get(path_wo_prefix)
-                        .filter(|x| self.files[**x].out_path == path)
+                        .filter(|x| self.files[**x].path == path)
                         .is_none()
                     {
                         fs::remove_file(path).ok();
@@ -450,7 +488,7 @@ impl Razel {
     fn remove_outputs_of_not_run_actions_from_out_dir(&self) {
         for command_id in self.waiting.iter().chain(self.scheduler.ready_ids().iter()) {
             for file_id in &self.commands[*command_id].outputs {
-                fs::remove_file(&self.files[*file_id].out_path).ok();
+                fs::remove_file(&self.files[*file_id].path).ok();
             }
         }
     }
@@ -493,7 +531,7 @@ impl Razel {
         while let Some(file) = self.files.get_and_inc_id(next_id) {
             if file.creating_command.is_none() {
                 let id = file.id;
-                let path = file.exec_path.clone();
+                let path = file.path.clone();
                 let tx = tx_option.clone().unwrap();
                 tokio::spawn(async move {
                     tx.send((id, Digest::for_file(path).await)).await.ok();
@@ -508,7 +546,7 @@ impl Razel {
         let dirs = self
             .files
             .iter()
-            .map(|x| x.out_path.parent().unwrap())
+            .map(|x| x.path.parent().unwrap())
             .sorted_unstable()
             .dedup();
         for x in dirs {
@@ -539,7 +577,7 @@ impl Razel {
         command
             .inputs
             .iter()
-            .map(|x| self.files[*x].out_path.clone())
+            .map(|x| self.files[*x].path.clone())
             .collect()
     }
 
@@ -547,7 +585,7 @@ impl Razel {
         command
             .outputs
             .iter()
-            .map(|x| self.files[*x].out_path.clone())
+            .map(|x| self.files[*x].path.clone())
             .collect()
     }
 
@@ -801,12 +839,11 @@ impl Razel {
 
     fn set_output_file_digests(&mut self, output_files: Vec<OutputFile>) {
         for output_file in output_files {
-            let mut output_file_path = PathBuf::from(output_file.path);
-            if let Ok(x) = output_file_path.strip_prefix(&self.out_dir) {
-                output_file_path = x.into();
-            }
-            assert!(output_file_path.is_relative());
-            let file = &mut self.files[self.path_to_file_id[&output_file_path]];
+            assert!(!output_file.path.starts_with("./"));
+            let path = PathBuf::from(output_file.path);
+            assert!(!path.starts_with(&self.out_dir));
+            assert!(!path.is_absolute());
+            let file = &mut self.files[self.path_to_file_id[&path]];
             assert!(file.digest.is_none());
             file.digest = output_file.digest;
         }
@@ -863,7 +900,7 @@ impl Razel {
             output_paths: command
                 .outputs
                 .iter()
-                .map(|x| self.files[*x].exec_path.to_str().unwrap())
+                .map(|x| self.files[*x].path.to_str().unwrap())
                 .sorted_unstable()
                 .dedup()
                 .map_into()
@@ -878,13 +915,9 @@ impl Razel {
                 .iter()
                 .map(|x| {
                     let file = &self.files[*x];
-                    assert!(
-                        file.digest.is_some(),
-                        "digest missing for {:?}",
-                        file.exec_path
-                    );
+                    assert!(file.digest.is_some(), "digest missing for {:?}", file.path);
                     bazel_remote_exec::FileNode {
-                        name: file.exec_path.to_str().unwrap().into(),
+                        name: file.path.to_str().unwrap().into(),
                         digest: file.digest.clone(),
                         is_executable: false, // TODO bazel_remote_exec::FileNode::is_executable
                         node_properties: None,

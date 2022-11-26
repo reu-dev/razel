@@ -190,7 +190,7 @@ mod tests {
         let command = razel
             .push_custom_command(
                 "test".into(),
-                "./hopefully-not-existing-command-to-test-razel".into(),
+                "./test/data/a.csv".into(), // file exists but is not executable
                 vec![],
                 Default::default(),
                 vec![],
