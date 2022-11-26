@@ -178,6 +178,8 @@ struct DownloadFileTaskBuilder {
     url: String,
     #[clap(short, long)]
     output: String,
+    #[clap(short, long)]
+    executable: bool,
 }
 
 impl TaskBuilder for DownloadFileTaskBuilder {
@@ -186,6 +188,7 @@ impl TaskBuilder for DownloadFileTaskBuilder {
         builder.async_task_executor(DownloadFileTask {
             url: self.url,
             output,
+            executable: self.executable,
         });
         Ok(())
     }

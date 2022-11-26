@@ -82,11 +82,13 @@ pub mod executors {
 
 pub mod utils {
     pub use arena::*;
+    pub use file_permissions::*;
     pub use resources::*;
     pub use symlink::*;
     pub use tui::*;
 
     mod arena;
+    mod file_permissions;
     #[cfg_attr(target_os = "linux", path = "resources_linux.rs")]
     #[cfg_attr(not(target_os = "linux"), path = "resources_unimplemented.rs")]
     mod resources;
