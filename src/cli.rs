@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::parse_jsonl::parse_jsonl_file;
 use crate::tasks::DownloadFileTask;
-use crate::{parse_batch_file, parse_command, tasks, CommandBuilder, Razel};
+use crate::{parse_batch_file, parse_command, tasks, CommandBuilder, FileType, Razel};
 
 #[derive(Parser)]
 #[clap(name = "razel")]
@@ -124,7 +124,7 @@ struct CsvConcatTask {
 impl TaskBuilder for CsvConcatTask {
     fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
         let inputs = builder.inputs(&self.input, razel)?;
-        let output = builder.output(&self.output, razel)?;
+        let output = builder.output(&self.output, FileType::NormalFile, razel)?;
         builder.blocking_task_executor(Arc::new(move || {
             tasks::csv_concat(inputs.clone(), output.clone())
         }));
@@ -146,7 +146,7 @@ struct CsvFilterTask {
 impl TaskBuilder for CsvFilterTask {
     fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
         let input = builder.input(&self.input, razel)?;
-        let output = builder.output(&self.output, razel)?;
+        let output = builder.output(&self.output, FileType::NormalFile, razel)?;
         builder.blocking_task_executor(Arc::new(move || {
             tasks::csv_filter(input.clone(), output.clone(), self.cols.clone())
         }));
@@ -164,7 +164,7 @@ struct WriteFileTask {
 
 impl TaskBuilder for WriteFileTask {
     fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
-        let output = builder.output(&self.file, razel)?;
+        let output = builder.output(&self.file, FileType::NormalFile, razel)?;
         builder.blocking_task_executor(Arc::new(move || {
             tasks::write_file(output.clone(), self.lines.clone())
         }));
@@ -178,14 +178,22 @@ struct DownloadFileTaskBuilder {
     url: String,
     #[clap(short, long)]
     output: String,
+    #[clap(short, long)]
+    executable: bool,
 }
 
 impl TaskBuilder for DownloadFileTaskBuilder {
     fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
-        let output = builder.output(&self.output, razel)?;
+        let file_type = if self.executable {
+            FileType::ExecutableInWorkspace
+        } else {
+            FileType::NormalFile
+        };
+        let output = builder.output(&self.output, file_type, razel)?;
         builder.async_task_executor(DownloadFileTask {
             url: self.url,
             output,
+            executable: self.executable,
         });
         Ok(())
     }
