@@ -4,13 +4,12 @@ from __future__ import annotations
 import abc
 import json
 import os
-from typing import ClassVar, Final, Optional, Any, TypeVar
+from typing import ClassVar, Optional, Any, TypeVar
 from collections.abc import Mapping, Sequence
 
 
 class Razel:
     _instance: ClassVar[Optional[Razel]] = None
-    OUT_DIR: Final = "razel-out"
 
     def __init__(self, workspace_dir: str) -> None:
         self._workspace_dir = workspace_dir
@@ -34,29 +33,47 @@ class Razel:
         return File(self._rel_path(path), False, None)
 
     def add_command(
-        self, name: str, executable: str, args: Sequence[str | File], env: Optional[Mapping[str, str]] = None
+        self, name: str, executable: str | File | Command, args: Sequence[str | File | Command],
+        env: Optional[Mapping[str, str]] = None
     ) -> CustomCommand:
         name = self._sanitize_name(name)
-        command = CustomCommand(name, self._rel_path(executable), args, env)
+        path = self._rel_path(_map_arg_to_output_path(executable))
+        command = CustomCommand(name, path, _map_args_to_output_files(args), env)
         return self._add(command)
 
-    def add_task(self, name: str, task: str, args: Sequence[str | File]) -> Task:
+    def add_task(self, name: str, task: str, args: Sequence[str | File | Command]) -> Task:
         name = Razel._sanitize_name(name)
-        command = Task(name, task, args)
+        command = Task(name, task, _map_args_to_output_files(args))
         return self._add(command)
 
-    def ensure_equal(self, file1: File, file2: File) -> None:
-        name = f"{file1.basename}##shouldEqual##{file2.basename}"
-        self._add(Task(name, "ensure-equal", [file1, file2]))
+    def ensure_equal(self, arg1: File | Command, arg2: File | Command) -> None:
+        ### Add a task to compare two files. In case of two commands, all output files will be compared. ###
+        if isinstance(arg1, Command) and isinstance(arg2, Command):
+            assert len(arg1.outputs) == len(arg2.outputs)
+            for i in range(len(arg1.outputs)):
+                self.ensure_equal(arg1.outputs[i], arg2.outputs[i])
+        else:
+            file1 = _map_arg_to_output_file(arg1)
+            file2 = _map_arg_to_output_file(arg2)
+            name = f"{file1.basename}##shouldEqual##{file2.basename}"
+            self._add(Task(name, "ensure-equal", [file1, file2]))
 
-    def ensure_not_equal(self, file1: File, file2: File) -> None:
-        name = f"{file1.basename}##shouldNotEqual##{file2.basename}"
-        self._add(Task(name, "ensure-not-equal", [file1, file2]))
+    def ensure_not_equal(self, arg1: File | Command, arg2: File | Command) -> None:
+        ### Add a task to compare two files. In case of two commands, all output files will be compared. ###
+        if isinstance(arg1, Command) and isinstance(arg2, Command):
+            assert len(arg1.outputs) == len(arg2.outputs)
+            for i in range(len(arg1.outputs)):
+                self.ensure_equal(arg1.outputs[i], arg2.outputs[i])
+        else:
+            file1 = _map_arg_to_output_file(arg1)
+            file2 = _map_arg_to_output_file(arg2)
+            name = f"{file1.basename}##shouldNotEqual##{file2.basename}"
+            self._add(Task(name, "ensure-not-equal", [file1, file2]))
 
     def write_razel_file(self) -> None:
         with open(os.path.join(self._workspace_dir, "razel.jsonl"), "w", encoding="utf-8") as file:
             for command in self._commands:
-                json.dump(command.json(), file,  separators=(',', ':'))
+                json.dump(command.json(), file, separators=(',', ':'))
                 file.write("\n")
 
     # Generic type used to ensure that _add() takes and returns the same type.
@@ -65,9 +82,8 @@ class Razel:
     def _add(self, command: _Command) -> _Command:
         for existing in self._commands:
             if existing.name == command.name:
-                assert (
-                    existing.json() == command.json()
-                ), f"conflicting actions: {command.name}:\n{existing.command_line()}\n{command.command_line()}"
+                assert command.json() == existing.json(), \
+                    f"conflicting actions: {command.name}:\nexisting: {existing.json()}\nto add: {command.json()}"
                 assert isinstance(existing, type(command))
                 return existing
 
@@ -107,10 +123,10 @@ class File:
     def basename(self) -> str:
         return os.path.basename(self._file_name)
 
-    def ensure_equal(self, other: File) -> None:
+    def ensure_equal(self, other: File | Command) -> None:
         Razel.instance().ensure_equal(self, other)
 
-    def ensure_not_equal(self, other: File) -> None:
+    def ensure_not_equal(self, other: File | Command) -> None:
         Razel.instance().ensure_not_equal(self, other)
 
 
@@ -131,7 +147,8 @@ class Command(abc.ABC):
 
     @property
     def output(self) -> File:
-        assert len(self._outputs) == 1
+        assert len(self._outputs) == 1, \
+            f"output() requires exactly one output file, but the command has {len(self._outputs)} outputs: {self.name}"
         return self._outputs[0]
 
     @property
@@ -142,19 +159,11 @@ class Command(abc.ABC):
     def stderr(self) -> File | None:
         return self._stderr
 
-    def ensure_equal(self, other: Command) -> None:
-        assert len(self._outputs) == len(other._outputs)
-        for i in range(len(self._outputs)):
-            Razel.instance().ensure_equal(self._outputs[i], other._outputs[i])
+    def ensure_equal(self, other: File | Command) -> None:
+        Razel.instance().ensure_equal(self, other)
 
-    def ensure_not_equal(self, other: Command) -> None:
-        assert len(self._outputs) == len(other._outputs)
-        for i in range(len(self._outputs)):
-            Razel.instance().ensure_not_equal(self._outputs[i], other._outputs[i])
-
-    @abc.abstractmethod
-    def command_line(self) -> str:
-        pass
+    def ensure_not_equal(self, other: File | Command) -> None:
+        Razel.instance().ensure_not_equal(self, other)
 
     @abc.abstractmethod
     def json(self) -> Mapping[str, Any]:
@@ -198,22 +207,6 @@ class CustomCommand(Command):
         self.outputs.append(self._stderr)
         return self
 
-
-    def command_line(self) -> str:
-        return " ".join(
-            [
-                f"./{self.executable}",
-                *[
-                    x
-                    if not isinstance(x, File)
-                    else x.file_name
-                    if x.is_data
-                    else os.path.join(Razel.OUT_DIR, x.file_name)
-                    for x in self.args
-                ],
-            ]
-        )
-
     def json(self) -> Mapping[str, Any]:
         j = {
             "name": self.name,
@@ -255,25 +248,25 @@ class Task(Command):
     def args(self) -> Sequence[str | File]:
         return self._args
 
-    def command_line(self) -> str:
-        return " ".join(
-            [
-                "razel",
-                self.task,
-                *[
-                    x
-                    if not isinstance(x, File)
-                    else x.file_name
-                    if x.is_data
-                    else os.path.join(Razel.OUT_DIR, x.file_name)
-                    for x in self.args
-                ],
-            ]
-        )
-
     def json(self) -> Mapping[str, Any]:
         return {
             "name": self.name,
             "task": self.task,
             "args": [x.file_name if isinstance(x, File) else x for x in self.args],
         }
+
+
+def _map_arg_to_output_path(arg: str | File | Command) -> str:
+    if isinstance(arg, Command):
+        return arg.output.file_name
+    elif isinstance(arg, File):
+        return arg.file_name
+    return arg
+
+
+def _map_arg_to_output_file(arg: File | Command) -> File:
+    return arg.output if isinstance(arg, Command) else arg
+
+
+def _map_args_to_output_files(args: Sequence[str | File | Command]) -> Sequence[str | File]:
+    return [x.output if isinstance(x, Command) else x for x in args]
