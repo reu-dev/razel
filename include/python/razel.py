@@ -118,6 +118,8 @@ class Command(abc.ABC):
     def __init__(self, name: str, outputs: Sequence[File]) -> None:
         self._name = name
         self._outputs = outputs
+        self._stdout: File | None = None
+        self._stderr: File | None = None
 
     @property
     def name(self) -> str:
@@ -131,6 +133,24 @@ class Command(abc.ABC):
     def output(self) -> File:
         assert len(self._outputs) == 1
         return self._outputs[0]
+
+    @property
+    def stdout(self) -> File | None:
+        return self._stdout
+
+    @property
+    def stderr(self) -> File | None:
+        return self._stderr
+
+    def ensure_equal(self, other: Command) -> None:
+        assert len(self._outputs) == len(other._outputs)
+        for i in range(len(self._outputs)):
+            Razel.instance().ensure_equal(self._outputs[i], other._outputs[i])
+
+    def ensure_not_equal(self, other: Command) -> None:
+        assert len(self._outputs) == len(other._outputs)
+        for i in range(len(self._outputs)):
+            Razel.instance().ensure_not_equal(self._outputs[i], other._outputs[i])
 
     @abc.abstractmethod
     def command_line(self) -> str:
@@ -166,6 +186,19 @@ class CustomCommand(Command):
     def env(self) -> Optional[Mapping[str, str]]:
         return self._env
 
+    def write_stdout_to_file(self, path: str = None) -> CustomCommand:
+        self._stdout = Razel.instance().add_output_file(path if path else self.name)
+        self._stdout._created_by = self
+        self.outputs.append(self._stdout)
+        return self
+
+    def write_stderr_to_file(self, path: str = None) -> CustomCommand:
+        self._stderr = Razel.instance().add_output_file(path if path else self.name)
+        self._stderr._created_by = self
+        self.outputs.append(self._stderr)
+        return self
+
+
     def command_line(self) -> str:
         return " ".join(
             [
@@ -187,10 +220,14 @@ class CustomCommand(Command):
             "executable": self.executable,
             "args": [x.file_name if isinstance(x, File) else x for x in self.args],
             "inputs": [x.file_name for x in self.args if isinstance(x, File) and x.created_by != self],
-            "outputs": [x.file_name for x in self.outputs]
+            "outputs": [x.file_name for x in self.outputs if x != self._stdout and x != self._stderr]
         }
         if self.env:
             j["env"] = self.env
+        if self._stdout:
+            j["stdout"] = self._stdout.file_name
+        if self._stderr:
+            j["stderr"] = self._stderr.file_name
         return j
 
 

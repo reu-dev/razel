@@ -89,7 +89,7 @@ impl TUI {
         Self::field(
             "command:   ",
             Color::Blue,
-            Self::format_command_line(&command.executor.args_with_executable()).as_str(),
+            Self::format_command_line(&command.executor.command_line_with_redirects()).as_str(),
         );
         if let Some(env) = command.executor.env() {
             Self::field(

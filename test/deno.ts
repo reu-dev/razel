@@ -21,4 +21,12 @@ razel.addCommand('e.csv', 'cp', [d, razel.addOutputFile('e.csv')])
     .output
     .ensureEqual(a);
 
+// compile an executable from a c file
+const say_hi = razel.addCommand('say_hi', 'clang',
+    ['-o', razel.addOutputFile('say_hi'), razel.addDataFile('data/say_hi.c')]).output;
+// run it, redirect stdout to a file and compare it with the output of another command
+razel.addCommand('say_hi_using_c', say_hi.fileName, ['Razel'])
+    .writeStdoutToFile()
+    .ensureEqual(razel.addCommand('say_hi_using_echo', 'echo', ['Hi Razel!']).writeStdoutToFile());
+
 razel.writeRazelFile();

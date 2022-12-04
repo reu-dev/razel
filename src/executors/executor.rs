@@ -35,6 +35,14 @@ impl Executor {
         }
     }
 
+    pub fn command_line_with_redirects(&self) -> Vec<String> {
+        match self {
+            Executor::CustomCommand(c) => c.command_line_with_redirects(),
+            Executor::AsyncTask(x) => x.args_with_executable(),
+            Executor::BlockingTask(t) => t.args_with_executable(),
+        }
+    }
+
     pub fn env(&self) -> Option<&HashMap<String, String>> {
         match self {
             Executor::CustomCommand(x) => Some(&x.env),
@@ -94,6 +102,8 @@ pub enum ExecutionStatus {
     NotStarted,
     FailedToStart,
     FailedToCreateResponseFile,
+    FailedToWriteStdoutFile,
+    FailedToWriteStderrFile,
     Failed,
     /// SIGSEGV
     Crashed,

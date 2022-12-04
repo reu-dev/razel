@@ -94,12 +94,30 @@ export class File {
 }
 
 export abstract class Command {
+    public stdout: File | undefined = undefined;
+    public stderr: File | undefined = undefined;
+
     protected constructor(public readonly name: string, public readonly outputs: File[]) {
     }
 
     get output(): File {
-        assertEquals(this.outputs.length, 1);
+        assertEquals(this.outputs.length, 1,
+            `output() requires exactly one output file, but the command has ${this.outputs.length} outputs: ${this.name}`);
         return this.outputs[0];
+    }
+
+    ensureEqual(other: Command) {
+        assertEquals(this.outputs.length, other.outputs.length);
+        for (let i = 0; i != this.outputs.length; ++i) {
+            Razel.instance().ensureEqual(this.outputs[i], other.outputs[i]);
+        }
+    }
+
+    ensureNotEqual(other: Command) {
+        assertEquals(this.outputs.length, other.outputs.length);
+        for (let i = 0; i != this.outputs.length; ++i) {
+            Razel.instance().ensureNotEqual(this.outputs[i], other.outputs[i]);
+        }
     }
 
     abstract commandLine(): string;
@@ -112,6 +130,20 @@ export class CustomCommand extends Command {
                 public readonly env?: any) {
         super(name, args.filter(x => (x instanceof File) && !(x as File).isData && !(x as File).createdBy) as File[]);
         this.outputs.forEach(x => x.createdBy = this);
+    }
+
+    writeStdoutToFile(path?: string): CustomCommand {
+        this.stdout = Razel.instance().addOutputFile(path ? path : this.name);
+        this.stdout.createdBy = this;
+        this.outputs.push(this.stdout);
+        return this;
+    }
+
+    writeStderrToFile(path?: string): CustomCommand {
+        this.stderr = Razel.instance().addOutputFile(path ? path : this.name);
+        this.stderr.createdBy = this;
+        this.outputs.push(this.stderr);
+        return this;
     }
 
     commandLine(): string {
@@ -127,8 +159,10 @@ export class CustomCommand extends Command {
             executable: this.executable,
             args: this.args.map(x => x instanceof File ? x.fileName : x),
             inputs: this.args.filter(x => x instanceof File && x.createdBy !== this).map(x => (x as File).fileName),
-            outputs: this.outputs.map(x => x.fileName),
+            outputs: this.outputs.filter(x => x !== this.stdout && x !== this.stderr).map(x => x.fileName),
             env: this.env,
+            stdout: this.stdout?.fileName,
+            stderr: this.stderr?.fileName,
         };
     }
 }

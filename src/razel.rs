@@ -187,6 +187,7 @@ impl Razel {
         println!("worker threads:   {}", self.worker_threads);
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn push_custom_command(
         &mut self,
         name: String,
@@ -195,10 +196,18 @@ impl Razel {
         env: HashMap<String, String>,
         inputs: Vec<String>,
         outputs: Vec<String>,
+        stdout: Option<String>,
+        stderr: Option<String>,
     ) -> Result<CommandId, anyhow::Error> {
         let mut builder = CommandBuilder::new(name, args);
         builder.inputs(&inputs, self)?;
         builder.outputs(&outputs, self)?;
+        if let Some(x) = stdout {
+            builder.stdout(&x, self)?;
+        }
+        if let Some(x) = stderr {
+            builder.stderr(&x, self)?;
+        }
         builder.custom_command_executor(executable, env, self)?;
         self.push(builder)
     }
@@ -240,7 +249,7 @@ impl Razel {
             println!("# {}", command.name);
             println!(
                 "{}",
-                TUI::format_command_line(&command.executor.args_with_executable())
+                TUI::format_command_line(&command.executor.command_line_with_redirects())
             );
             command.schedule_state = ScheduleState::Succeeded;
             self.scheduler.set_finished_and_get_retry_flag(id, false);
@@ -361,7 +370,7 @@ impl Razel {
 
     pub fn input_file(&mut self, arg: String) -> Result<&File, anyhow::Error> {
         let rel_path = self.rel_path(&arg)?;
-        self.input_file_for_rel_path(arg, FileType::NormalFile, rel_path)
+        self.input_file_for_rel_path(arg, FileType::DataFile, rel_path)
     }
 
     fn input_file_for_rel_path(
@@ -968,6 +977,8 @@ mod tests {
                     Default::default(),
                     vec![],
                     vec![],
+                    None,
+                    None,
                 )
                 .unwrap();
         }

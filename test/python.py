@@ -26,4 +26,12 @@ razel.add_command('e.csv', 'cp', [d, razel.add_output_file('e.csv')]) \
     .output \
     .ensure_equal(a)
 
+# compile an executable from a c file
+say_hi = razel.add_command('say_hi', 'clang',
+                           ['-o', razel.add_output_file('say_hi'), razel.add_data_file('data/say_hi.c')]).output
+# run it, redirect stdout to a file and compare it with the output of another command
+razel.add_command('say_hi_using_c', say_hi.file_name, ['Razel']) \
+    .write_stdout_to_file() \
+    .ensure_equal(razel.add_command('say_hi_using_echo', 'echo', ['Hi Razel!']).write_stdout_to_file())
+
 razel.write_razel_file()
