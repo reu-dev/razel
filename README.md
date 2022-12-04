@@ -28,7 +28,7 @@ The native input format for Razel is a `razel.jsonl` file, see the example [test
 razel exec -f test/razel.jsonl
 ```
 
-The prefered way to create a `razel.jsonl` file is using one of the high-level APIs.
+The preferred way to create a `razel.jsonl` file is using one of the high-level APIs.
 
 ### TypeScript API
 
@@ -36,7 +36,7 @@ Install [Deno](https://deno.land/) to use the [TypeScript API](include/deno/raze
 Run the [example Deno script](test/deno.ts) to create `test/razel.jsonl` and execute it with Razel:
 
 ```bash
-deno run --allow-write=. test/deno.ts
+deno run --allow-write=. --check test/deno.ts
 razel exec -f test/razel.jsonl
 ```
 

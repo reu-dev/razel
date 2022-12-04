@@ -63,10 +63,10 @@ jobs:
 
       - run: cargo run -- info
 
-      - run: cargo test -- --skip real_time_test
+      - run: cargo test -- --nocapture --skip real_time_test
 
       # test Deno API
-      - run: deno run -A test/deno.ts
+      - run: deno run -A --check test/deno.ts
       - run: git diff --exit-code test/razel.jsonl
 
       # test Python API
