@@ -153,7 +153,7 @@ mod main {
         test_main(
             vec![config::EXECUTABLE, "exec", "-f", "test/razel.jsonl"],
             SchedulerExecStats {
-                succeeded: 12,
+                succeeded: 8,
                 ..Default::default()
             },
         )
