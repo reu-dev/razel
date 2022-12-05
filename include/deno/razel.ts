@@ -3,7 +3,6 @@ import * as path from 'https://deno.land/std@0.135.0/path/mod.ts';
 
 export class Razel {
     private static _instance: Razel;
-    static readonly outDir = 'razel-out';
     private commands: Command[] = [];
 
     private constructor(public readonly workspaceDir: string) {
@@ -27,26 +26,47 @@ export class Razel {
         return new File(this.relPath(path), false, null);
     }
 
-    addCommand(name: string, executable: string, args: (string | File)[], env?: any): CustomCommand {
+    addCommand(name: string, executable: (string | File | Command), args: (string | File | Command)[], env?: any): CustomCommand {
         name = this.sanitizeName(name);
-        const command = new CustomCommand(name, this.relPath(executable), args, env);
+        const path = this.relPath(mapArgToOutputPath(executable));
+        const command = new CustomCommand(name, path, mapArgsToOutputFiles(args), env);
         return this.add(command) as CustomCommand;
     }
 
-    addTask(name: string, task: string, args: (string | File)[]): Task {
+    addTask(name: string, task: string, args: (string | File | Command)[]): Task {
         name = this.sanitizeName(name);
-        const command = new Task(name, task, args);
+        const command = new Task(name, task, mapArgsToOutputFiles(args));
         return this.add(command) as Task;
     }
 
-    ensureEqual(file1: File, file2: File) {
-        const name = `${file1.basename}##shouldEqual##${file2.basename}`;
-        this.add(new Task(name, 'ensure-equal', [file1, file2]));
+    // Add a task to compare two files. In case of two commands, all output files will be compared.
+    ensureEqual(arg1: File | Command, arg2: File | Command): void {
+        if (arg1 instanceof Command && arg2 instanceof Command) {
+            assertEquals(arg1.outputs.length, arg2.outputs.length);
+            for (let i = 0; i != arg1.outputs.length; ++i) {
+                this.ensureEqual(arg1.outputs[i], arg2.outputs[i]);
+            }
+        } else {
+            const file1 = mapArgToOutputFile(arg1);
+            const file2 = mapArgToOutputFile(arg2);
+            const name = `${file1.basename}##shouldEqual##${file2.basename}`;
+            this.add(new Task(name, 'ensure-equal', [file1, file2]));
+        }
     }
 
-    ensureNotEqual(file1: File, file2: File) {
-        const name = `${file1.basename}##shouldNotEqual##${file2.basename}`;
-        this.add(new Task(name, 'ensure-not-equal', [file1, file2]));
+    // Add a task to compare two files. In case of two commands, all output files will be compared.
+    ensureNotEqual(arg1: File | Command, arg2: File | Command): void {
+        if (arg1 instanceof Command && arg2 instanceof Command) {
+            assertEquals(arg1.outputs.length, arg2.outputs.length);
+            for (let i = 0; i != arg1.outputs.length; ++i) {
+                this.ensureEqual(arg1.outputs[i], arg2.outputs[i]);
+            }
+        } else {
+            const file1 = mapArgToOutputFile(arg1);
+            const file2 = mapArgToOutputFile(arg2);
+            const name = `${file1.basename}##shouldNotEqual##${file2.basename}`;
+            this.add(new Task(name, 'ensure-not-equal', [file1, file2]));
+        }
     }
 
     writeRazelFile() {
@@ -57,7 +77,8 @@ export class Razel {
     private add(command: Command): Command {
         const existing = this.commands.find(x => x.name === command.name);
         if (existing) {
-            assertEquals(command.commandLine(), existing.commandLine(), `conflicting actions: ${command.name}:\n${existing.commandLine()}\n${command.commandLine()}`);
+            assertEquals(command.json(), existing.json(),
+                `conflicting actions: ${command.name}:\nexisting: ${existing.json()}\nto add: ${command.json()}`);
             return existing;
         }
         this.commands.push(command);
@@ -84,25 +105,35 @@ export class File {
         return path.basename(this.fileName);
     }
 
-    ensureEqual(other: File) {
+    ensureEqual(other: File | Command): void {
         Razel.instance().ensureEqual(this, other);
     }
 
-    ensureNotEqual(other: File) {
+    ensureNotEqual(other: File | Command): void {
         Razel.instance().ensureNotEqual(this, other);
     }
 }
 
 export abstract class Command {
+    public stdout: File | undefined = undefined;
+    public stderr: File | undefined = undefined;
+
     protected constructor(public readonly name: string, public readonly outputs: File[]) {
     }
 
     get output(): File {
-        assertEquals(this.outputs.length, 1);
+        assertEquals(this.outputs.length, 1,
+            `output() requires exactly one output file, but the command has ${this.outputs.length} outputs: ${this.name}`);
         return this.outputs[0];
     }
 
-    abstract commandLine(): string;
+    ensureEqual(other: File | Command): void {
+        Razel.instance().ensureEqual(this, other);
+    }
+
+    ensureNotEqual(other: File | Command): void {
+        Razel.instance().ensureNotEqual(this, other);
+    }
 
     abstract json(): any;
 }
@@ -114,11 +145,18 @@ export class CustomCommand extends Command {
         this.outputs.forEach(x => x.createdBy = this);
     }
 
-    commandLine(): string {
-        return [
-            `./${this.executable}`,
-            ...this.args.map(x => x instanceof File ? (x.isData ? x.fileName : path.join(Razel.outDir, x.fileName)) : x)
-        ].join(' ');
+    writeStdoutToFile(path?: string): CustomCommand {
+        this.stdout = Razel.instance().addOutputFile(path ? path : this.name);
+        this.stdout.createdBy = this;
+        this.outputs.push(this.stdout);
+        return this;
+    }
+
+    writeStderrToFile(path?: string): CustomCommand {
+        this.stderr = Razel.instance().addOutputFile(path ? path : this.name);
+        this.stderr.createdBy = this;
+        this.outputs.push(this.stderr);
+        return this;
     }
 
     json(): any {
@@ -127,8 +165,10 @@ export class CustomCommand extends Command {
             executable: this.executable,
             args: this.args.map(x => x instanceof File ? x.fileName : x),
             inputs: this.args.filter(x => x instanceof File && x.createdBy !== this).map(x => (x as File).fileName),
-            outputs: this.outputs.map(x => x.fileName),
+            outputs: this.outputs.filter(x => x !== this.stdout && x !== this.stderr).map(x => x.fileName),
             env: this.env,
+            stdout: this.stdout?.fileName,
+            stderr: this.stderr?.fileName,
         };
     }
 }
@@ -145,14 +185,6 @@ export class Task extends Command {
         this.outputs.forEach(x => x.createdBy = this);
     }
 
-    commandLine(): string {
-        return [
-            'razel',
-            this.task,
-            ...this.args.map(x => x instanceof File ? (x.isData ? x.fileName : path.join(Razel.outDir, x.fileName)) : x)
-        ].join(' ');
-    }
-
     json(): any {
         return {
             name: this.name,
@@ -160,4 +192,21 @@ export class Task extends Command {
             args: this.args.map(x => x instanceof File ? x.fileName : x),
         };
     }
+}
+
+function mapArgToOutputPath(arg: string | File | Command): string {
+    if (arg instanceof Command) {
+        return arg.output.fileName;
+    } else if (arg instanceof File) {
+        return arg.fileName;
+    }
+    return arg;
+}
+
+function mapArgToOutputFile(arg: File | Command): File {
+    return arg instanceof Command ? arg.output : arg;
+}
+
+function mapArgsToOutputFiles(args: (string | File | Command)[]): (string | File)[] {
+    return args.map(x => x instanceof Command ? x.output : x);
 }

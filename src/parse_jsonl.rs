@@ -36,6 +36,8 @@ pub fn parse_jsonl_file(razel: &mut Razel, file_name: &String) -> Result<(), any
                     c.env,
                     c.inputs,
                     c.outputs,
+                    c.stdout,
+                    c.stderr,
                 )?;
             }
             RazelJson::Task(t) => {
@@ -51,13 +53,14 @@ pub fn parse_jsonl_file(razel: &mut Razel, file_name: &String) -> Result<(), any
 }
 
 #[derive(Deserialize)]
-#[serde(untagged)]
+#[serde(deny_unknown_fields, untagged)]
 enum RazelJson {
     CustomCommand(RazelCustomCommandJson),
     Task(RazelTaskJson),
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RazelCustomCommandJson {
     name: String,
     executable: String,
@@ -68,9 +71,12 @@ struct RazelCustomCommandJson {
     inputs: Vec<String>,
     #[serde(default)]
     outputs: Vec<String>,
+    stdout: Option<String>,
+    stderr: Option<String>,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RazelTaskJson {
     name: String,
     task: String,

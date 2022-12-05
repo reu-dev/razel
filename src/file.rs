@@ -4,7 +4,8 @@ use std::path::PathBuf;
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum FileType {
-    NormalFile,
+    DataFile,
+    OutputFile,
     ExecutableInWorkspace,
     SystemExecutable,
 }
@@ -23,13 +24,10 @@ pub struct File {
 impl File {
     pub fn new(id: FileId, arg: String, file_type: FileType, path: PathBuf) -> Self {
         match file_type {
-            FileType::NormalFile => {}
-            FileType::ExecutableInWorkspace => {
-                assert!(path.is_relative());
-            }
-            FileType::SystemExecutable => {
-                assert!(path.is_absolute());
-            }
+            FileType::DataFile => {}
+            FileType::OutputFile => assert!(path.is_relative()),
+            FileType::ExecutableInWorkspace => assert!(path.is_relative()),
+            FileType::SystemExecutable => assert!(path.is_absolute()),
         };
         Self {
             id,
@@ -41,19 +39,12 @@ impl File {
         }
     }
 
-    pub fn is_executable(&self) -> bool {
-        match self.file_type {
-            FileType::NormalFile => false,
-            FileType::ExecutableInWorkspace | FileType::SystemExecutable => true,
-        }
-    }
-
     pub fn executable_for_command_line(&self) -> String {
         match self.file_type {
-            FileType::NormalFile => {
+            FileType::DataFile => {
                 panic!();
             }
-            FileType::ExecutableInWorkspace => {
+            FileType::OutputFile | FileType::ExecutableInWorkspace => {
                 format!("./{}", self.path.to_str().unwrap())
             }
             FileType::SystemExecutable => self.path.to_str().unwrap().to_string(),

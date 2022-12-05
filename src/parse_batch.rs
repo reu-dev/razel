@@ -45,6 +45,7 @@ fn create_command(
     if command_line.first().unwrap() == config::EXECUTABLE {
         parse_cli_within_file(razel, command_line, &name)?
     } else {
+        let (stdout, stderr) = (None, None); // TODO parse redirects
         let (inputs, outputs) = if let Some(files) = rules.parse_command(&command_line)? {
             (files.inputs, files.outputs)
         } else {
@@ -53,7 +54,16 @@ fn create_command(
         let mut i = command_line.into_iter();
         let program = i.next().unwrap();
         let args = i.collect();
-        razel.push_custom_command(name, program, args, Default::default(), inputs, outputs)?;
+        razel.push_custom_command(
+            name,
+            program,
+            args,
+            Default::default(),
+            inputs,
+            outputs,
+            stdout,
+            stderr,
+        )?;
     }
     Ok(())
 }

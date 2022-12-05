@@ -29,6 +29,8 @@ pub struct CommandBuilder {
     args_with_out_paths: Vec<String>,
     inputs: Vec<FileId>,
     outputs: Vec<FileId>,
+    stdout_file: Option<PathBuf>,
+    stderr_file: Option<PathBuf>,
     executor: Option<Executor>,
 }
 
@@ -40,6 +42,8 @@ impl CommandBuilder {
             args_with_out_paths: args,
             inputs: vec![],
             outputs: vec![],
+            stdout_file: None,
+            stderr_file: None,
             executor: None,
         }
     }
@@ -110,13 +114,27 @@ impl CommandBuilder {
         paths
             .iter()
             .map(|path| {
-                let file = razel.output_file(path, FileType::NormalFile)?;
+                let file = razel.output_file(path, FileType::OutputFile)?;
                 self.map_exec_path(path, file.path.to_str().unwrap());
                 self.map_out_path(path, file.path.to_str().unwrap());
                 self.outputs.push(file.id);
                 Ok(file.path.clone())
             })
             .collect()
+    }
+
+    pub fn stdout(&mut self, path: &String, razel: &mut Razel) -> Result<(), anyhow::Error> {
+        let file = razel.output_file(path, FileType::OutputFile)?;
+        self.outputs.push(file.id);
+        self.stdout_file = Some(file.path.clone());
+        Ok(())
+    }
+
+    pub fn stderr(&mut self, path: &String, razel: &mut Razel) -> Result<(), anyhow::Error> {
+        let file = razel.output_file(path, FileType::OutputFile)?;
+        self.outputs.push(file.id);
+        self.stderr_file = Some(file.path.clone());
+        Ok(())
     }
 
     pub fn custom_command_executor(
@@ -131,6 +149,8 @@ impl CommandBuilder {
             executable: file.executable_for_command_line(),
             args: self.args_with_out_paths.clone(),
             env,
+            stdout_file: self.stdout_file.clone(),
+            stderr_file: self.stderr_file.clone(),
         }));
         Ok(())
     }
