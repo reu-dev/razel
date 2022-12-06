@@ -118,7 +118,8 @@ export abstract class Command {
     public stdout: File | undefined = undefined;
     public stderr: File | undefined = undefined;
 
-    protected constructor(public readonly name: string, public readonly outputs: File[]) {
+    protected constructor(public readonly name: string, public readonly inputs: File[], public readonly outputs: File[]) {
+        this.outputs.forEach(x => x.createdBy = this);
     }
 
     get output(): File {
@@ -141,8 +142,23 @@ export abstract class Command {
 export class CustomCommand extends Command {
     constructor(name: string, public readonly executable: string, public readonly args: (string | File)[],
                 public readonly env?: any) {
-        super(name, args.filter(x => (x instanceof File) && !(x as File).isData && !(x as File).createdBy) as File[]);
-        this.outputs.forEach(x => x.createdBy = this);
+        const [inputs, outputs] = splitArgsInInputsAndOutputs(args);
+        super(name, inputs, outputs);
+    }
+
+    // Add an input file which is not part of the command line.
+    addInputFile(arg: string | File): CustomCommand {
+        const file = arg instanceof File ? arg : Razel.instance().addDataFile(arg);
+        this.inputs.push(file);
+        return this;
+    }
+
+    // Add an output file which is not part of the command line.
+    addOutputFile(arg: string | File): CustomCommand {
+        const file = arg instanceof File ? arg : Razel.instance().addOutputFile(arg);
+        file.createdBy = this;
+        this.outputs.push(file);
+        return this;
     }
 
     writeStdoutToFile(path?: string): CustomCommand {
@@ -164,8 +180,8 @@ export class CustomCommand extends Command {
             name: this.name,
             executable: this.executable,
             args: this.args.map(x => x instanceof File ? x.fileName : x),
-            inputs: this.args.filter(x => x instanceof File && x.createdBy !== this).map(x => (x as File).fileName),
-            outputs: this.outputs.filter(x => x !== this.stdout && x !== this.stderr).map(x => x.fileName),
+            inputs: this.inputs.map(x => x.fileName),
+            outputs: this.outputs.map(x => x.fileName),
             env: this.env,
             stdout: this.stdout?.fileName,
             stderr: this.stderr?.fileName,
@@ -181,8 +197,8 @@ export class Task extends Command {
     }
 
     constructor(name: string, public readonly task: string, public readonly args: (string | File)[]) {
-        super(name, args.filter(x => (x instanceof File) && !(x as File).isData && !(x as File).createdBy) as File[]);
-        this.outputs.forEach(x => x.createdBy = this);
+        const [inputs, outputs] = splitArgsInInputsAndOutputs(args);
+        super(name, inputs, outputs);
     }
 
     json(): any {
@@ -209,4 +225,10 @@ function mapArgToOutputFile(arg: File | Command): File {
 
 function mapArgsToOutputFiles(args: (string | File | Command)[]): (string | File)[] {
     return args.map(x => x instanceof Command ? x.output : x);
+}
+
+function splitArgsInInputsAndOutputs(args: (string | File)[]): [File[], File[]] {
+    const inputs = args.filter(x => (x instanceof File) && ((x as File).isData || (x as File).createdBy)) as File[];
+    const outputs = args.filter(x => (x instanceof File) && !(x as File).isData && !(x as File).createdBy) as File[];
+    return [inputs, outputs];
 }

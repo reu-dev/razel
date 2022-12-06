@@ -47,7 +47,7 @@ class Razel:
         return self._add(command)
 
     def ensure_equal(self, arg1: File | Command, arg2: File | Command) -> None:
-        ### Add a task to compare two files. In case of two commands, all output files will be compared. ###
+        """Add a task to compare two files. In case of two commands, all output files will be compared."""
         if isinstance(arg1, Command) and isinstance(arg2, Command):
             assert len(arg1.outputs) == len(arg2.outputs)
             for i in range(len(arg1.outputs)):
@@ -59,7 +59,7 @@ class Razel:
             self._add(Task(name, "ensure-equal", [file1, file2]))
 
     def ensure_not_equal(self, arg1: File | Command, arg2: File | Command) -> None:
-        ### Add a task to compare two files. In case of two commands, all output files will be compared. ###
+        """Add a task to compare two files. In case of two commands, all output files will be compared."""
         if isinstance(arg1, Command) and isinstance(arg2, Command):
             assert len(arg1.outputs) == len(arg2.outputs)
             for i in range(len(arg1.outputs)):
@@ -131,15 +131,22 @@ class File:
 
 
 class Command(abc.ABC):
-    def __init__(self, name: str, outputs: Sequence[File]) -> None:
+    def __init__(self, name: str, inputs: Sequence[File], outputs: Sequence[File]) -> None:
         self._name = name
+        self._inputs = inputs
         self._outputs = outputs
         self._stdout: File | None = None
         self._stderr: File | None = None
+        for out in self._outputs:
+            out._created_by = self
 
     @property
     def name(self) -> str:
         return self._name
+
+    @property
+    def inputs(self) -> Sequence[File]:
+        return self._inputs
 
     @property
     def outputs(self) -> Sequence[File]:
@@ -174,14 +181,11 @@ class CustomCommand(Command):
     def __init__(
         self, name: str, executable: str, args: Sequence[str | File], env: Optional[Mapping[str, str]] = None
     ) -> None:
-        super().__init__(name, [x for x in args if isinstance(x, File) and not x.is_data and x.created_by is None])
-
+        (inputs, outputs) = _split_args_in_inputs_and_outputs(args)
+        super().__init__(name, inputs, outputs)
         self._executable = executable
         self._args = args
         self._env = env
-
-        for out in self.outputs:
-            out._created_by = self
 
     @property
     def executable(self) -> str:
@@ -195,16 +199,29 @@ class CustomCommand(Command):
     def env(self) -> Optional[Mapping[str, str]]:
         return self._env
 
+    def add_input_file(self, arg: str | File) -> CustomCommand:
+        """Add an input file which is not part of the command line."""
+        file = arg if isinstance(arg, File) else Razel.instance().add_data_file(arg)
+        self._inputs.append(file)
+        return self
+
+    def add_output_file(self, arg: str | File) -> CustomCommand:
+        """Add an output file which is not part of the command line."""
+        file = arg if isinstance(arg, File) else Razel.instance().add_output_file(arg)
+        file._createdBy = self
+        self._outputs.append(file)
+        return self
+
     def write_stdout_to_file(self, path: str = None) -> CustomCommand:
-        self._stdout = Razel.instance().add_output_file(path if path else self.name)
+        self._stdout = Razel.instance().add_output_file(path if path else self._name)
         self._stdout._created_by = self
-        self.outputs.append(self._stdout)
+        self._outputs.append(self._stdout)
         return self
 
     def write_stderr_to_file(self, path: str = None) -> CustomCommand:
-        self._stderr = Razel.instance().add_output_file(path if path else self.name)
+        self._stderr = Razel.instance().add_output_file(path if path else self._name)
         self._stderr._created_by = self
-        self.outputs.append(self._stderr)
+        self._outputs.append(self._stderr)
         return self
 
     def json(self) -> Mapping[str, Any]:
@@ -212,8 +229,8 @@ class CustomCommand(Command):
             "name": self.name,
             "executable": self.executable,
             "args": [x.file_name if isinstance(x, File) else x for x in self.args],
-            "inputs": [x.file_name for x in self.args if isinstance(x, File) and x.created_by != self],
-            "outputs": [x.file_name for x in self.outputs if x != self._stdout and x != self._stderr]
+            "inputs": [x.file_name for x in self._inputs],
+            "outputs": [x.file_name for x in self._outputs if x != self._stdout and x != self._stderr],
         }
         if self.env:
             j["env"] = self.env
@@ -232,13 +249,10 @@ class Task(Command):
         return file
 
     def __init__(self, name: str, task: str, args: Sequence[str | File]) -> None:
-        super().__init__(name, [x for x in args if isinstance(x, File) and not x.is_data and x.created_by is None])
-
+        (inputs, outputs) = _split_args_in_inputs_and_outputs(args)
+        super().__init__(name, inputs, outputs)
         self._task = task
         self._args = args
-
-        for output in self.outputs:
-            output._created_by = self
 
     @property
     def task(self) -> str:
@@ -270,3 +284,9 @@ def _map_arg_to_output_file(arg: File | Command) -> File:
 
 def _map_args_to_output_files(args: Sequence[str | File | Command]) -> Sequence[str | File]:
     return [x.output if isinstance(x, Command) else x for x in args]
+
+
+def _split_args_in_inputs_and_outputs(args: Sequence[str | File | Command]) -> (Sequence[File], Sequence[File]):
+    inputs = [x for x in args if isinstance(x, File) and (x.is_data or x.created_by)]
+    outputs = [x for x in args if isinstance(x, File) and not x.is_data and x.created_by is None]
+    return inputs, outputs
