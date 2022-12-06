@@ -181,7 +181,7 @@ export class CustomCommand extends Command {
             executable: this.executable,
             args: this.args.map(x => x instanceof File ? x.fileName : x),
             inputs: this.inputs.map(x => x.fileName),
-            outputs: this.outputs.map(x => x.fileName),
+            outputs: this.outputs.filter(x => x !== this.stdout && x !== this.stderr).map(x => x.fileName),
             env: this.env,
             stdout: this.stdout?.fileName,
             stderr: this.stderr?.fileName,
