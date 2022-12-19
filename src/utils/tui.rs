@@ -105,12 +105,12 @@ impl TUI {
         Self::field(
             "stderr:\n",
             Color::Blue,
-            &execution_result.stderr.to_str_lossy(),
+            execution_result.stderr.to_str_lossy(),
         );
         Self::field(
             "stdout:\n",
             Color::Blue,
-            &execution_result.stdout.to_str_lossy(),
+            execution_result.stdout.to_str_lossy(),
         );
         Self::line();
         println!();
