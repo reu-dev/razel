@@ -9,7 +9,7 @@ use tokio::io::AsyncReadExt;
 use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
 use crate::cache::{message_to_pb_buf, MessageDigest};
 use crate::config::select_cache_dir;
-use crate::force_symlink;
+use crate::{force_symlink, set_file_readonly};
 
 #[derive(Clone)]
 pub struct LocalCache {
@@ -72,6 +72,11 @@ impl LocalCache {
     pub async fn is_blob_cached(&self, digest: &Digest) -> bool {
         let path = self.cas_dir.join(&digest.hash);
         if let Ok(metadata) = tokio::fs::metadata(&path).await {
+            if !metadata.permissions().readonly() {
+                // readonly flag was removed - assume file was modified
+                tokio::fs::remove_file(path).await.ok();
+                return false;
+            }
             let act_size = metadata.len();
             let exp_size = digest.size_bytes as u64;
             if act_size != exp_size {
@@ -109,9 +114,16 @@ impl LocalCache {
         if !Path::new(&path).is_relative() {
             bail!("path should be relative: {}", path);
         }
-        tokio::fs::rename(&src, &dst)
-            .await
-            .with_context(|| format!("mv {:?} -> {:?}", src, dst))?;
+        match tokio::fs::rename(&src, &dst).await {
+            Ok(()) => set_file_readonly(&dst)
+                .await
+                .with_context(|| format!("Error in set_readonly {:?}", dst))?,
+            Err(e) => {
+                if !self.is_blob_cached(&digest).await {
+                    return Err(e).with_context(|| format!("mv {:?} -> {:?}", src, dst));
+                }
+            }
+        }
         Ok(OutputFile {
             path,
             digest: Some(digest),
