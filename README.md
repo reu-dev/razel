@@ -1,5 +1,9 @@
 # Razel
 
+![Rust](https://img.shields.io/badge/language-rust-blue.svg)
+[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/reu-dev/razel/blob/main/LICENSE.md)
+[![CI](https://github.com/reu-dev/razel/actions/workflows/ci.yml/badge.svg)](https://github.com/reu-dev/razel/actions/workflows/ci.yml)
+
 A command executor with caching. It is:
 
 * Fast: caching avoids repeated execution of commands which haven't changed
@@ -10,8 +14,6 @@ A command executor with caching. It is:
 
 Razel is not the best choice for building software, especially there's no built-in support for compiler setup and header
 dependencies.
-
-[![CI](https://github.com/reu-dev/razel/actions/workflows/ci.yml/badge.svg)](https://github.com/reu-dev/razel/actions/workflows/ci.yml)
 
 ## Getting Started
 
@@ -97,12 +99,6 @@ Razel is in active development and **not** ready for production. CLI and format 
   for testing,
   but it does not support caching and managing dependencies between tests is difficult.
 
-## Acknowledgements
-
-The idea to build fast and correct is based on [Bazel](https://bazel.build/). Razel uses data structures from
-the [Bazel Remote Execution API](https://github.com/bazelbuild/remote-apis/blob/main/build/bazel/remote/execution/v2/remote_execution.proto)
-for caching.
-
 ## Features
 
 ### Measurements
@@ -115,46 +111,8 @@ Currently, the `<CTestMeasurement>` and `<DartMeasurement>` tags as used by [CTe
 ```
 Supporting custom formats is planned.
 
-## Goals / Ideas
+## Acknowledgements
 
-* built-in convenience functions/tasks
-    * parse measurement from stdout of processes, aggregate them for reports
-    * optionally replace outputs on errors instead of bailing out
-    * concat output files, e.g. jsonl, csv
-    * summary grouped by custom process labels to provide better overview of errors
-    * JUnit test output, e.g. for GitLab CI
-    * simple query language to filter processes
-* process scheduling and caching depending on resources
-    * automatic disk cleanup locally and for cache
-    * measure/predict task execution time and output size
-    * consider disk usage, RAM, network speed
-    * schedule network bound tasks in addition to CPU bound ones
-    * allow limiting parallel instances of external tools
-* transparent remote execution
-* data/results down/upload to storage, e.g. Git LFS, MinIO
-    * local access to important outputs of remotely executed tasks
-* support wasi
-    * no need to compile tools for Linux, Windows, Apple x64, Apple M1, ...
-    * bit-exact output on all platforms?
-    * wasm provides sandbox
-    * integrate wasi executor to avoid dependency on additional tool
-* integrate building source code with CMake (low prio)
-    * specify source like `Bazel new_local_repository(), new_git_repository()`
-    * run CMake configure, parse commands to build targets and execute those
-        * CMake can create [JSON Compilation Database](https://clang.llvm.org/docs/JSONCompilationDatabase.html), but
-          that does not include link commands
-        * [CMake File API](https://cmake.org/cmake/help/latest/manual/cmake-file-api.7.html) contains raw data, but not
-          complete command lines
-        * `cmake -DCMAKE_RULE_MESSAGES:BOOL=OFF -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON . && make --no-print-directory` lists
-          all commands but is difficult to parse
-        * `ninja -t commands` looks ok
-* execute CTest files (low prio)
-    * CTest allows specifying input files, but not output files
-* ensure correctness
-    * UB check for modified executables: run first commands multiple times to verify that the outputs are consistent
-    * avoid cache poisoning when disk full: missing fwrite/fclose checks in an executable would break cache
-* tools for users to debug errors
-    * show command lines ready for c&p into debugger
-    * UB check of chain until first failing command
-    * if source code of executables available: rebuild with debug and sanitizers and run with those executables
-    * for command with long list of inputs: bisect inputs to create minimal reproducible example
+The idea to build fast and correct is based on [Bazel](https://bazel.build/). Razel uses data structures from
+the [Bazel Remote Execution API](https://github.com/bazelbuild/remote-apis/blob/main/build/bazel/remote/execution/v2/remote_execution.proto)
+for caching.
