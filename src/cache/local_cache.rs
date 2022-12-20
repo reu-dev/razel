@@ -114,12 +114,16 @@ impl LocalCache {
         if !Path::new(&path).is_relative() {
             bail!("path should be relative: {}", path);
         }
-        tokio::fs::rename(&src, &dst)
-            .await
-            .with_context(|| format!("mv {:?} -> {:?}", src, dst))?;
-        set_file_readonly(&dst)
-            .await
-            .with_context(|| format!("Error in set_readonly {:?}", dst))?;
+        match tokio::fs::rename(&src, &dst).await {
+            Ok(()) => set_file_readonly(&dst)
+                .await
+                .with_context(|| format!("Error in set_readonly {:?}", dst))?,
+            Err(e) => {
+                if !self.is_blob_cached(&digest).await {
+                    return Err(e).with_context(|| format!("mv {:?} -> {:?}", src, dst));
+                }
+            }
+        }
         Ok(OutputFile {
             path,
             digest: Some(digest),
