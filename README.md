@@ -4,6 +4,9 @@
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/reu-dev/razel/blob/main/LICENSE.md)
 [![CI](https://github.com/reu-dev/razel/actions/workflows/ci.yml/badge.svg)](https://github.com/reu-dev/razel/actions/workflows/ci.yml)
 
+[![Deno module](https://shield.deno.dev/x/razel)](https://deno.land/x/razel)
+[![Python module](https://img.shields.io/pypi/v/razel.svg)](https://pypi.org/pypi/razel)
+
 A command executor with caching. It is:
 
 * Fast: caching avoids repeated execution of commands which haven't changed
@@ -20,9 +23,7 @@ dependencies.
 Use [rustup](https://rustup.rs/) to install Rust. Install `protobuf-compiler`. Clone and build Razel:
 
 ```bash
-git clone https://github.com/reu-dev/razel.git
-cd razel/
-cargo install --locked --path .
+cargo install --locked --git https://github.com/reu-dev/razel.git
 ```
 
 The native input format for Razel is a `razel.jsonl` file, see the example [test/razel.jsonl](test/razel.jsonl).
@@ -48,6 +49,7 @@ The [Python API](include/python/razel.py) requires Python >= 3.8.
 Run the [example Python script](test/python.py) to create `test/razel.jsonl` and execute it with Razel:
 
 ```bash
+pip install razel
 python3 test/python.py
 razel exec -f test/razel.jsonl
 ```
