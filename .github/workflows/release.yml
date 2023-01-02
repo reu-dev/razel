@@ -26,6 +26,8 @@ jobs:
     outputs:
       VERSION: ${{steps.bump-version.outputs.VERSION}}
       TAG: ${{steps.bump-version.outputs.TAG}}
+    permissions:
+      contents: write
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
@@ -91,6 +93,8 @@ jobs:
     needs:
       - bump-version-and-create-tag
       - build
+    permissions:
+      contents: write
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/download-artifact@v3
