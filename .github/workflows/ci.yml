@@ -65,14 +65,16 @@ jobs:
 
       - run: cargo test -- --nocapture --skip real_time_test
 
-      # test Deno API
-      - run: deno run -A --check test/deno.ts
+      # test local version of Deno API
+      - run: deno run -A --check --import-map=test/deno_import_map.json test/deno.ts
       - run: git diff --exit-code test/razel.jsonl
 
-      # test Python API
+      # test local version of Python API
       - name: Set up python3.8
         uses: actions/setup-python@v4
         with:
           python-version: 3.8
       - run: python3 test/python.py
+        env:
+          PYTHONPATH: include/python
       - run: git diff --exit-code test/razel.jsonl

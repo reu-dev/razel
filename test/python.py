@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
 
 import os.path as path
-import sys
-
-sys.path.insert(1, path.join(path.dirname(path.dirname(path.abspath(__file__))), "include", "python"))
-from razel import Razel
+import razel
 
 workspace_dir = path.dirname(path.abspath(__file__))
-razel = Razel.init(workspace_dir)
+razel = razel.Razel.init(workspace_dir)
 
 # data/a.csv and data/f.csv are two input files
 a = razel.add_data_file('data/a.csv')

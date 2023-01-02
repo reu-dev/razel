@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "razel"
+authors = [
+    { name="Stefan Reuschl", email="stefan@reu-dev.de" },
+    { name="Kacper Sagnowski", email="ksagnowski@gmail.com" },
+]
+description = "a command executor with caching for data processing pipelines"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dynamic = ["version"]
+
+[project.urls]
+"Homepage" = "https://github.com/reu-dev/razel"
+"Bug Tracker" = "https://github.com/reu-dev/razel/issues"
+
+[tool.hatch.version]
+path = "version.py"
