@@ -173,6 +173,7 @@ impl CustomCommandExecutor {
     }
 
     fn is_response_file_needed(&self) -> bool {
+        /*
         let mut args_len_sum = 0;
         for x in &self.args {
             args_len_sum += x.len();
@@ -180,6 +181,7 @@ impl CustomCommandExecutor {
                 return true;
             }
         }
+         */
         false
     }
 
@@ -217,7 +219,7 @@ impl CustomCommandExecutor {
 
 #[cfg(test)]
 mod tests {
-    use crate::executors::ExecutionStatus;
+    use crate::executors::{CustomCommandExecutor, ExecutionStatus};
     use crate::Razel;
 
     #[tokio::test]
@@ -363,4 +365,38 @@ mod tests {
         assert!(result.error.is_some());
     }
      */
+
+    #[tokio::test]
+    async fn test_arg_max() {
+        let mut executor = CustomCommandExecutor {
+            executable: "echo".to_string(),
+            args: vec![],
+            env: Default::default(),
+            stdout_file: None,
+            stderr_file: None,
+        };
+        for arg in &["a", "ab", "abcdefabcdef"] {
+            executor.args.clear();
+            let mut lower: usize = 0;
+            let mut upper: Option<usize> = None;
+            let mut current = 2048;
+            loop {
+                executor.args.resize(current, arg.to_string().clone());
+                let result = executor.exec(None, None).await;
+                if result.success() {
+                    lower = current;
+                } else {
+                    upper = Some(current);
+                }
+                let new_len = upper.map(|x| (lower + x) / 2).unwrap_or_else(|| lower * 2);
+                if new_len == current {
+                    break;
+                }
+                current = new_len;
+            }
+            // add terminator and pointer
+            let max = (lower - 1) * (arg.len() + 1 + std::mem::size_of::<usize>());
+            println!("{arg:>13}: {lower:>7} {max:>7}");
+        }
+    }
 }
