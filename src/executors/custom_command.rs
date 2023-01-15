@@ -394,8 +394,13 @@ mod tests {
                 }
                 current = new_len;
             }
-            // add terminator and pointer
-            let max = (lower - 1) * (arg.len() + 1 + std::mem::size_of::<usize>());
+            let max = if cfg!(windows) {
+                // add terminator for all args
+                (lower - 1) * (arg.len() + 1)
+            } else {
+                // add terminator and pointer for all args
+                (lower - 1) * (arg.len() + 1 + std::mem::size_of::<usize>())
+            };
             println!("{arg:>13}: {lower:>7} {max:>7}");
         }
     }
