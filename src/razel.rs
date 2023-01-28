@@ -560,7 +560,7 @@ impl Razel {
             .dedup();
         for x in dirs {
             fs::create_dir_all(x)
-                .with_context(|| format!("Failed to create output directory: {:?}", x))?;
+                .with_context(|| format!("Failed to create output directory: {x:?}"))?;
         }
         Ok(())
     }
@@ -971,7 +971,7 @@ mod tests {
         for i in 0..n {
             razel
                 .push_custom_command(
-                    format!("{}", i),
+                    format!("{i}"),
                     "cmake".into(),
                     vec!["-E".into(), "sleep".into(), sleep_duration.to_string()],
                     Default::default(),

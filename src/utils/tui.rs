@@ -82,7 +82,7 @@ impl TUI {
             command.name.as_str(),
         );
         if let Some(x) = &execution_result.error {
-            Self::field("error:     ", Color::Red, format!("{:?}", x).as_str());
+            Self::field("error:     ", Color::Red, format!("{x:?}").as_str());
         } else if let Some(x) = execution_result.exit_code {
             Self::field("exit code: ", Color::Red, x.to_string().as_str());
         }
@@ -126,9 +126,9 @@ impl TUI {
     ) {
         if self.is_tty {
             if self.status_printed {
-                print!("{}", RestorePosition);
+                print!("{RestorePosition}");
             } else {
-                print!("{}", SavePosition);
+                print!("{SavePosition}");
             }
         }
         print!(

@@ -24,7 +24,7 @@ pub async fn force_symlink(src: &PathBuf, dst: &PathBuf) -> Result<(), anyhow::E
         })
         .await?
     }
-    .with_context(|| format!("symlink {:?} -> {:?}", src, dst))?;
+    .with_context(|| format!("symlink {src:?} -> {dst:?}"))?;
     Ok(())
 }
 

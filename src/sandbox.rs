@@ -46,7 +46,7 @@ impl Sandbox {
             }
             let src = fs::canonicalize(&input)
                 .await
-                .with_context(|| format!("Error in canonicalize({:?})", input))?;
+                .with_context(|| format!("Error in canonicalize({input:?})"))?;
             let dst = self.dir.join(input);
             force_symlink(&src, &dst).await?;
         }
@@ -55,7 +55,7 @@ impl Sandbox {
             let dir = output_abs.parent().unwrap();
             fs::create_dir_all(&dir)
                 .await
-                .with_context(|| format!("Failed to create sandbox output dir: {:?}", dir))?;
+                .with_context(|| format!("Failed to create sandbox output dir: {dir:?}"))?;
         }
         Ok(())
     }

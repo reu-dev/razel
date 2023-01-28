@@ -90,7 +90,7 @@ impl Digest {
         use sha2::Digest;
         let file = File::open(&path)
             .await
-            .with_context(|| format!("Failed to open {:?}", path))?;
+            .with_context(|| format!("Failed to open {path:?}"))?;
         let mut reader = BufReader::new(file);
         let mut hasher = Sha256::new();
         let mut buffer = [0; 1024];
@@ -99,7 +99,7 @@ impl Digest {
             let count = reader
                 .read(&mut buffer)
                 .await
-                .with_context(|| format!("Failed to read {:?}", path))?;
+                .with_context(|| format!("Failed to read {path:?}"))?;
             if count == 0 {
                 break;
             }

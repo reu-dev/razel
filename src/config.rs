@@ -33,7 +33,7 @@ fn device_of_dir(dir: &Path) -> Result<u64, anyhow::Error> {
     use std::os::unix::fs::MetadataExt;
     Ok(dir
         .metadata()
-        .with_context(|| format!("device_of_dir: {:?}", dir))?
+        .with_context(|| format!("device_of_dir: {dir:?}"))?
         .dev())
 }
 
@@ -57,9 +57,9 @@ mod tests {
     use std::env;
 
     fn check_cache_dir(workspace_dir: &PathBuf) {
-        println!("workspace_dir: {:?}", workspace_dir);
+        println!("workspace_dir: {workspace_dir:?}");
         let cache_dir = select_cache_dir(workspace_dir).unwrap();
-        println!("cache_dir:     {:?}", cache_dir);
+        println!("cache_dir:     {cache_dir:?}");
         assert!(cache_dir.is_absolute());
         assert_eq!(
             device_of_dir(cache_dir.parent().unwrap()).unwrap(),

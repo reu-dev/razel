@@ -52,7 +52,7 @@ impl LocalCache {
         let path = self.ac_dir.join(&digest.hash);
         Self::write_pb_file(&path, result)
             .await
-            .with_context(|| format!("push_action_result(): {:?}", path))
+            .with_context(|| format!("push_action_result(): {path:?}"))
     }
 
     pub async fn is_action_completely_cached(&self, result: &ActionResult) -> bool {
@@ -117,10 +117,10 @@ impl LocalCache {
         match tokio::fs::rename(&src, &dst).await {
             Ok(()) => set_file_readonly(&dst)
                 .await
-                .with_context(|| format!("Error in set_readonly {:?}", dst))?,
+                .with_context(|| format!("Error in set_readonly {dst:?}"))?,
             Err(e) => {
                 if !self.is_blob_cached(&digest).await {
-                    return Err(e).with_context(|| format!("mv {:?} -> {:?}", src, dst));
+                    return Err(e).with_context(|| format!("mv {src:?} -> {dst:?}"));
                 }
             }
         }

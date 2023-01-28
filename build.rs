@@ -4,7 +4,7 @@ fn main() {
     let files =
         vec!["src/bazel_remote_exec/proto/build/bazel/remote/execution/v2/remote_execution.proto"];
     for x in &files {
-        println!("cargo:rerun-if-changed={}", x);
+        println!("cargo:rerun-if-changed={x}");
     }
     let config = prost_build::Config::new();
     tonic_build::configure()

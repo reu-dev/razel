@@ -36,7 +36,7 @@ impl CGroup {
     pub fn create(&self, controller: &str) -> Result<(), anyhow::Error> {
         let path = self.path(controller, "x");
         let dir = path.parent().unwrap();
-        fs::create_dir_all(dir).with_context(|| format!("Failed to create dir {:?}", dir))?;
+        fs::create_dir_all(dir).with_context(|| format!("Failed to create dir {dir:?}"))?;
         Ok(())
     }
 
@@ -50,11 +50,11 @@ impl CGroup {
         <T as FromStr>::Err: std::error::Error + Send + Sync + 'static,
     {
         let path = self.path(controller, file);
-        let string = read_to_string(&path).with_context(|| format!("Failed to read {:?}", path))?;
+        let string = read_to_string(&path).with_context(|| format!("Failed to read {path:?}"))?;
         let value = string
             .trim()
             .parse::<T>()
-            .with_context(|| format!("Failed to parse {:?}", path))?;
+            .with_context(|| format!("Failed to parse {path:?}"))?;
         Ok(value)
     }
 
@@ -69,12 +69,12 @@ impl CGroup {
         <T as FromStr>::Err: std::error::Error + Send + Sync + 'static,
     {
         let path = self.path(controller, file);
-        let file = File::open(&path).with_context(|| format!("Failed to read {:?}", path))?;
+        let file = File::open(&path).with_context(|| format!("Failed to read {path:?}"))?;
         let lines = BufReader::new(file).lines();
         for line in lines {
             if let Some(string) = line?.strip_prefix(field) {
                 let value = string.trim().parse::<T>().with_context(|| {
-                    format!("Failed to parse field {} from line: {}", field, string)
+                    format!("Failed to parse field {field} from line: {string}")
                 })?;
                 return Ok(value);
             }
@@ -88,7 +88,7 @@ impl CGroup {
     {
         let path = self.path(controller, file);
         fs::write(&path, value.to_string())
-            .with_context(|| format!("Failed to write {:?}", path))?;
+            .with_context(|| format!("Failed to write {path:?}"))?;
         Ok(())
     }
 
