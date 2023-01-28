@@ -113,6 +113,11 @@ Currently, the `<CTestMeasurement>` and `<DartMeasurement>` tags as used by [CTe
 ```
 Supporting custom formats is planned.
 
+### Param/Response files
+
+Commands with huge number of arguments might result in command lines which are too long to be executed by the OS.
+Razel detects those cases and replaces the arguments with a response file. The filename starts with @.
+
 ## Acknowledgements
 
 The idea to build fast and correct is based on [Bazel](https://bazel.build/). Razel uses data structures from
