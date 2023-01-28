@@ -87,8 +87,7 @@ impl CGroup {
         T: std::fmt::Display,
     {
         let path = self.path(controller, file);
-        fs::write(&path, value.to_string())
-            .with_context(|| format!("Failed to write {path:?}"))?;
+        fs::write(&path, value.to_string()).with_context(|| format!("Failed to write {path:?}"))?;
         Ok(())
     }
 
