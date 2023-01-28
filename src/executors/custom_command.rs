@@ -1,4 +1,4 @@
-use crate::config::{RESPONSE_FILE_MIN_ARGS_LEN, RESPONSE_FILE_PREFIX};
+use crate::config::RESPONSE_FILE_PREFIX;
 use crate::CGroup;
 use anyhow::anyhow;
 use std::collections::HashMap;
@@ -173,10 +173,19 @@ impl CustomCommandExecutor {
     }
 
     fn is_response_file_needed(&self) -> bool {
+        /* those limits are taken from test_arg_max()
+         * TODO replace hardcoded limits with running that check before executing commands */
+        let (max_len, terminator_len) = if cfg!(windows) {
+            (32_760, 1)
+        } else if cfg!(macos) {
+            (1_048_512, 1 + std::mem::size_of::<usize>())
+        } else {
+            (2_097_088, 1 + std::mem::size_of::<usize>())
+        };
         let mut args_len_sum = 0;
         for x in &self.args {
-            args_len_sum += x.len();
-            if args_len_sum >= RESPONSE_FILE_MIN_ARGS_LEN {
+            args_len_sum += x.len() + terminator_len;
+            if args_len_sum >= max_len {
                 return true;
             }
         }
@@ -217,7 +226,7 @@ impl CustomCommandExecutor {
 
 #[cfg(test)]
 mod tests {
-    use crate::executors::ExecutionStatus;
+    use crate::executors::{CustomCommandExecutor, ExecutionStatus};
     use crate::Razel;
 
     #[tokio::test]
@@ -363,4 +372,43 @@ mod tests {
         assert!(result.error.is_some());
     }
      */
+
+    #[tokio::test]
+    async fn test_arg_max() {
+        let mut executor = CustomCommandExecutor {
+            executable: "echo".to_string(),
+            args: vec![],
+            env: Default::default(),
+            stdout_file: None,
+            stderr_file: None,
+        };
+        for arg in &["a", "ab", "abcdefabcdef"] {
+            executor.args.clear();
+            let mut lower: usize = 0;
+            let mut upper: Option<usize> = None;
+            let mut current = 2048;
+            loop {
+                executor.args.resize(current, arg.to_string().clone());
+                let result = executor.exec(None, None).await;
+                if result.success() {
+                    lower = current;
+                } else {
+                    upper = Some(current);
+                }
+                let new_len = upper.map(|x| (lower + x) / 2).unwrap_or_else(|| lower * 2);
+                if new_len == current {
+                    break;
+                }
+                current = new_len;
+            }
+            let max = if cfg!(windows) {
+                // add terminator for all args
+                (lower - 1) * (arg.len() + 1)
+            } else {
+                // add terminator and pointer for all args
+                (lower - 1) * (arg.len() + 1 + std::mem::size_of::<usize>())
+            };
+            println!("{arg:>13}: {lower:>7} {max:>7}");
+        }
+    }
 }
