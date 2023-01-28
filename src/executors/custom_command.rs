@@ -1,4 +1,4 @@
-use crate::config::{RESPONSE_FILE_MIN_ARGS_LEN, RESPONSE_FILE_PREFIX};
+use crate::config::RESPONSE_FILE_PREFIX;
 use crate::CGroup;
 use anyhow::anyhow;
 use std::collections::HashMap;
@@ -173,15 +173,22 @@ impl CustomCommandExecutor {
     }
 
     fn is_response_file_needed(&self) -> bool {
-        /*
+        /* those limits are taken from test_arg_max()
+         * TODO replace hardcoded limits with running that check before executing commands */
+        let (max_len, terminator_len) = if cfg!(windows) {
+            (32_760, 1)
+        } else if cfg!(macos) {
+            (1_048_512, 1 + std::mem::size_of::<usize>())
+        } else {
+            (2_097_088, 1 + std::mem::size_of::<usize>())
+        };
         let mut args_len_sum = 0;
         for x in &self.args {
-            args_len_sum += x.len();
-            if args_len_sum >= RESPONSE_FILE_MIN_ARGS_LEN {
+            args_len_sum += x.len() + terminator_len;
+            if args_len_sum >= max_len {
                 return true;
             }
         }
-         */
         false
     }
 

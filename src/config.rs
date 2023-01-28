@@ -12,9 +12,6 @@ pub static SANDBOX_DIR: &str = "razel-out";
 
 /// The prefix for using a param/response file as command args
 pub static RESPONSE_FILE_PREFIX: &str = "@";
-/// A param/response file will be used for a command if the total args len is above this limit
-/// TODO actually it could be way higher, e.g. on Linux: "getconf ARG_MAX"
-pub static RESPONSE_FILE_MIN_ARGS_LEN: usize = 4096;
 
 pub fn select_cache_dir(workspace_dir: &Path) -> Result<PathBuf, anyhow::Error> {
     let project_dirs = ProjectDirs::from("", "reu-dev", EXECUTABLE).unwrap();
