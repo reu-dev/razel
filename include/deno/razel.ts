@@ -153,6 +153,12 @@ export class CustomCommand extends Command {
         return this;
     }
 
+    // Add input files which are not part of the command line.
+    addInputFiles(args: (string | File)[]): CustomCommand {
+        args.forEach(x => this.addInputFile(x));
+        return this;
+    }
+
     // Add an output file which is not part of the command line.
     addOutputFile(arg: string | File): CustomCommand {
         const file = arg instanceof File ? arg : Razel.instance().addOutputFile(arg);

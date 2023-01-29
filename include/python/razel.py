@@ -205,6 +205,12 @@ class CustomCommand(Command):
         self._inputs.append(file)
         return self
 
+    def add_input_files(self, args: Sequence[str | File]) -> CustomCommand:
+        """Add input files which are not part of the command line."""
+        for x in args:
+            self.add_input_file(x)
+        return self
+
     def add_output_file(self, arg: str | File) -> CustomCommand:
         """Add an output file which is not part of the command line."""
         file = arg if isinstance(arg, File) else Razel.instance().add_output_file(arg)
