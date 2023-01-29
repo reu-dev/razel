@@ -193,9 +193,9 @@ impl CustomCommandExecutor {
     }
 
     async fn write_redirect_files(&self, cwd: &Path, result: &mut ExecutionResult) {
-        if let Err(e) = Self::maybe_write_file(
+        if let Err(e) = Self::maybe_write_redirect_file(
             &self.stdout_file.as_ref().map(|x| cwd.join(x)),
-            &result.stdout,
+            &mut result.stdout,
         )
         .await
         {
@@ -203,9 +203,9 @@ impl CustomCommandExecutor {
             result.error = Some(e);
             return;
         }
-        if let Err(e) = Self::maybe_write_file(
+        if let Err(e) = Self::maybe_write_redirect_file(
             &self.stderr_file.as_ref().map(|x| cwd.join(x)),
-            &result.stderr,
+            &mut result.stderr,
         )
         .await
         {
@@ -214,11 +214,15 @@ impl CustomCommandExecutor {
         }
     }
 
-    async fn maybe_write_file(path: &Option<PathBuf>, buf: &[u8]) -> Result<(), anyhow::Error> {
+    async fn maybe_write_redirect_file(
+        path: &Option<PathBuf>,
+        buf: &mut Vec<u8>,
+    ) -> Result<(), anyhow::Error> {
         if let Some(path) = path {
             let mut file = tokio::fs::File::create(path).await?;
             file.write_all(buf).await?;
             file.sync_all().await?;
+            buf.clear();
         }
         Ok(())
     }
