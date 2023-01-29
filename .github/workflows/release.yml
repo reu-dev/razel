@@ -103,6 +103,7 @@ jobs:
       - name: Zip binaries
         run: |
           for dir in $(ls -d razel-*); do
+            gzip -k $dir/*
             zip -j $dir.zip $dir/*
           done
         shell: bash
@@ -111,7 +112,9 @@ jobs:
         with:
           generate_release_notes: true
           tag_name: ${{needs.bump-version-and-create-tag.outputs.TAG}}
-          files: razel-*.zip
+          files: |
+            razel-*.gz
+            razel-*.zip
 
   publish-pypi:
     needs:
