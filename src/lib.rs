@@ -26,10 +26,6 @@ pub mod bazel_remote_exec {
     pub use build::bazel::remote::execution::v2::*;
 
     mod google {
-        mod protobuf {
-            include!("bazel_remote_exec/gen/google.protobuf.rs");
-        }
-
         pub mod rpc {
             include!("bazel_remote_exec/gen/google.rpc.rs");
         }
