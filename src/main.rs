@@ -27,14 +27,18 @@ async fn main() -> Result<(), anyhow::Error> {
             .collect(),
         &mut razel,
     )? {
-        let stats = razel.run(run_args.keep_going, run_args.verbose).await?;
-        debug!(
-            "preparation: {:.3}s, execution: {:.3}s",
-            stats.preparation_duration.as_secs_f32(),
-            stats.execution_duration.as_secs_f32()
-        );
-        if !stats.exec.finished_successfully() {
-            std::process::exit(1);
+        if run_args.no_execution {
+            razel.list_commands();
+        } else {
+            let stats = razel.run(run_args.keep_going, run_args.verbose).await?;
+            debug!(
+                "preparation: {:.3}s, execution: {:.3}s",
+                stats.preparation_duration.as_secs_f32(),
+                stats.execution_duration.as_secs_f32()
+            );
+            if !stats.exec.finished_successfully() {
+                std::process::exit(1);
+            }
         }
     }
     Ok(())

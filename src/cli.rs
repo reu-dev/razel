@@ -54,6 +54,9 @@ struct Exec {
 
 #[derive(Args, Debug)]
 pub struct RunArgs {
+    /// No execution, just list commands
+    #[clap(short, long, visible_alias = "ls")]
+    pub no_execution: bool,
     /// Do not stop on first failure
     #[clap(short, long, visible_alias = "keep-running")]
     pub keep_going: bool,
@@ -65,6 +68,7 @@ pub struct RunArgs {
 impl Default for RunArgs {
     fn default() -> Self {
         Self {
+            no_execution: false,
             keep_going: false,
             verbose: true,
         }
@@ -250,8 +254,10 @@ pub fn parse_cli(args: Vec<String>, razel: &mut Razel) -> Result<Option<RunArgs>
         }
         CliCommands::ListCommands { file } => {
             apply_file(razel, &file)?;
-            razel.list_commands();
-            None
+            Some(RunArgs {
+                no_execution: true,
+                ..Default::default()
+            })
         }
         CliCommands::Info => {
             razel.show_info();
