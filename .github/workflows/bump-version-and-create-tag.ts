@@ -13,8 +13,12 @@ function bumpVersionInCargoToml(releaseType: semver.ReleaseType): string {
     return newVersion;
 }
 
+async function updateVersionInCargoLock() {
+    await exec(["cargo", "check"]);
+}
+
 async function createTag(tag: string) {
-    await exec(["git", "add", "Cargo.toml"]);
+    await exec(["git", "add", "Cargo.toml", "Cargo.lock"]);
     await exec(["git", "commit", "-m", `Release ${tag}`]);
     await exec(["git", "tag", tag]);
     await exec(["git", "push"]);
@@ -42,4 +46,5 @@ const tag = `v${newVersion}`;
 console.log('newVersion:    ', newVersion);
 console.log('tag:           ', tag);
 appendToOutputFile(outputFilePath, newVersion, tag);
+await updateVersionInCargoLock();
 await createTag(tag);
