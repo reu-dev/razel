@@ -29,4 +29,4 @@ if (false) {  // requires clang
         .ensureEqual(razel.addCommand('say_hi_using_echo', 'echo', ['Hi Razel!']).writeStdoutToFile());
 }
 
-razel.writeRazelFile();
+await razel.writeRazelFile();

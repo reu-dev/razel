@@ -1,4 +1,4 @@
-import {assertEquals} from 'https://deno.land/std@0.135.0/testing/asserts.ts';
+import {assert, assertEquals} from 'https://deno.land/std@0.135.0/testing/asserts.ts';
 import * as path from 'https://deno.land/std@0.135.0/path/mod.ts';
 
 export class Razel {
@@ -69,9 +69,21 @@ export class Razel {
         }
     }
 
-    writeRazelFile() {
+    // Run the native razel binary to execute the commands.
+    async run(args: string[] = ["exec"]) {
+        await this.writeRazelFile();
+        const razelBinaryPath = await findOrDownloadRazelBinary();
+        const cmd = [razelBinaryPath, ...args];
+        console.log(cmd.join(" "));
+        const status = await Deno.run({cmd, cwd: this.workspaceDir}).status();
+        if (!status.success) {
+            Deno.exit(status.code);
+        }
+    }
+
+    async writeRazelFile() {
         const json = this.commands.map(x => JSON.stringify(x.json()));
-        Deno.writeTextFileSync(path.join(this.workspaceDir, 'razel.jsonl'), json.join('\n') + '\n');
+        await Deno.writeTextFile(path.join(this.workspaceDir, 'razel.jsonl'), json.join('\n') + '\n');
     }
 
     private add(command: Command): Command {
@@ -237,4 +249,75 @@ function splitArgsInInputsAndOutputs(args: (string | File)[]): [File[], File[]] 
     const inputs = args.filter(x => (x instanceof File) && ((x as File).isData || (x as File).createdBy)) as File[];
     const outputs = args.filter(x => (x instanceof File) && !(x as File).isData && !(x as File).createdBy) as File[];
     return [inputs, outputs];
+}
+
+export async function findOrDownloadRazelBinary(): Promise<string> {
+    const ext = Deno.build.os === "windows" ? ".exe" : "";
+    // try to use razel binary from PATH
+    let razelBinaryPath = `razel${ext}`;
+    if (await getRazelVersion(razelBinaryPath) !== null) {
+        return razelBinaryPath;
+    }
+    // try to use razel binary from .cache
+    let cacheDir;
+    if (Deno.build.os === "darwin") {
+        cacheDir = `${Deno.env.get("HOME")}/Library/Caches/de.reu-dev.razel`;
+    } else if (Deno.build.os === "windows") {
+        const localAppData = Deno.env.get("LOCALAPPDATA");
+        assert(localAppData);
+        cacheDir = `${localAppData.replaceAll("\\", "/")}/reu-dev/razel`;
+    } else {
+        cacheDir = `${Deno.env.get("HOME")}/.cache/razel`;
+    }
+    razelBinaryPath = `${cacheDir}/razel${ext}`;
+    if (await getRazelVersion(razelBinaryPath) !== null) {
+        return razelBinaryPath;
+    }
+    // download razel binary to .cache
+    await downloadRazelBinary("latest", razelBinaryPath);
+    return razelBinaryPath;
+}
+
+async function getRazelVersion(razelBinaryPath: string): Promise<string | null> {
+    try {
+        const p = Deno.run({cmd: [razelBinaryPath, "--version"], stdout: "piped"});
+        const [status, rawOutput] = await Promise.all([p.status(), p.output()]);
+        if (!status.success) {
+            return null;
+        }
+        const stdout = new TextDecoder().decode(rawOutput);
+        return stdout.trim().split(" ")[1];
+    } catch {
+        return null;
+    }
+}
+
+async function downloadRazelBinary(version: string, razelBinaryPath: string) {
+    let buildTarget;
+    if (Deno.build.os === "darwin") {
+        buildTarget = "x86_64-apple-darwin";
+    } else if (Deno.build.os === "windows") {
+        buildTarget = "x86_64-pc-windows-msvc";
+    } else {
+        buildTarget = "x86_64-unknown-linux-gnu";
+    }
+    const url = `https://github.com/reu-dev/razel/releases/${version}/download/razel-${buildTarget}.gz`;
+    console.log('Download razel binary from', url);
+    const response = await fetch(url);
+    if (!response.body) {
+        throw response.statusText;
+    }
+    console.log(`Extract razel binary to ${razelBinaryPath}`);
+    await Deno.mkdir(path.dirname(razelBinaryPath), { recursive: true });
+    const dest = await Deno.open(razelBinaryPath, {create: true, write: true});
+    await response.body
+        .pipeThrough(new DecompressionStream("gzip"))
+        .pipeTo(dest.writable);
+    if (Deno.build.os !== "windows") {
+        const mode = (await Deno.stat(razelBinaryPath)).mode || 0;
+        await Deno.chmod(razelBinaryPath, mode | 0o700);
+    }
+    const actualVersion = await getRazelVersion(razelBinaryPath);
+    assert(actualVersion, "Failed to download razel binary. To build it from source, run: cargo install --locked --git https://github.com/reu-dev/razel.git");
+    console.log(`Downloaded razel v${actualVersion}`);
 }
