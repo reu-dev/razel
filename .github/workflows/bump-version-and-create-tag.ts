@@ -14,7 +14,7 @@ function bumpVersionInCargoToml(releaseType: semver.ReleaseType): string {
 }
 
 async function updateVersionInCargoLock() {
-    await exec(["cargo", "check"]);
+    await exec(["cargo", "update", "-p", "razel"]);
 }
 
 async function createTag(tag: string) {
