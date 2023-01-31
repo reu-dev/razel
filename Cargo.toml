@@ -15,7 +15,7 @@ anyhow = "1.0"
 async-trait = "0.1"
 base16ct = { version = "0.1", features = ["alloc"] }
 bstr = "1.0"
-clap = { version = "4.0", features = ["derive"] }
+clap = { version = "4.1", features = ["derive"] }
 crossterm = "0.26"
 csv = "1.1"
 directories = "4.0"

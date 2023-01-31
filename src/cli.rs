@@ -238,7 +238,7 @@ impl TaskBuilder for EnsureNotEqualTask {
 }
 
 pub fn parse_cli(args: Vec<String>, razel: &mut Razel) -> Result<Option<RunArgs>, anyhow::Error> {
-    let cli = Cli::try_parse_from(args.iter())?;
+    let cli = Cli::parse_from(args.iter());
     Ok(match cli.command {
         CliCommands::Command { command } => {
             parse_command(razel, command)?;
