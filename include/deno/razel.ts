@@ -251,7 +251,7 @@ function splitArgsInInputsAndOutputs(args: (string | File)[]): [File[], File[]] 
     return [inputs, outputs];
 }
 
-async function findOrDownloadRazelBinary(): Promise<string> {
+export async function findOrDownloadRazelBinary(): Promise<string> {
     const ext = Deno.build.os === "windows" ? ".exe" : "";
     // try to use razel binary from PATH
     let razelBinaryPath = `razel${ext}`;
@@ -263,7 +263,7 @@ async function findOrDownloadRazelBinary(): Promise<string> {
     if (Deno.build.os === "darwin") {
         cacheDir = `${Deno.env.get("HOME")}/Library/Caches/de.reu-dev.razel`;
     } else if (Deno.build.os === "windows") {
-        const localAppData = Deno.env.get("FOLDERID_LocalAppData");
+        const localAppData = Deno.env.get("LOCALAPPDATA");
         assert(localAppData);
         cacheDir = `${localAppData.replaceAll("\\", "/")}/reu-dev/razel`;
     } else {
@@ -308,6 +308,7 @@ async function downloadRazelBinary(version: string, razelBinaryPath: string) {
         throw response.statusText;
     }
     console.log(`Extract razel binary to ${razelBinaryPath}`);
+    await Deno.mkdir(path.dirname(razelBinaryPath), { recursive: true });
     const dest = await Deno.open(razelBinaryPath, {create: true, write: true});
     await response.body
         .pipeThrough(new DecompressionStream("gzip"))
