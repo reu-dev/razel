@@ -103,7 +103,7 @@ jobs:
       - name: Zip binaries
         run: |
           for dir in $(ls -d razel-*); do
-            gzip -k $dir/*
+            gzip --stdout --keep $dir/* > $dir.gz
             zip -j $dir.zip $dir/*
           done
         shell: bash
