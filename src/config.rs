@@ -14,7 +14,7 @@ pub static SANDBOX_DIR: &str = "razel-out";
 pub static RESPONSE_FILE_PREFIX: &str = "@";
 
 pub fn select_cache_dir(workspace_dir: &Path) -> Result<PathBuf, anyhow::Error> {
-    let project_dirs = ProjectDirs::from("", "reu-dev", EXECUTABLE).unwrap();
+    let project_dirs = ProjectDirs::from("de", "reu-dev", EXECUTABLE).unwrap();
     let home_cache: PathBuf = project_dirs.cache_dir().into();
     std::fs::create_dir_all(&home_cache)?;
     Ok(
