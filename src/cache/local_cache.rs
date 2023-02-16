@@ -114,10 +114,13 @@ impl LocalCache {
         if !Path::new(&path).is_relative() {
             bail!("path should be relative: {}", path);
         }
+        /* call set_file_readonly() before renaming, because is_blob_cached()
+         * might remove the file in between from another thread */
+        set_file_readonly(&src)
+            .await
+            .with_context(|| format!("Error in set_readonly {src:?}"))?;
         match tokio::fs::rename(&src, &dst).await {
-            Ok(()) => set_file_readonly(&dst)
-                .await
-                .with_context(|| format!("Error in set_readonly {dst:?}"))?,
+            Ok(()) => {}
             Err(e) => {
                 if !self.is_blob_cached(&digest).await {
                     return Err(e).with_context(|| format!("mv {src:?} -> {dst:?}"));
@@ -172,5 +175,28 @@ impl LocalCache {
     async fn write_pb_file<T: prost::Message>(path: &PathBuf, msg: &T) -> std::io::Result<()> {
         let buf = message_to_pb_buf(msg);
         tokio::fs::write(path, buf).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use temp_dir::TempDir;
+    use tokio::fs;
+
+    #[tokio::test]
+    async fn move_output_file_into_cache() {
+        let src_dir = TempDir::new().unwrap();
+        let src = src_dir.child("some-output-file");
+        fs::write(&src, "some content").await.unwrap();
+        let dst_dir = TempDir::new().unwrap();
+        let dst = dst_dir.child("file-in-cache");
+        set_file_readonly(&src).await.unwrap();
+        tokio::fs::rename(&src, &dst).await.unwrap();
+        assert!(tokio::fs::metadata(&dst)
+            .await
+            .unwrap()
+            .permissions()
+            .readonly());
     }
 }
