@@ -15,8 +15,8 @@ use crate::bazel_remote_exec::{ActionResult, Digest, ExecutedActionMetadata, Out
 use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor};
 use crate::{
-    bazel_remote_exec, config, Arena, CGroup, Command, CommandBuilder, CommandId, File, FileId,
-    FileType, Measurements, Sandbox, Scheduler, TUI,
+    bazel_remote_exec, config, force_remove_file, Arena, CGroup, Command, CommandBuilder,
+    CommandId, File, FileId, FileType, Measurements, Sandbox, Scheduler, TUI,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -729,7 +729,7 @@ impl Razel {
             // remove expected output files for tasks, because symlinks will not be overwritten
             // maybe a proper sandbox would be better
             for x in output_paths {
-                fs::remove_file(x).ok();
+                force_remove_file(x).await?;
             }
         }
         let execution_result = executor

@@ -4,21 +4,38 @@ import {assert, assertEquals} from "https://deno.land/std@0.170.0/testing/assert
 import * as semver from "https://deno.land/x/semver@v1.4.1/mod.ts";
 
 
-function bumpVersionInCargoToml(releaseType: semver.ReleaseType): string {
+function bumpVersionInCargoToml(releaseType: semver.ReleaseType): [string, string] {
     const cargoToml = Deno.readTextFileSync("Cargo.toml");
-    const [fullLine, oldVersion] = cargoToml.match(/version = "([^"]+)"/);
+    const matchResults = cargoToml.match(/version = "([^"]+)"/);
+    assert(matchResults);
+    const [fullLine, oldVersion] = matchResults;
     const newVersion = semver.inc(oldVersion, releaseType);
     assert(newVersion);
     Deno.writeTextFileSync("Cargo.toml", cargoToml.replace(fullLine, `version = "${newVersion}"`));
-    return newVersion;
+    return [oldVersion, newVersion];
 }
 
 async function updateVersionInCargoLock() {
     await exec(["cargo", "update", "-p", "razel"]);
 }
 
+async function updateVersionInApis(oldVersion: string, newVersion: string) {
+    [
+        ["include/deno/razel.ts", `version = "${oldVersion}"`],
+        ["include/python/razel.py", `version: ClassVar.str. = "${oldVersion}"`]
+    ].forEach(([file, matcher]) => {
+        const content = Deno.readTextFileSync(file);
+        const matchResults = content.match(matcher);
+        assert(matchResults);
+        const [oldLine] = matchResults;
+        const newLine = oldLine.replace(oldVersion, newVersion);
+        Deno.writeTextFileSync(file, content.replace(oldLine, newLine));
+    });
+}
+
 async function createTag(tag: string) {
-    await exec(["git", "add", "Cargo.toml", "Cargo.lock"]);
+    await exec(["git", "add", "Cargo.toml", "Cargo.lock", "include"]);
+    await exec(["git", "diff", "--cached"]);
     await exec(["git", "commit", "-m", `Release ${tag}`]);
     await exec(["git", "tag", tag]);
     await exec(["git", "push"]);
@@ -41,10 +58,12 @@ assertEquals(Deno.args.length, 2);
 const releaseType = Deno.args[0] as semver.ReleaseType;
 const outputFilePath = Deno.args[1];
 console.log('releaseType:   ', releaseType);
-const newVersion = bumpVersionInCargoToml(releaseType);
+const [oldVersion, newVersion] = bumpVersionInCargoToml(releaseType);
 const tag = `v${newVersion}`;
+console.log('oldVersion:    ', oldVersion);
 console.log('newVersion:    ', newVersion);
 console.log('tag:           ', tag);
 appendToOutputFile(outputFilePath, newVersion, tag);
 await updateVersionInCargoLock();
+await updateVersionInApis(oldVersion, newVersion);
 await createTag(tag);

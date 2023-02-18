@@ -9,7 +9,7 @@ use tokio::io::AsyncReadExt;
 use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
 use crate::cache::{message_to_pb_buf, MessageDigest};
 use crate::config::select_cache_dir;
-use crate::{force_symlink, set_file_readonly};
+use crate::{force_remove_file, force_symlink, set_file_readonly};
 
 #[derive(Clone)]
 pub struct LocalCache {
@@ -38,7 +38,7 @@ impl LocalCache {
             Ok(x) => x,
             Err(x) => {
                 warn!("{:?}", x);
-                tokio::fs::remove_file(path).await.ok();
+                force_remove_file(path).await.ok();
                 None
             }
         }
@@ -74,7 +74,7 @@ impl LocalCache {
         if let Ok(metadata) = tokio::fs::metadata(&path).await {
             if !metadata.permissions().readonly() {
                 // readonly flag was removed - assume file was modified
-                tokio::fs::remove_file(path).await.ok();
+                force_remove_file(path).await.ok();
                 return false;
             }
             let act_size = metadata.len();
@@ -84,7 +84,7 @@ impl LocalCache {
                     "OutputFile has wrong size (act: {act_size}, exp:{exp_size}): {:?}",
                     path
                 );
-                tokio::fs::remove_file(path).await.ok();
+                force_remove_file(path).await.ok();
                 return false;
             }
             true
@@ -114,14 +114,19 @@ impl LocalCache {
         if !Path::new(&path).is_relative() {
             bail!("path should be relative: {}", path);
         }
+        /* call set_file_readonly() before renaming, because is_blob_cached()
+         * might remove the file in between from another thread */
+        set_file_readonly(&src)
+            .await
+            .with_context(|| format!("Error in set_readonly {src:?}"))?;
         match tokio::fs::rename(&src, &dst).await {
-            Ok(()) => set_file_readonly(&dst)
-                .await
-                .with_context(|| format!("Error in set_readonly {dst:?}"))?,
+            Ok(()) => {}
             Err(e) => {
                 if !self.is_blob_cached(&digest).await {
                     return Err(e).with_context(|| format!("mv {src:?} -> {dst:?}"));
                 }
+                // behave like src was moved
+                force_remove_file(src).await?;
             }
         }
         Ok(OutputFile {
@@ -172,5 +177,28 @@ impl LocalCache {
     async fn write_pb_file<T: prost::Message>(path: &PathBuf, msg: &T) -> std::io::Result<()> {
         let buf = message_to_pb_buf(msg);
         tokio::fs::write(path, buf).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use temp_dir::TempDir;
+    use tokio::fs;
+
+    #[tokio::test]
+    async fn move_output_file_into_cache() {
+        let src_dir = TempDir::new().unwrap();
+        let src = src_dir.child("some-output-file");
+        fs::write(&src, "some content").await.unwrap();
+        let dst_dir = TempDir::new().unwrap();
+        let dst = dst_dir.child("file-in-cache");
+        set_file_readonly(&src).await.unwrap();
+        tokio::fs::rename(&src, &dst).await.unwrap();
+        assert!(tokio::fs::metadata(&dst)
+            .await
+            .unwrap()
+            .permissions()
+            .readonly());
     }
 }
