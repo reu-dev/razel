@@ -116,7 +116,7 @@ jobs:
             razel-*.gz
             razel-*.zip
 
-  publish-crates.io:
+  publish-crates_io:
     needs:
       - bump-version-and-create-tag
       - publish-github
