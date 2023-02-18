@@ -23,7 +23,7 @@ dependencies.
 Use [rustup](https://rustup.rs/) to install Rust. Install `protobuf-compiler`. Clone and build Razel:
 
 ```bash
-cargo install --locked --git https://github.com/reu-dev/razel.git
+cargo install razel
 ```
 
 The native input format for Razel is a `razel.jsonl` file, see the example [test/razel.jsonl](test/razel.jsonl).
