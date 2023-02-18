@@ -116,6 +116,19 @@ jobs:
             razel-*.gz
             razel-*.zip
 
+  publish-crates.io:
+    needs:
+      - bump-version-and-create-tag
+      - publish-github
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: refs/tags/${{needs.bump-version-and-create-tag.outputs.TAG}}
+      - run: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{secrets.CARGO_REGISTRY_TOKEN}}
+
   publish-pypi:
     needs:
       - bump-version-and-create-tag
