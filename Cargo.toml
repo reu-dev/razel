@@ -5,10 +5,11 @@ authors = ["Stefan Reuschl <stefan@reu-dev.de>"]
 edition = "2021"
 rust-version = "1.59"
 description = "chained commands/tasks executor with caching"
-publish = false
+homepage = "https://github.com/reu-dev/razel"
+repository = "https://github.com/reu-dev/razel"
+license = "MIT"
+categories = ["caching", "concurrency", "command-line-utilities", "development-tools::testing", "filesystem"]
 default-run = "razel"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 anyhow = "1.0"
@@ -32,6 +33,7 @@ serde_json = "1.0"
 sha2 = "0.10"
 simplelog = "0.12"
 tokio = { version = "1.21", features = ["full"] }
+tonic = "0.8"
 which = "4"
 
 [target.'cfg(target_os = "linux")'.dependencies]

@@ -320,6 +320,6 @@ async function downloadRazelBinary(version: string | null, razelBinaryPath: stri
         await Deno.chmod(razelBinaryPath, mode | 0o700);
     }
     const actualVersion = await getRazelVersion(razelBinaryPath);
-    assert(actualVersion, "Failed to download razel binary. To build it from source, run: cargo install --locked --git https://github.com/reu-dev/razel.git");
+    assert(actualVersion, "Failed to download razel binary. To build it from source, run: cargo install razel");
     console.log(`Downloaded razel ${actualVersion}`);
 }

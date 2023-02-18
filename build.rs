@@ -11,7 +11,6 @@ fn main() {
         .build_client(false)
         .build_server(false)
         .disable_package_emission()
-        .out_dir("src/bazel_remote_exec/gen")
         .compile_with_config(config, &files, &["src/bazel_remote_exec/proto"])
         .unwrap();
 }

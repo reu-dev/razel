@@ -27,29 +27,29 @@ pub mod bazel_remote_exec {
 
     mod google {
         pub mod rpc {
-            include!("bazel_remote_exec/gen/google.rpc.rs");
+            tonic::include_proto!("google.rpc");
         }
 
         mod longrunning {
-            include!("bazel_remote_exec/gen/google.longrunning.rs");
+            tonic::include_proto!("google.longrunning");
         }
 
         #[cfg(not(doctest))]
         mod api {
-            include!("bazel_remote_exec/gen/google.api.rs");
+            tonic::include_proto!("google.api");
         }
     }
 
     mod build {
         pub mod bazel {
             mod semver {
-                include!("bazel_remote_exec/gen/build.bazel.semver.rs");
+                tonic::include_proto!("build.bazel.semver");
             }
 
             pub mod remote {
                 pub mod execution {
                     pub mod v2 {
-                        include!("bazel_remote_exec/gen/build.bazel.remote.execution.v2.rs");
+                        tonic::include_proto!("build.bazel.remote.execution.v2");
                     }
                 }
             }
