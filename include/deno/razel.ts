@@ -2,6 +2,7 @@ import {assert, assertEquals} from 'https://deno.land/std@0.135.0/testing/assert
 import * as path from 'https://deno.land/std@0.135.0/path/mod.ts';
 
 export class Razel {
+    static version = "0.1.4";
     private static _instance: Razel;
     private commands: Command[] = [];
 
@@ -72,7 +73,7 @@ export class Razel {
     // Run the native razel binary to execute the commands.
     async run(args: string[] = ["exec"]) {
         await this.writeRazelFile();
-        const razelBinaryPath = await findOrDownloadRazelBinary();
+        const razelBinaryPath = await findOrDownloadRazelBinary(Razel.version);
         const cmd = [razelBinaryPath, ...args];
         console.log(cmd.join(" "));
         const status = await Deno.run({cmd, cwd: this.workspaceDir}).status();
@@ -251,11 +252,11 @@ function splitArgsInInputsAndOutputs(args: (string | File)[]): [File[], File[]] 
     return [inputs, outputs];
 }
 
-export async function findOrDownloadRazelBinary(): Promise<string> {
+export async function findOrDownloadRazelBinary(version: string): Promise<string> {
     const ext = Deno.build.os === "windows" ? ".exe" : "";
     // try to use razel binary from PATH
     let razelBinaryPath = `razel${ext}`;
-    if (await getRazelVersion(razelBinaryPath) !== null) {
+    if (await getRazelVersion(razelBinaryPath) === version) {
         return razelBinaryPath;
     }
     // try to use razel binary from .cache
@@ -270,11 +271,11 @@ export async function findOrDownloadRazelBinary(): Promise<string> {
         cacheDir = `${Deno.env.get("HOME")}/.cache/razel`;
     }
     razelBinaryPath = `${cacheDir}/razel${ext}`;
-    if (await getRazelVersion(razelBinaryPath) !== null) {
+    if (await getRazelVersion(razelBinaryPath) === version) {
         return razelBinaryPath;
     }
     // download razel binary to .cache
-    await downloadRazelBinary("latest", razelBinaryPath);
+    await downloadRazelBinary(version, razelBinaryPath);
     return razelBinaryPath;
 }
 
@@ -292,7 +293,8 @@ async function getRazelVersion(razelBinaryPath: string): Promise<string | null> 
     }
 }
 
-async function downloadRazelBinary(version: string, razelBinaryPath: string) {
+async function downloadRazelBinary(version: string | null, razelBinaryPath: string) {
+    const downloadTag = version ? `download/v${version}` : "latest/download";
     let buildTarget;
     if (Deno.build.os === "darwin") {
         buildTarget = "x86_64-apple-darwin";
@@ -301,7 +303,7 @@ async function downloadRazelBinary(version: string, razelBinaryPath: string) {
     } else {
         buildTarget = "x86_64-unknown-linux-gnu";
     }
-    const url = `https://github.com/reu-dev/razel/releases/${version}/download/razel-${buildTarget}.gz`;
+    const url = `https://github.com/reu-dev/razel/releases/${downloadTag}/razel-${buildTarget}.gz`;
     console.log('Download razel binary from', url);
     const response = await fetch(url);
     if (!response.body) {
@@ -319,5 +321,5 @@ async function downloadRazelBinary(version: string, razelBinaryPath: string) {
     }
     const actualVersion = await getRazelVersion(razelBinaryPath);
     assert(actualVersion, "Failed to download razel binary. To build it from source, run: cargo install --locked --git https://github.com/reu-dev/razel.git");
-    console.log(`Downloaded razel v${actualVersion}`);
+    console.log(`Downloaded razel ${actualVersion}`);
 }
