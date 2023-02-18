@@ -1,8 +1,8 @@
+use crate::force_remove_file;
 use anyhow::{anyhow, bail, Context};
-use std::fs;
 use std::io;
 use std::path::PathBuf;
-use tokio::task::spawn_blocking;
+use tokio::fs;
 
 /// Force creating a symlink: overwrite existing file and create parent directories
 pub async fn force_symlink(src: &PathBuf, dst: &PathBuf) -> Result<(), anyhow::Error> {
@@ -10,24 +10,21 @@ pub async fn force_symlink(src: &PathBuf, dst: &PathBuf) -> Result<(), anyhow::E
         if src == dst {
             bail!("symlink dst must not equal src");
         }
-        let src = src.clone();
-        let dst = dst.clone();
-        spawn_blocking(move || {
-            if let Ok(existing) = fs::read_link(&dst) {
-                if existing == *src {
-                    return Ok(());
-                }
+        if let Ok(existing) = fs::read_link(&dst).await {
+            if existing == *src {
+                return Ok(());
             }
-            fs::remove_file(&dst).ok(); // to avoid symlink() fail with "File exists"
-            fs::create_dir_all(dst.parent().unwrap()).with_context(|| {
+        }
+        force_remove_file(&dst).await?; // to avoid symlink() fail with "File exists"
+        fs::create_dir_all(dst.parent().unwrap())
+            .await
+            .with_context(|| {
                 anyhow!(
                     "Failed to create destination directory: {:?}",
                     dst.parent().unwrap()
                 )
             })?;
-            symlink_file(&src, &dst).with_context(|| anyhow!("symlink_file"))
-        })
-        .await?
+        symlink_file(src, dst).with_context(|| anyhow!("symlink_file"))
     }
     .with_context(|| anyhow!("force_symlink {src:?} -> {dst:?}"))?;
     Ok(())
@@ -45,9 +42,9 @@ fn symlink_file(src: &PathBuf, dst: &PathBuf) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use temp_dir::TempDir;
-
     use super::*;
+    use std::fs;
+    use temp_dir::TempDir;
 
     const FIRST_CONTENT: &str = "FIRST_CONTENT";
     const OTHER_CONTENT: &str = "OTHER_CONTENT";

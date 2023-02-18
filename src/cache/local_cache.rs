@@ -9,7 +9,7 @@ use tokio::io::AsyncReadExt;
 use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
 use crate::cache::{message_to_pb_buf, MessageDigest};
 use crate::config::select_cache_dir;
-use crate::{force_symlink, set_file_readonly};
+use crate::{force_remove_file, force_symlink, set_file_readonly};
 
 #[derive(Clone)]
 pub struct LocalCache {
@@ -38,7 +38,7 @@ impl LocalCache {
             Ok(x) => x,
             Err(x) => {
                 warn!("{:?}", x);
-                tokio::fs::remove_file(path).await.ok();
+                force_remove_file(path).await.ok();
                 None
             }
         }
@@ -74,7 +74,7 @@ impl LocalCache {
         if let Ok(metadata) = tokio::fs::metadata(&path).await {
             if !metadata.permissions().readonly() {
                 // readonly flag was removed - assume file was modified
-                tokio::fs::remove_file(path).await.ok();
+                force_remove_file(path).await.ok();
                 return false;
             }
             let act_size = metadata.len();
@@ -84,7 +84,7 @@ impl LocalCache {
                     "OutputFile has wrong size (act: {act_size}, exp:{exp_size}): {:?}",
                     path
                 );
-                tokio::fs::remove_file(path).await.ok();
+                force_remove_file(path).await.ok();
                 return false;
             }
             true
@@ -125,6 +125,8 @@ impl LocalCache {
                 if !self.is_blob_cached(&digest).await {
                     return Err(e).with_context(|| format!("mv {src:?} -> {dst:?}"));
                 }
+                // behave like src was moved
+                force_remove_file(src).await?;
             }
         }
         Ok(OutputFile {

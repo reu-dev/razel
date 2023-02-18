@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Context};
 use std::path::Path;
 use tokio::fs::File;
 
@@ -20,5 +21,22 @@ pub async fn set_file_readonly(path: &Path) -> Result<(), anyhow::Error> {
     let mut perms = tokio::fs::metadata(path).await?.permissions();
     perms.set_readonly(true);
     tokio::fs::set_permissions(path, perms).await?;
+    Ok(())
+}
+
+pub async fn force_remove_file(path: impl AsRef<Path>) -> Result<(), anyhow::Error> {
+    let path = path.as_ref();
+    if matches!(tokio::fs::remove_file(path).await, Err(_)) {
+        if let Ok(metadata) = tokio::fs::metadata(path).await {
+            let mut perms = metadata.permissions();
+            perms.set_readonly(false);
+            tokio::fs::set_permissions(path, perms).await?;
+            tokio::fs::remove_file(path)
+                .await
+                .with_context(|| anyhow!("remove_file {path:?}"))?;
+        } else {
+            // file does not exist
+        }
+    }
     Ok(())
 }
