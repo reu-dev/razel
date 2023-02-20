@@ -9,7 +9,7 @@ from collections.abc import Mapping, Sequence
 
 
 class Razel:
-    version: ClassVar[str] = "0.1.5"
+    version: ClassVar[str] = "0.1.6"
     _instance: ClassVar[Optional[Razel]] = None
 
     def __init__(self, workspace_dir: str) -> None:
