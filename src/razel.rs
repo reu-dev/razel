@@ -236,8 +236,11 @@ impl Razel {
         if let Some(x) = self.self_file_id {
             Ok(x)
         } else {
-            let argv0 = env::args().next().unwrap();
-            let file_id = if let Ok(x) = Path::new(&argv0).canonicalize() {
+            let path = Path::new(&env::args().next().unwrap())
+                .canonicalize()
+                .ok()
+                .filter(|x| x.is_file());
+            let file_id = if let Some(x) = path {
                 self.input_file_for_rel_path(
                     config::EXECUTABLE.into(),
                     FileType::SystemExecutable,
