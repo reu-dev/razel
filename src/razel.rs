@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use std::{env, fs};
 
-use anyhow::{bail, Context};
+use anyhow::{anyhow, bail, Context};
 use itertools::Itertools;
 use log::{debug, warn};
 use tokio::sync::mpsc;
@@ -218,7 +218,9 @@ impl Razel {
         if !matches!(&self.commands[id].executor, Executor::CustomCommand(_)) {
             // add razel executable to command hash
             // TODO set digest to razel version once stable
-            let self_file_id = self.lazy_self_file_id()?;
+            let self_file_id = self
+                .lazy_self_file_id()
+                .with_context(|| anyhow!("Failed to find razel executable"))?;
             self.commands[id].inputs.push(self_file_id);
         }
         // patch outputs.creating_command
@@ -235,13 +237,16 @@ impl Razel {
             Ok(x)
         } else {
             let argv0 = env::args().next().unwrap();
-            let file_id = self
-                .input_file_for_rel_path(
+            let file_id = if let Ok(x) = Path::new(&argv0).canonicalize() {
+                self.input_file_for_rel_path(
                     config::EXECUTABLE.into(),
                     FileType::SystemExecutable,
-                    Path::new(&argv0).canonicalize()?,
+                    x,
                 )?
-                .id;
+                .id
+            } else {
+                self.executable_which(config::EXECUTABLE.into())?.id
+            };
             self.self_file_id = Some(file_id);
             Ok(file_id)
         }
