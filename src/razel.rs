@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use std::{env, fs};
 
-use anyhow::{bail, Context};
+use anyhow::{anyhow, bail, Context};
 use itertools::Itertools;
 use log::{debug, warn};
 use tokio::sync::mpsc;
@@ -218,7 +218,9 @@ impl Razel {
         if !matches!(&self.commands[id].executor, Executor::CustomCommand(_)) {
             // add razel executable to command hash
             // TODO set digest to razel version once stable
-            let self_file_id = self.lazy_self_file_id()?;
+            let self_file_id = self
+                .lazy_self_file_id()
+                .with_context(|| anyhow!("Failed to find razel executable"))?;
             self.commands[id].inputs.push(self_file_id);
         }
         // patch outputs.creating_command
@@ -231,10 +233,26 @@ impl Razel {
     }
 
     fn lazy_self_file_id(&mut self) -> Result<FileId, anyhow::Error> {
-        if self.self_file_id.is_none() {
-            self.self_file_id = Some(self.executable(env::args().next().unwrap())?.id);
+        if let Some(x) = self.self_file_id {
+            Ok(x)
+        } else {
+            let path = Path::new(&env::args().next().unwrap())
+                .canonicalize()
+                .ok()
+                .filter(|x| x.is_file());
+            let file_id = if let Some(x) = path {
+                self.input_file_for_rel_path(
+                    config::EXECUTABLE.into(),
+                    FileType::SystemExecutable,
+                    x,
+                )?
+                .id
+            } else {
+                self.executable_which(config::EXECUTABLE.into())?.id
+            };
+            self.self_file_id = Some(file_id);
+            Ok(file_id)
         }
-        Ok(self.self_file_id.unwrap())
     }
 
     #[cfg(test)]
@@ -334,7 +352,7 @@ impl Razel {
             let cwd_path = abs.strip_prefix(&self.current_dir).unwrap().to_path_buf();
             if let Some(id) = self.path_to_file_id.get(&cwd_path) {
                 return Ok(&self.files[*id]);
-            } else if arg.contains('/') || abs.exists() {
+            } else if arg.contains('/') || abs.is_file() {
                 (FileType::ExecutableInWorkspace, abs)
             } else {
                 return self.executable_which(arg);
