@@ -231,10 +231,20 @@ impl Razel {
     }
 
     fn lazy_self_file_id(&mut self) -> Result<FileId, anyhow::Error> {
-        if self.self_file_id.is_none() {
-            self.self_file_id = Some(self.executable(env::args().next().unwrap())?.id);
+        if let Some(x) = self.self_file_id {
+            Ok(x)
+        } else {
+            let argv0 = env::args().next().unwrap();
+            let file_id = self
+                .input_file_for_rel_path(
+                    config::EXECUTABLE.into(),
+                    FileType::SystemExecutable,
+                    Path::new(&argv0).canonicalize()?,
+                )?
+                .id;
+            self.self_file_id = Some(file_id);
+            Ok(file_id)
         }
-        Ok(self.self_file_id.unwrap())
     }
 
     #[cfg(test)]
@@ -334,7 +344,7 @@ impl Razel {
             let cwd_path = abs.strip_prefix(&self.current_dir).unwrap().to_path_buf();
             if let Some(id) = self.path_to_file_id.get(&cwd_path) {
                 return Ok(&self.files[*id]);
-            } else if arg.contains('/') || abs.exists() {
+            } else if arg.contains('/') || abs.is_file() {
                 (FileType::ExecutableInWorkspace, abs)
             } else {
                 return self.executable_which(arg);
