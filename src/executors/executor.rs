@@ -1,6 +1,7 @@
 use crate::CGroup;
 use anyhow::Error;
 use std::collections::HashMap;
+use std::fmt;
 use std::path::PathBuf;
 use std::time::Duration;
 use std::time::Instant;
@@ -64,7 +65,7 @@ impl Executor {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct ExecutionResult {
     pub status: ExecutionStatus,
     pub exit_code: Option<i32>,
@@ -94,6 +95,23 @@ impl ExecutionResult {
 
     pub fn success(&self) -> bool {
         self.status == ExecutionStatus::Success
+    }
+}
+
+impl fmt::Debug for ExecutionResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{:?} ({:?}), stdout: '{}', stderr: '{}'",
+            self.status,
+            self.exit_code,
+            std::str::from_utf8(&self.stdout)
+                .unwrap()
+                .replace('\n', "\\n"),
+            std::str::from_utf8(&self.stderr)
+                .unwrap()
+                .replace('\n', "\\n"),
+        )
     }
 }
 

@@ -70,10 +70,12 @@ pub mod executors {
     pub use custom_command::*;
     pub use executor::*;
     pub use task::*;
+    pub use wasi::*;
 
     mod custom_command;
     mod executor;
     mod task;
+    mod wasi;
 }
 
 pub mod utils {
