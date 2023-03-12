@@ -135,8 +135,11 @@ fn add_file_to_wasi_ctx(wasi: &mut WasiCtx, path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tasks::ensure_equal;
+    use temp_dir::TempDir;
 
     static CP_MODULE_PATH: &str = "test/bin/wasm32-wasi/cp.wasm";
+    static SOURCE_PATH: &str = "test/data/a.csv";
 
     fn create_cp_module() -> Module {
         let engine = create_engine().unwrap();
@@ -152,6 +155,7 @@ mod tests {
             ..Default::default()
         }
         .exec();
+        println!("{x:?}");
         assert!(x.success());
         assert_eq!(x.exit_code, Some(0));
         assert!(std::str::from_utf8(&x.stdout).unwrap().contains("Usage"));
@@ -159,51 +163,57 @@ mod tests {
 
     #[test]
     fn cp() {
+        let dst_dir = TempDir::new().unwrap();
+        let dst = dst_dir.child("outfile");
         let x = WasiExecutor {
             module: Some(create_cp_module()),
             executable: CP_MODULE_PATH.to_string(),
-            args: vec![
-                "test/data/a.csv".to_string(),
-                "tmp/cp.outfile.tmp".to_string(),
-            ],
-            input_paths: vec!["test/data/a.csv".to_string()],
-            output_paths: vec!["tmp/cp.outfile.tmp".to_string()],
+            args: vec![SOURCE_PATH.to_string(), dst.to_str().unwrap().to_string()],
+            input_paths: vec![SOURCE_PATH.to_string()],
+            output_paths: vec![dst.to_str().unwrap().to_string()],
             ..Default::default()
         }
         .exec();
-
+        println!("{x:?}");
         assert!(x.success());
+        assert!(ensure_equal(PathBuf::from(SOURCE_PATH), dst).is_ok());
     }
 
     #[test]
     fn cp_invalid_file() {
+        let dst_dir = TempDir::new().unwrap();
+        let dst = dst_dir.child("outfile");
         let x = WasiExecutor {
             module: Some(create_cp_module()),
             executable: CP_MODULE_PATH.to_string(),
-            args: vec!["not-existing-file".to_string(), "xxx".to_string()],
-            input_paths: vec!["test/data/a.csv".to_string()],
-            output_paths: vec!["tmp/cp.outfile.tmp".to_string()],
+            args: vec![
+                "not-existing-file".to_string(),
+                dst.to_str().unwrap().to_string(),
+            ],
+            input_paths: vec![SOURCE_PATH.to_string()],
+            output_paths: vec![dst.to_str().unwrap().to_string()],
             ..Default::default()
         }
         .exec();
+        println!("{x:?}");
         assert!(!x.success());
         assert_eq!(x.exit_code, Some(1));
     }
 
     #[test]
     fn cp_no_preopened_input_file() {
+        let dst_dir = TempDir::new().unwrap();
+        let dst = dst_dir.child("outfile");
         let x = WasiExecutor {
             module: Some(create_cp_module()),
             executable: CP_MODULE_PATH.to_string(),
-            args: vec![
-                "test/data/a.csv".to_string(),
-                "tmp/cp.outfile.tmp".to_string(),
-            ],
+            args: vec![SOURCE_PATH.to_string(), dst.to_str().unwrap().to_string()],
             input_paths: vec![],
-            output_paths: vec!["tmp/cp.outfile.tmp".to_string()],
+            output_paths: vec![dst.to_str().unwrap().to_string()],
             ..Default::default()
         }
         .exec();
+        println!("{x:?}");
         assert!(!x.success());
         assert!(std::str::from_utf8(&x.stderr)
             .unwrap()
@@ -212,18 +222,18 @@ mod tests {
 
     #[test]
     fn no_preopened_output_file() {
+        let dst_dir = TempDir::new().unwrap();
+        let dst = dst_dir.child("outfile");
         let x = WasiExecutor {
             module: Some(create_cp_module()),
             executable: CP_MODULE_PATH.to_string(),
-            args: vec![
-                "test/data/a.csv".to_string(),
-                "tmp/cp.outfile.tmp".to_string(),
-            ],
-            input_paths: vec!["test/data/a.csv".to_string()],
+            args: vec![SOURCE_PATH.to_string(), dst.to_str().unwrap().to_string()],
+            input_paths: vec![SOURCE_PATH.to_string()],
             output_paths: vec![],
             ..Default::default()
         }
         .exec();
+        println!("{x:?}");
         assert!(!x.success());
         assert!(std::str::from_utf8(&x.stderr)
             .unwrap()
