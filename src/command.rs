@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::executors::{
     AsyncTask, AsyncTaskExecutor, BlockingTaskExecutor, CustomCommandExecutor, Executor, TaskFn,
+    WasiExecutor,
 };
 use crate::{ArenaId, FileId, FileType, Razel, ScheduleState};
 
@@ -149,6 +150,28 @@ impl CommandBuilder {
             executable: file.executable_for_command_line(),
             args: self.args_with_out_paths.clone(),
             env,
+            stdout_file: self.stdout_file.clone(),
+            stderr_file: self.stderr_file.clone(),
+        }));
+        Ok(())
+    }
+
+    pub fn wasi_executor(
+        &mut self,
+        executable: String,
+        env: HashMap<String, String>,
+        razel: &mut Razel,
+    ) -> Result<(), anyhow::Error> {
+        let file = razel.wasi_module(executable)?;
+        self.inputs.push(file.id);
+        self.executor = Some(Executor::Wasi(WasiExecutor {
+            module: None,
+            module_file_id: Some(file.id),
+            executable: file.executable_for_command_line(),
+            args: self.args_with_out_paths.clone(),
+            env,
+            input_paths: vec![],
+            output_paths: vec![],
             stdout_file: self.stdout_file.clone(),
             stderr_file: self.stderr_file.clone(),
         }));

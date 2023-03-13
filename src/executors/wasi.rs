@@ -1,4 +1,5 @@
 use crate::executors::{ExecutionResult, ExecutionStatus};
+use crate::FileId;
 use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
 use std::fs::File;
@@ -10,21 +11,11 @@ use wasmtime::*;
 use wasmtime_wasi::sync::WasiCtxBuilder;
 use wasmtime_wasi::I32Exit;
 
-pub fn create_engine() -> Result<Engine> {
-    let mut config = Config::new();
-    config.cranelift_nan_canonicalization(true);
-    let engine = Engine::new(&config)?;
-    Ok(engine)
-}
-
-pub fn create_module(engine: &Engine, file: impl AsRef<Path>) -> Result<Module> {
-    Module::from_file(engine, &file)
-}
-
 #[derive(Clone, Default)]
 pub struct WasiExecutor {
     /// WASM module, is internally shared between executors to compile just once
     pub module: Option<Module>,
+    pub module_file_id: Option<FileId>,
     pub executable: String,
     pub args: Vec<String>,
     pub env: HashMap<String, String>,
@@ -35,6 +26,18 @@ pub struct WasiExecutor {
 }
 
 impl WasiExecutor {
+    pub fn create_engine() -> Result<Engine> {
+        let mut config = Config::new();
+        config.cranelift_nan_canonicalization(true);
+        let engine = Engine::new(&config).context("create WASM engine")?;
+        Ok(engine)
+    }
+
+    pub fn create_module(engine: &Engine, file: impl AsRef<Path>) -> Result<Module> {
+        Module::from_file(engine, &file)
+            .with_context(|| format!("create WASM module: {:?}", file.as_ref()))
+    }
+
     pub fn exec(&self) -> ExecutionResult {
         match self.wasi_exec() {
             Ok(execution_result) => execution_result,
@@ -47,6 +50,7 @@ impl WasiExecutor {
     }
 
     fn wasi_exec(&self) -> Result<ExecutionResult> {
+        assert!(self.module.is_some());
         let engine = self.module.as_ref().unwrap().engine();
         let mut linker = Linker::new(engine);
         wasmtime_wasi::add_to_linker(&mut linker, |s| s)?;
@@ -86,6 +90,38 @@ impl WasiExecutor {
             .map_err(|err| anyhow!("failed to take stderr_pipe: {err:?}"))?
             .into_inner();
         Ok(execution_result)
+    }
+
+    // TODO merge with CustomCommandExecutor
+    pub fn args_with_executable(&self) -> Vec<String> {
+        [self.executable.clone()]
+            .iter()
+            .chain(self.args.iter())
+            .cloned()
+            .collect()
+    }
+
+    // TODO merge with CustomCommandExecutor
+    pub fn command_line_with_redirects(&self) -> Vec<String> {
+        [self.executable.clone()]
+            .iter()
+            .chain(self.args.iter())
+            .chain(
+                self.stdout_file
+                    .as_ref()
+                    .map(|x| [">".to_string(), x.to_str().unwrap().to_string()])
+                    .iter()
+                    .flatten(),
+            )
+            .chain(
+                self.stderr_file
+                    .as_ref()
+                    .map(|x| ["2>".to_string(), x.to_str().unwrap().to_string()])
+                    .iter()
+                    .flatten(),
+            )
+            .cloned()
+            .collect()
     }
 
     fn create_wasi_ctx(
@@ -142,8 +178,8 @@ mod tests {
     static SOURCE_PATH: &str = "test/data/a.csv";
 
     fn create_cp_module() -> Module {
-        let engine = create_engine().unwrap();
-        create_module(&engine, CP_MODULE_PATH).unwrap()
+        let engine = WasiExecutor::create_engine().unwrap();
+        WasiExecutor::create_module(&engine, CP_MODULE_PATH).unwrap()
     }
 
     #[test]

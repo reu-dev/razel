@@ -6,11 +6,14 @@ use std::path::PathBuf;
 use std::time::Duration;
 use std::time::Instant;
 
-use crate::executors::{AsyncTaskExecutor, BlockingTaskExecutor, CustomCommandExecutor};
+use crate::executors::{
+    AsyncTaskExecutor, BlockingTaskExecutor, CustomCommandExecutor, WasiExecutor,
+};
 
 #[derive(Clone)]
 pub enum Executor {
     CustomCommand(CustomCommandExecutor),
+    Wasi(WasiExecutor),
     AsyncTask(AsyncTaskExecutor),
     BlockingTask(BlockingTaskExecutor),
 }
@@ -23,6 +26,7 @@ impl Executor {
     ) -> ExecutionResult {
         match self {
             Executor::CustomCommand(c) => c.exec(sandbox_dir, cgroup).await,
+            Executor::Wasi(x) => x.exec(),
             Executor::AsyncTask(x) => x.exec(sandbox_dir).await,
             Executor::BlockingTask(t) => t.exec().await,
         }
@@ -31,6 +35,7 @@ impl Executor {
     pub fn args_with_executable(&self) -> Vec<String> {
         match self {
             Executor::CustomCommand(c) => c.args_with_executable(),
+            Executor::Wasi(x) => x.args_with_executable(),
             Executor::AsyncTask(x) => x.args_with_executable(),
             Executor::BlockingTask(t) => t.args_with_executable(),
         }
@@ -39,6 +44,7 @@ impl Executor {
     pub fn command_line_with_redirects(&self) -> Vec<String> {
         match self {
             Executor::CustomCommand(c) => c.command_line_with_redirects(),
+            Executor::Wasi(x) => x.command_line_with_redirects(),
             Executor::AsyncTask(x) => x.args_with_executable(),
             Executor::BlockingTask(t) => t.args_with_executable(),
         }
@@ -47,6 +53,7 @@ impl Executor {
     pub fn env(&self) -> Option<&HashMap<String, String>> {
         match self {
             Executor::CustomCommand(x) => Some(&x.env),
+            Executor::Wasi(x) => Some(&x.env),
             Executor::AsyncTask(_) => None,
             Executor::BlockingTask(_) => None,
         }
@@ -59,6 +66,7 @@ impl Executor {
     pub fn use_sandbox(&self) -> bool {
         match self {
             Executor::CustomCommand(_) => true,
+            Executor::Wasi(_) => false,
             Executor::AsyncTask(_) => true,
             Executor::BlockingTask(_) => false,
         }
