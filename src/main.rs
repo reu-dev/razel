@@ -7,7 +7,9 @@ use razel::{parse_cli, Razel};
 async fn main() -> Result<(), anyhow::Error> {
     TermLogger::init(
         LevelFilter::Info,
-        Config::default(),
+        ConfigBuilder::new()
+            .add_filter_ignore_str("cranelift_codegen::context")
+            .build(),
         TerminalMode::Mixed,
         ColorChoice::Auto,
     )

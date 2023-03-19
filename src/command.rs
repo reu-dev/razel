@@ -170,8 +170,6 @@ impl CommandBuilder {
             executable: file.executable_for_command_line(),
             args: self.args_with_out_paths.clone(),
             env,
-            input_paths: vec![],
-            output_paths: vec![],
             stdout_file: self.stdout_file.clone(),
             stderr_file: self.stderr_file.clone(),
         }));

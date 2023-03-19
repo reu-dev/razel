@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
+use wasi_common::dir::DirCaps;
+use wasi_common::file::FileCaps;
 use wasi_common::pipe::WritePipe;
 use wasi_common::WasiCtx;
 use wasmtime::*;
@@ -19,8 +21,6 @@ pub struct WasiExecutor {
     pub executable: String,
     pub args: Vec<String>,
     pub env: HashMap<String, String>,
-    pub input_paths: Vec<String>,
-    pub output_paths: Vec<String>,
     pub stdout_file: Option<PathBuf>,
     pub stderr_file: Option<PathBuf>,
 }
@@ -38,8 +38,8 @@ impl WasiExecutor {
             .with_context(|| format!("create WASM module: {:?}", file.as_ref()))
     }
 
-    pub fn exec(&self) -> ExecutionResult {
-        match self.wasi_exec() {
+    pub fn exec(&self, sandbox_dir: &Path) -> ExecutionResult {
+        match self.wasi_exec(sandbox_dir) {
             Ok(execution_result) => execution_result,
             Err(error) => ExecutionResult {
                 status: ExecutionStatus::FailedToStart,
@@ -49,7 +49,7 @@ impl WasiExecutor {
         }
     }
 
-    fn wasi_exec(&self) -> Result<ExecutionResult> {
+    fn wasi_exec(&self, sandbox_dir: &Path) -> Result<ExecutionResult> {
         assert!(self.module.is_some());
         let engine = self.module.as_ref().unwrap().engine();
         let mut linker = Linker::new(engine);
@@ -58,7 +58,7 @@ impl WasiExecutor {
         let stdout_pipe = WritePipe::new_in_memory();
         let stderr_pipe = WritePipe::new_in_memory();
 
-        let wasi_ctx = self.create_wasi_ctx(&stdout_pipe, &stderr_pipe)?;
+        let wasi_ctx = self.create_wasi_ctx(&stdout_pipe, &stderr_pipe, sandbox_dir)?;
         let mut store = Store::new(engine, wasi_ctx);
         let instance = linker.instantiate(&mut store, self.module.as_ref().unwrap())?;
         let func = instance.get_typed_func::<(), ()>(&mut store, "_start")?;
@@ -128,6 +128,7 @@ impl WasiExecutor {
         &self,
         stdout_pipe: &WritePipe<Cursor<Vec<u8>>>,
         stderr_pipe: &WritePipe<Cursor<Vec<u8>>>,
+        sandbox_dir: &Path,
     ) -> Result<WasiCtx> {
         let mut wasi_ctx = WasiCtxBuilder::new()
             .stdout(Box::new(stdout_pipe.clone()))
@@ -137,45 +138,31 @@ impl WasiExecutor {
         for arg in &self.args {
             wasi_ctx.push_arg(arg)?;
         }
-        for path in &self.input_paths {
-            push_input_file_to_wasi_ctx(&mut wasi_ctx, Path::new(path))
-                .with_context(|| format!("push_input_file_to_wasi_ctx(): {path}"))?;
-        }
-        for path in &self.output_paths {
-            push_output_file_to_wasi_ctx(&mut wasi_ctx, Path::new(path))
-                .with_context(|| format!("push_input_file_to_wasi_ctx(): {path}"))?;
-        }
+        Self::add_dir_to_wasi_ctx(&mut wasi_ctx, sandbox_dir, "".into())?;
         Ok(wasi_ctx)
     }
-}
 
-fn push_input_file_to_wasi_ctx(wasi: &mut WasiCtx, path: &Path) -> Result<()> {
-    add_file_to_wasi_ctx(wasi, path)
-}
-
-fn push_output_file_to_wasi_ctx(wasi: &mut WasiCtx, path: &Path) -> Result<()> {
-    add_file_to_wasi_ctx(wasi, path)
-}
-
-fn add_file_to_wasi_ctx(wasi: &mut WasiCtx, path: &Path) -> Result<()> {
-    let dir = path.parent().unwrap();
-    let std_file = File::open(dir)?;
-    let wasi_dir = wasi_cap_std_sync::Dir::from_std_file(std_file);
-    wasi.push_preopened_dir(
-        Box::new(wasi_cap_std_sync::dir::Dir::from_cap_std(wasi_dir)),
-        dir,
-    )?;
-    Ok(())
+    fn add_dir_to_wasi_ctx(wasi: &mut WasiCtx, host_dir: &Path, guest_dir: PathBuf) -> Result<()> {
+        let cap_std_dir = wasi_cap_std_sync::Dir::from_std_file(File::open(host_dir)?);
+        let wasi_dir = Box::new(wasi_cap_std_sync::dir::Dir::from_cap_std(cap_std_dir));
+        let dir_caps = DirCaps::all();
+        let file_caps = FileCaps::all();
+        wasi.push_dir(wasi_dir, dir_caps, file_caps, guest_dir)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::new_tmp_dir;
     use crate::tasks::ensure_equal;
-    use temp_dir::TempDir;
+    use std::fs;
 
     static CP_MODULE_PATH: &str = "test/bin/wasm32-wasi/cp.wasm";
-    static SOURCE_PATH: &str = "test/data/a.csv";
+    static SRC_PATH: &str = "src-file";
+    static DST_PATH: &str = "dst-file";
+    const SOURCE_CONTENTS: &str = "SOURCE_CONTENTS";
 
     fn create_cp_module() -> Module {
         let engine = WasiExecutor::create_engine().unwrap();
@@ -184,13 +171,14 @@ mod tests {
 
     #[test]
     fn cp_help() {
+        let sandbox_dir = new_tmp_dir!();
         let x = WasiExecutor {
             module: Some(create_cp_module()),
-            executable: CP_MODULE_PATH.to_string(),
-            args: vec!["-h".to_string()],
+            executable: CP_MODULE_PATH.into(),
+            args: vec!["-h".into()],
             ..Default::default()
         }
-        .exec();
+        .exec(sandbox_dir.dir());
         println!("{x:?}");
         assert!(x.success());
         assert_eq!(x.exit_code, Some(0));
@@ -199,56 +187,55 @@ mod tests {
 
     #[test]
     fn cp() {
-        let dst_dir = TempDir::new().unwrap();
-        let dst = dst_dir.child("outfile");
+        let sandbox_dir = new_tmp_dir!();
+        let src = sandbox_dir.join_and_write_file(SRC_PATH, SOURCE_CONTENTS);
+        let dst = sandbox_dir.join(DST_PATH);
         let x = WasiExecutor {
             module: Some(create_cp_module()),
-            executable: CP_MODULE_PATH.to_string(),
-            args: vec![SOURCE_PATH.to_string(), dst.to_str().unwrap().to_string()],
-            input_paths: vec![SOURCE_PATH.to_string()],
-            output_paths: vec![dst.to_str().unwrap().to_string()],
+            executable: CP_MODULE_PATH.into(),
+            args: vec![SRC_PATH.into(), DST_PATH.into()],
             ..Default::default()
         }
-        .exec();
+        .exec(sandbox_dir.dir());
         println!("{x:?}");
         assert!(x.success());
-        assert!(ensure_equal(PathBuf::from(SOURCE_PATH), dst).is_ok());
+        ensure_equal(src, dst).unwrap();
     }
 
     #[test]
-    fn cp_invalid_file() {
-        let dst_dir = TempDir::new().unwrap();
-        let dst = dst_dir.child("outfile");
+    fn cp_not_existing_input_file() {
+        let sandbox_dir = new_tmp_dir!();
+        // not writing source file
         let x = WasiExecutor {
             module: Some(create_cp_module()),
-            executable: CP_MODULE_PATH.to_string(),
-            args: vec![
-                "not-existing-file".to_string(),
-                dst.to_str().unwrap().to_string(),
-            ],
-            input_paths: vec![SOURCE_PATH.to_string()],
-            output_paths: vec![dst.to_str().unwrap().to_string()],
+            executable: CP_MODULE_PATH.into(),
+            args: vec![SRC_PATH.into(), DST_PATH.into()],
             ..Default::default()
         }
-        .exec();
+        .exec(sandbox_dir.dir());
         println!("{x:?}");
         assert!(!x.success());
         assert_eq!(x.exit_code, Some(1));
+        assert!(std::str::from_utf8(&x.stderr)
+            .unwrap()
+            .contains("error opening input file"));
     }
 
     #[test]
-    fn cp_no_preopened_input_file() {
-        let dst_dir = TempDir::new().unwrap();
-        let dst = dst_dir.child("outfile");
+    fn cp_read_outside_sandbox() {
+        let sandbox_dir = new_tmp_dir!();
+        let file_outside_sandbox = fs::canonicalize("README.md").unwrap();
+        assert!(file_outside_sandbox.exists());
         let x = WasiExecutor {
             module: Some(create_cp_module()),
-            executable: CP_MODULE_PATH.to_string(),
-            args: vec![SOURCE_PATH.to_string(), dst.to_str().unwrap().to_string()],
-            input_paths: vec![],
-            output_paths: vec![dst.to_str().unwrap().to_string()],
+            executable: CP_MODULE_PATH.into(),
+            args: vec![
+                file_outside_sandbox.to_str().unwrap().into(),
+                DST_PATH.into(),
+            ],
             ..Default::default()
         }
-        .exec();
+        .exec(sandbox_dir.dir());
         println!("{x:?}");
         assert!(!x.success());
         assert!(std::str::from_utf8(&x.stderr)
@@ -257,18 +244,21 @@ mod tests {
     }
 
     #[test]
-    fn no_preopened_output_file() {
-        let dst_dir = TempDir::new().unwrap();
-        let dst = dst_dir.child("outfile");
+    fn cp_write_outside_sandbox() {
+        let sandbox_dir = new_tmp_dir!();
+        sandbox_dir.join_and_write_file(SRC_PATH, SOURCE_CONTENTS);
+        let file_outside_sandbox = fs::canonicalize(".").unwrap().join("not-existing-file");
+        assert!(!file_outside_sandbox.exists());
         let x = WasiExecutor {
             module: Some(create_cp_module()),
-            executable: CP_MODULE_PATH.to_string(),
-            args: vec![SOURCE_PATH.to_string(), dst.to_str().unwrap().to_string()],
-            input_paths: vec![SOURCE_PATH.to_string()],
-            output_paths: vec![],
+            executable: CP_MODULE_PATH.into(),
+            args: vec![
+                SRC_PATH.into(),
+                file_outside_sandbox.to_str().unwrap().into(),
+            ],
             ..Default::default()
         }
-        .exec();
+        .exec(sandbox_dir.dir());
         println!("{x:?}");
         assert!(!x.success());
         assert!(std::str::from_utf8(&x.stderr)

@@ -26,7 +26,7 @@ impl Executor {
     ) -> ExecutionResult {
         match self {
             Executor::CustomCommand(c) => c.exec(sandbox_dir, cgroup).await,
-            Executor::Wasi(x) => x.exec(),
+            Executor::Wasi(x) => x.exec(sandbox_dir.as_ref().unwrap()),
             Executor::AsyncTask(x) => x.exec(sandbox_dir).await,
             Executor::BlockingTask(t) => t.exec().await,
         }
@@ -66,7 +66,7 @@ impl Executor {
     pub fn use_sandbox(&self) -> bool {
         match self {
             Executor::CustomCommand(_) => true,
-            Executor::Wasi(_) => false,
+            Executor::Wasi(_) => true,
             Executor::AsyncTask(_) => true,
             Executor::BlockingTask(_) => false,
         }
