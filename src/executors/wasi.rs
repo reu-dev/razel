@@ -2,7 +2,6 @@ use crate::executors::{ExecutionResult, ExecutionStatus};
 use crate::FileId;
 use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
-use std::fs::File;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use wasi_common::dir::DirCaps;
@@ -58,10 +57,16 @@ impl WasiExecutor {
         let stdout_pipe = WritePipe::new_in_memory();
         let stderr_pipe = WritePipe::new_in_memory();
 
-        let wasi_ctx = self.create_wasi_ctx(&stdout_pipe, &stderr_pipe, sandbox_dir)?;
+        let wasi_ctx = self
+            .create_wasi_ctx(&stdout_pipe, &stderr_pipe, sandbox_dir)
+            .with_context(|| format!("create_wasi_ctx() sandbox_dir: {sandbox_dir:?}"))?;
         let mut store = Store::new(engine, wasi_ctx);
-        let instance = linker.instantiate(&mut store, self.module.as_ref().unwrap())?;
-        let func = instance.get_typed_func::<(), ()>(&mut store, "_start")?;
+        let instance = linker
+            .instantiate(&mut store, self.module.as_ref().unwrap())
+            .context("linker.instantiate()")?;
+        let func = instance
+            .get_typed_func::<(), ()>(&mut store, "_start")
+            .context("instance.get_typed_func(_start)")?;
 
         let mut execution_result: ExecutionResult = Default::default();
         match func.call(&mut store, ()) {
@@ -138,12 +143,16 @@ impl WasiExecutor {
         for arg in &self.args {
             wasi_ctx.push_arg(arg)?;
         }
-        Self::add_dir_to_wasi_ctx(&mut wasi_ctx, sandbox_dir, "".into())?;
+        Self::add_dir_to_wasi_ctx(&mut wasi_ctx, sandbox_dir, "".into())
+            .with_context(|| format!("add_dir_to_wasi_ctx() sandbox_dir: {sandbox_dir:?}"))?;
         Ok(wasi_ctx)
     }
 
     fn add_dir_to_wasi_ctx(wasi: &mut WasiCtx, host_dir: &Path, guest_dir: PathBuf) -> Result<()> {
-        let cap_std_dir = wasi_cap_std_sync::Dir::from_std_file(File::open(host_dir)?);
+        let cap_std_dir = wasi_cap_std_sync::Dir::open_ambient_dir(
+            host_dir,
+            wasi_cap_std_sync::ambient_authority(),
+        )?;
         let wasi_dir = Box::new(wasi_cap_std_sync::dir::Dir::from_cap_std(cap_std_dir));
         let dir_caps = DirCaps::all();
         let file_caps = FileCaps::all();
