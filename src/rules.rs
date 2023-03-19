@@ -110,8 +110,8 @@ impl Rule {
     }
 
     fn parse_arg(item: &str) -> Result<Option<Arg>, anyhow::Error> {
-        let open = item.chars().into_iter().filter(|x| *x == '<').count();
-        let close = item.chars().into_iter().filter(|x| *x == '>').count();
+        let open = item.chars().filter(|x| *x == '<').count();
+        let close = item.chars().filter(|x| *x == '>').count();
         Ok(if open == 0 && close == 0 {
             None
         } else if item == "<in>" {
