@@ -91,7 +91,7 @@ export class Razel {
         const existing = this.commands.find(x => x.name === command.name);
         if (existing) {
             assertEquals(command.json(), existing.json(),
-                `conflicting actions: ${command.name}:\nexisting: ${existing.json()}\nto add: ${command.json()}`);
+                `conflicting actions: ${command.name}:\nexisting: ${JSON.stringify(existing.json())}\nto add: ${JSON.stringify(command.json())}`);
             return existing;
         }
         this.commands.push(command);
