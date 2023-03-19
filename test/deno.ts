@@ -14,9 +14,11 @@ const b = razel.addTask('b.csv', 'write-file', [razel.addOutputFile('b.csv'), 'a
 const c = razel.addTask('c.csv', 'csv-concat', [a, b, razel.addOutputFile('c.csv')]);
 razel.addTask('filtered.csv', 'csv-filter', ['-i', c, '-o', razel.addOutputFile('filtered.csv'), '-c', 'a', 'xyz'])
     .ensureEqual(f);
-// add commands to copy a file
+// add command to copy a file using the OS executable
 const d = razel.addCommand('d.csv', 'cp', [a, razel.addOutputFile('d.csv')]);
-razel.addCommand('e.csv', 'cp', [d, razel.addOutputFile('e.csv')])
+d.ensureEqual(a);
+// add command to copy a file using a WASM module with WASI
+razel.addCommand('e.csv', 'bin/wasm32-wasi/cp.wasm', [d, razel.addOutputFile('e.csv')])
     .ensureEqual(a);
 
 if (false) {  // requires clang
