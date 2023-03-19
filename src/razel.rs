@@ -126,7 +126,6 @@ impl Razel {
     #[cfg(target_os = "linux")]
     fn create_cgroup() -> Result<Option<CGroup>, anyhow::Error> {
         use crate::get_available_memory;
-        use log::info;
         let available = get_available_memory()?;
         let mut limit = available;
         let existing_limit = CGroup::new("".into()).read::<u64>("memory", "memory.limit_in_bytes");
@@ -138,7 +137,7 @@ impl Razel {
         cgroup.create("memory")?;
         cgroup.write("memory", "memory.limit_in_bytes", limit)?;
         cgroup.write("memory", "memory.swappiness", 0)?;
-        info!(
+        debug!(
             "create_cgroup(): available: {}MiB, limit: {:?}MiB -> set limit {}MiB",
             available / 1024 / 1024,
             existing_limit.ok().map(|x| x / 1024 / 1024),

@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 use anyhow::Context;
-use log::info;
+use log::debug;
 
 use crate::{config, parse_cli_within_file, Razel, Rules};
 
@@ -32,7 +32,7 @@ pub fn parse_batch_file(razel: &mut Razel, file_name: &String) -> Result<(), any
                 .with_context(|| format!("Failed to add command: {name}"))?;
         }
     }
-    info!("Added {} commands from {}", razel.len(), file_name);
+    debug!("Added {} commands from {file_name}", razel.len());
     Ok(())
 }
 
