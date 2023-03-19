@@ -183,16 +183,14 @@ impl LocalCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use temp_dir::TempDir;
-    use tokio::fs;
+    use crate::new_tmp_dir;
 
     #[tokio::test]
     async fn move_output_file_into_cache() {
-        let src_dir = TempDir::new().unwrap();
-        let src = src_dir.child("some-output-file");
-        fs::write(&src, "some content").await.unwrap();
-        let dst_dir = TempDir::new().unwrap();
-        let dst = dst_dir.child("file-in-cache");
+        let src_dir = new_tmp_dir!();
+        let src = src_dir.join_and_write_file("some-output-file", "some content");
+        let dst_dir = new_tmp_dir!();
+        let dst = dst_dir.join("file-in-cache");
         set_file_readonly(&src).await.unwrap();
         tokio::fs::rename(&src, &dst).await.unwrap();
         assert!(tokio::fs::metadata(&dst)

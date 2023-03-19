@@ -43,22 +43,20 @@ fn symlink_file(src: &PathBuf, dst: &PathBuf) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::new_tmp_dir;
     use std::fs;
-    use temp_dir::TempDir;
 
     const FIRST_CONTENT: &str = "FIRST_CONTENT";
     const OTHER_CONTENT: &str = "OTHER_CONTENT";
 
     #[tokio::test]
     async fn create_recreate_and_modify() {
-        let src_dir = TempDir::new().unwrap();
-        let dst_dir = TempDir::new().unwrap();
-        let first_src = src_dir.child("first-src-file");
-        let other_src = src_dir.child("other-src-file");
-        let dst = dst_dir.child("dst-dir").join("dst-file");
-        fs::write(&first_src, FIRST_CONTENT).unwrap();
-        fs::write(&other_src, OTHER_CONTENT).unwrap();
-        // create initial symlink
+        let src_dir = new_tmp_dir!();
+        let first_src = src_dir.join_and_write_file("first-src-file", FIRST_CONTENT);
+        let other_src = src_dir.join_and_write_file("other-src-file", OTHER_CONTENT);
+        let dst_dir = new_tmp_dir!();
+        let dst = dst_dir.join("dst-dir").join("dst-file");
+        // create initial link
         force_symlink(&first_src, &dst).await.unwrap();
         assert_eq!(fs::read_to_string(&first_src).unwrap(), FIRST_CONTENT);
         assert_eq!(fs::read_to_string(&dst).unwrap(), FIRST_CONTENT);

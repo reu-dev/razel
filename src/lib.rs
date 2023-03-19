@@ -79,6 +79,8 @@ pub mod executors {
 }
 
 pub mod utils {
+    pub mod test_utils;
+
     pub use arena::*;
     pub use file_permissions::*;
     pub use resources::*;
