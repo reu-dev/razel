@@ -1,5 +1,5 @@
 use crate::force_remove_file;
-use anyhow::{anyhow, bail, Context};
+use anyhow::{bail, Context};
 use std::io;
 use std::path::PathBuf;
 use tokio::fs;
@@ -10,23 +10,23 @@ pub async fn force_symlink(src: &PathBuf, dst: &PathBuf) -> Result<(), anyhow::E
         if src == dst {
             bail!("symlink dst must not equal src");
         }
+        let src_abs = fs::canonicalize(&src)
+            .await
+            .with_context(|| format!("canonicalize() {src:?}"))?;
         if let Ok(existing) = fs::read_link(&dst).await {
-            if existing == *src {
+            if existing == src_abs {
                 return Ok(());
             }
         }
         force_remove_file(&dst).await?; // to avoid symlink() fail with "File exists"
-        fs::create_dir_all(dst.parent().unwrap())
+        let parent = dst.parent().unwrap();
+        fs::create_dir_all(&parent)
             .await
-            .with_context(|| {
-                anyhow!(
-                    "Failed to create destination directory: {:?}",
-                    dst.parent().unwrap()
-                )
-            })?;
-        symlink_file(src, dst).with_context(|| anyhow!("symlink_file"))
+            .with_context(|| format!("fs::create_dir_all() {parent:?}"))?;
+        symlink_file(&src_abs, dst)
+            .with_context(|| format!("symlink_file() {src_abs:?} -> {dst:?}"))
     }
-    .with_context(|| anyhow!("force_symlink {src:?} -> {dst:?}"))?;
+    .with_context(|| format!("force_symlink() {src:?} -> {dst:?}"))?;
     Ok(())
 }
 
