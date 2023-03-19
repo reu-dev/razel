@@ -175,7 +175,7 @@ mod main {
         test_main(
             vec![config::EXECUTABLE, "exec", "-f", "test/batch.sh"],
             SchedulerExecStats {
-                succeeded: 8,
+                succeeded: 9,
                 ..Default::default()
             },
         )
