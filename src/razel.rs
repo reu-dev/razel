@@ -270,7 +270,11 @@ impl Razel {
             println!("# {}", command.name);
             println!(
                 "{}",
-                TUI::format_command_line(&command.executor.command_line_with_redirects())
+                TUI::format_command_line(
+                    &command
+                        .executor
+                        .command_line_with_redirects(&self.tui.razel_executable)
+                )
             );
             command.schedule_state = ScheduleState::Succeeded;
             self.scheduler.set_finished_and_get_retry_flag(id, false);

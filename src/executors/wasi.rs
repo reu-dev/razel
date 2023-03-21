@@ -1,5 +1,5 @@
 use crate::executors::{ExecutionResult, ExecutionStatus};
-use crate::FileId;
+use crate::{config, FileId};
 use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
 use std::io::Cursor;
@@ -97,36 +97,44 @@ impl WasiExecutor {
         Ok(execution_result)
     }
 
-    // TODO merge with CustomCommandExecutor
     pub fn args_with_executable(&self) -> Vec<String> {
-        [self.executable.clone()]
-            .iter()
-            .chain(self.args.iter())
-            .cloned()
-            .collect()
+        [
+            config::EXECUTABLE.into(),
+            "command".into(),
+            "--".into(),
+            self.executable.clone(),
+        ]
+        .iter()
+        .chain(self.args.iter())
+        .cloned()
+        .collect()
     }
 
-    // TODO merge with CustomCommandExecutor
-    pub fn command_line_with_redirects(&self) -> Vec<String> {
-        [self.executable.clone()]
-            .iter()
-            .chain(self.args.iter())
-            .chain(
-                self.stdout_file
-                    .as_ref()
-                    .map(|x| [">".to_string(), x.to_str().unwrap().to_string()])
-                    .iter()
-                    .flatten(),
-            )
-            .chain(
-                self.stderr_file
-                    .as_ref()
-                    .map(|x| ["2>".to_string(), x.to_str().unwrap().to_string()])
-                    .iter()
-                    .flatten(),
-            )
-            .cloned()
-            .collect()
+    pub fn command_line_with_redirects(&self, razel_executable: &str) -> Vec<String> {
+        [
+            razel_executable.into(),
+            "command".into(),
+            "--".into(),
+            self.executable.clone(),
+        ]
+        .iter()
+        .chain(self.args.iter())
+        .chain(
+            self.stdout_file
+                .as_ref()
+                .map(|x| [">".to_string(), x.to_str().unwrap().to_string()])
+                .iter()
+                .flatten(),
+        )
+        .chain(
+            self.stderr_file
+                .as_ref()
+                .map(|x| ["2>".to_string(), x.to_str().unwrap().to_string()])
+                .iter()
+                .flatten(),
+        )
+        .cloned()
+        .collect()
     }
 
     fn create_wasi_ctx(

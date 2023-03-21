@@ -17,6 +17,7 @@ static C_RESET: SetForegroundColor = SetForegroundColor(Color::Reset);
 
 /// Terminal user interface
 pub struct TUI {
+    pub razel_executable: String,
     pub verbose: bool,
     status_printed: bool,
     is_tty: bool,
@@ -24,7 +25,11 @@ pub struct TUI {
 
 impl TUI {
     pub fn new() -> Self {
+        let razel_executable = std::env::args()
+            .next()
+            .unwrap_or(config::EXECUTABLE.to_string());
         Self {
+            razel_executable,
             verbose: false,
             status_printed: false,
             is_tty: stdout().is_tty(),
@@ -89,7 +94,12 @@ impl TUI {
         Self::field(
             "command:   ",
             Color::Blue,
-            Self::format_command_line(&command.executor.command_line_with_redirects()).as_str(),
+            Self::format_command_line(
+                &command
+                    .executor
+                    .command_line_with_redirects(&self.razel_executable),
+            )
+            .as_str(),
         );
         if let Some(env) = command.executor.env() {
             Self::field(

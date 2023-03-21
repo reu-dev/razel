@@ -41,10 +41,10 @@ impl Executor {
         }
     }
 
-    pub fn command_line_with_redirects(&self) -> Vec<String> {
+    pub fn command_line_with_redirects(&self, razel_executable: &str) -> Vec<String> {
         match self {
             Executor::CustomCommand(c) => c.command_line_with_redirects(),
-            Executor::Wasi(x) => x.command_line_with_redirects(),
+            Executor::Wasi(x) => x.command_line_with_redirects(razel_executable),
             Executor::AsyncTask(x) => x.args_with_executable(),
             Executor::BlockingTask(t) => t.args_with_executable(),
         }
