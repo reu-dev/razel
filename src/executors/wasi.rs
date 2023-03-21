@@ -143,6 +143,9 @@ impl WasiExecutor {
         for arg in &self.args {
             wasi_ctx.push_arg(arg)?;
         }
+        for (k, v) in &self.env {
+            wasi_ctx.push_env(k, v)?;
+        }
         Self::add_dir_to_wasi_ctx(&mut wasi_ctx, sandbox_dir, "".into())
             .with_context(|| format!("add_dir_to_wasi_ctx() sandbox_dir: {sandbox_dir:?}"))?;
         Ok(wasi_ctx)
