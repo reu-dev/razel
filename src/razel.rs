@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use std::{env, fs};
@@ -13,7 +13,7 @@ use which::which;
 use crate::bazel_remote_exec::command::EnvironmentVariable;
 use crate::bazel_remote_exec::{ActionResult, Digest, ExecutedActionMetadata, OutputFile};
 use crate::cache::{BlobDigest, Cache, MessageDigest};
-use crate::executors::{ExecutionResult, ExecutionStatus, Executor};
+use crate::executors::{ExecutionResult, ExecutionStatus, Executor, WasiExecutor};
 use crate::{
     bazel_remote_exec, config, force_remove_file, Arena, CGroup, Command, CommandBuilder,
     CommandId, File, FileId, FileType, Measurements, Sandbox, Scheduler, TUI,
@@ -207,7 +207,11 @@ impl Razel {
         if let Some(x) = stderr {
             builder.stderr(&x, self)?;
         }
-        builder.custom_command_executor(executable, env, self)?;
+        if executable.ends_with(".wasm") {
+            builder.wasi_executor(executable, env, self)?;
+        } else {
+            builder.custom_command_executor(executable, env, self)?;
+        }
         self.push(builder)
     }
 
@@ -266,7 +270,11 @@ impl Razel {
             println!("# {}", command.name);
             println!(
                 "{}",
-                TUI::format_command_line(&command.executor.command_line_with_redirects())
+                TUI::format_command_line(
+                    &command
+                        .executor
+                        .command_line_with_redirects(&self.tui.razel_executable)
+                )
             );
             command.schedule_state = ScheduleState::Succeeded;
             self.scheduler.set_finished_and_get_retry_flag(id, false);
@@ -300,6 +308,7 @@ impl Razel {
         self.remove_unknown_files_from_out_dir(&self.out_dir).ok();
         self.digest_input_files().await?;
         self.create_output_dirs()?;
+        self.create_wasi_modules()?;
         let (tx, mut rx) = mpsc::channel(32);
         let execution_start = Instant::now();
         self.start_ready_commands(&tx);
@@ -435,6 +444,11 @@ impl Razel {
         });
         self.path_to_file_id.insert(rel_path, id);
         Ok(&self.files[id])
+    }
+
+    pub fn wasi_module(&mut self, arg: String) -> Result<&File, anyhow::Error> {
+        let rel_path = self.rel_path(&arg)?;
+        self.input_file_for_rel_path(arg, FileType::WasiModule, rel_path)
     }
 
     /// Maps a relative path from workspace dir to cwd, allow absolute path
@@ -578,6 +592,32 @@ impl Razel {
         for x in dirs {
             fs::create_dir_all(x)
                 .with_context(|| format!("Failed to create output directory: {x:?}"))?;
+        }
+        Ok(())
+    }
+
+    fn create_wasi_modules(&mut self) -> Result<(), anyhow::Error> {
+        let mut engine = None;
+        let mut modules: HashMap<FileId, wasmtime::Module> = HashMap::new();
+        for command in self.commands.iter_mut() {
+            if let Executor::Wasi(executor) = &mut command.executor {
+                let file_id = executor.module_file_id.unwrap();
+                let module = match modules.entry(file_id) {
+                    hash_map::Entry::Occupied(x) => x.get().clone(),
+                    hash_map::Entry::Vacant(x) => {
+                        if engine.is_none() {
+                            engine = Some(WasiExecutor::create_engine()?);
+                        }
+                        let module = WasiExecutor::create_module(
+                            engine.as_ref().unwrap(),
+                            &executor.executable,
+                        )?;
+                        x.insert(module.clone());
+                        module
+                    }
+                };
+                executor.module = Some(module);
+            }
         }
         Ok(())
     }

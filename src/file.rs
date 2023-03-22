@@ -7,6 +7,7 @@ pub enum FileType {
     DataFile,
     OutputFile,
     ExecutableInWorkspace,
+    WasiModule,
     SystemExecutable,
 }
 
@@ -25,8 +26,9 @@ impl File {
     pub fn new(id: FileId, arg: String, file_type: FileType, path: PathBuf) -> Self {
         match file_type {
             FileType::DataFile => {}
-            FileType::OutputFile => assert!(path.is_relative()),
-            FileType::ExecutableInWorkspace => assert!(path.is_relative()),
+            FileType::OutputFile | FileType::ExecutableInWorkspace | FileType::WasiModule => {
+                assert!(path.is_relative())
+            }
             FileType::SystemExecutable => assert!(path.is_absolute()),
         };
         Self {
@@ -46,6 +48,10 @@ impl File {
             }
             FileType::OutputFile | FileType::ExecutableInWorkspace => {
                 format!("./{}", self.path.to_str().unwrap())
+            }
+            FileType::WasiModule => {
+                // TODO command line should be directly executable
+                self.path.to_str().unwrap().to_string()
             }
             FileType::SystemExecutable => self.path.to_str().unwrap().to_string(),
         }

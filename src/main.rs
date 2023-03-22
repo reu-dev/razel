@@ -7,7 +7,9 @@ use razel::{parse_cli, Razel};
 async fn main() -> Result<(), anyhow::Error> {
     TermLogger::init(
         LevelFilter::Info,
-        Config::default(),
+        ConfigBuilder::new()
+            .add_filter_ignore_str("cranelift_codegen::context")
+            .build(),
         TerminalMode::Mixed,
         ColorChoice::Auto,
     )
@@ -54,6 +56,9 @@ mod main {
     async fn test_main(args: Vec<&str>, exp_stats: SchedulerExecStats) {
         let _ = env_logger::builder()
             .filter_level(log::LevelFilter::Debug)
+            .filter_module("cranelift_codegen", log::LevelFilter::Warn)
+            .filter_module("wasmtime_cranelift", log::LevelFilter::Info)
+            .filter_module("wasmtime_jit", log::LevelFilter::Info)
             .is_test(true)
             .try_init();
         // exit on panic in any thread
@@ -157,7 +162,7 @@ mod main {
         test_main(
             vec![config::EXECUTABLE, "exec", "-f", "test/razel.jsonl"],
             SchedulerExecStats {
-                succeeded: 8,
+                succeeded: 9,
                 ..Default::default()
             },
         )
@@ -170,7 +175,7 @@ mod main {
         test_main(
             vec![config::EXECUTABLE, "exec", "-f", "test/batch.sh"],
             SchedulerExecStats {
-                succeeded: 8,
+                succeeded: 9,
                 ..Default::default()
             },
         )

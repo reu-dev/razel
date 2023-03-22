@@ -16,9 +16,11 @@ b = razel.add_task('b.csv', 'write-file', [razel.add_output_file('b.csv'), 'a,b,
 c = razel.add_task('c.csv', 'csv-concat', [a, b, razel.add_output_file('c.csv')])
 razel.add_task('filtered.csv', 'csv-filter', ['-i', c, '-o', razel.add_output_file('filtered.csv'), '-c', 'a', 'xyz']) \
     .ensure_equal(f)
-# add commands to copy a file
+# add command to copy a file using the OS executable
 d = razel.add_command('d.csv', 'cp', [a, razel.add_output_file('d.csv')])
-razel.add_command('e.csv', 'cp', [d, razel.add_output_file('e.csv')]) \
+d.ensure_equal(a)
+# add command to copy a file using a WASM module with WASI
+razel.add_command('e.csv', 'bin/wasm32-wasi/cp.wasm', [d, razel.add_output_file('e.csv')]) \
     .ensure_equal(a)
 
 if False:  # requires clang

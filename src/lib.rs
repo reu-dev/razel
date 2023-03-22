@@ -70,21 +70,27 @@ pub mod executors {
     pub use custom_command::*;
     pub use executor::*;
     pub use task::*;
+    pub use wasi::*;
 
     mod custom_command;
     mod executor;
     mod task;
+    mod wasi;
 }
 
 pub mod utils {
+    pub mod test_utils;
+
     pub use arena::*;
     pub use file_permissions::*;
+    pub use hardlink::*;
     pub use resources::*;
     pub use symlink::*;
     pub use tui::*;
 
     mod arena;
     mod file_permissions;
+    mod hardlink;
     #[cfg_attr(target_os = "linux", path = "resources_linux.rs")]
     #[cfg_attr(not(target_os = "linux"), path = "resources_unimplemented.rs")]
     mod resources;
