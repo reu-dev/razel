@@ -642,10 +642,18 @@ impl Razel {
         );
     }
 
-    fn collect_input_file_paths_for_command(&self, command: &Command) -> Vec<PathBuf> {
-        command
-            .inputs
-            .iter()
+    fn collect_input_file_paths_for_sandbox(&self, command: &Command) -> Vec<PathBuf> {
+        let command_executables = command.executables.iter().filter(|&&x| {
+            if matches!(command.executor, Executor::Wasi(_)) {
+                false
+            } else if let Some(self_file_id) = self.self_file_id {
+                // razel never calls itself
+                x != self_file_id
+            } else {
+                true
+            }
+        });
+        chain(command_executables, command.inputs.iter())
             .map(|x| self.files[*x].path.clone())
             .collect()
     }
@@ -670,7 +678,7 @@ impl Razel {
         let cache = self.cache.clone();
         let read_cache = self.read_cache;
         let executor = command.executor.clone();
-        let input_paths = self.collect_input_file_paths_for_command(command);
+        let sandbox_input_paths = self.collect_input_file_paths_for_sandbox(command);
         let output_paths = self.collect_output_file_paths_for_command(command);
         let sandbox = executor
             .use_sandbox()
@@ -683,7 +691,7 @@ impl Razel {
                 &cache,
                 read_cache,
                 &executor,
-                &input_paths,
+                &sandbox_input_paths,
                 &output_paths,
                 &sandbox,
                 cgroup,
@@ -711,7 +719,7 @@ impl Razel {
         cache: &Cache,
         read_cache: bool,
         executor: &Executor,
-        input_paths: &Vec<PathBuf>,
+        sandbox_input_paths: &Vec<PathBuf>,
         output_paths: &Vec<PathBuf>,
         sandbox: &Option<Sandbox>,
         cgroup: Option<CGroup>,
@@ -725,7 +733,7 @@ impl Razel {
                     action_digest,
                     cache,
                     executor,
-                    input_paths,
+                    sandbox_input_paths,
                     output_paths,
                     sandbox,
                     cgroup,
@@ -774,7 +782,7 @@ impl Razel {
         action_digest: &MessageDigest,
         cache: &Cache,
         executor: &Executor,
-        input_paths: &Vec<PathBuf>,
+        sandbox_input_paths: &Vec<PathBuf>,
         output_paths: &Vec<PathBuf>,
         sandbox: &Option<Sandbox>,
         cgroup: Option<CGroup>,
@@ -782,7 +790,7 @@ impl Razel {
     ) -> Result<(ExecutionResult, Option<ActionResult>), anyhow::Error> {
         if let Some(sandbox) = &sandbox {
             sandbox
-                .create(input_paths, output_paths)
+                .create(sandbox_input_paths, output_paths)
                 .await
                 .context("Sandbox::create()")?;
         } else {
