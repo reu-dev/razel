@@ -147,6 +147,7 @@ mod tests {
             let id = commands.alloc_with_id(|id| Command {
                 id,
                 name: format!("cmd_{id}"),
+                executables: vec![],
                 inputs: vec![],
                 outputs: vec![],
                 executor: Executor::CustomCommand(CustomCommandExecutor {

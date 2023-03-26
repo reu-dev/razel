@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use std::{env, fs};
 
 use anyhow::{anyhow, bail, Context};
-use itertools::Itertools;
+use itertools::{chain, Itertools};
 use log::{debug, warn};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
@@ -221,10 +221,8 @@ impl Razel {
         if !matches!(&self.commands[id].executor, Executor::CustomCommand(_)) {
             // add razel executable to command hash
             // TODO set digest to razel version once stable
-            let self_file_id = self
-                .lazy_self_file_id()
-                .with_context(|| anyhow!("Failed to find razel executable"))?;
-            self.commands[id].inputs.push(self_file_id);
+            let self_file_id = self.lazy_self_file_id()?;
+            self.commands[id].executables.push(self_file_id);
         }
         // patch outputs.creating_command
         for output_id in &self.commands[id].outputs {
@@ -243,15 +241,18 @@ impl Razel {
                 .canonicalize()
                 .ok()
                 .filter(|x| x.is_file());
-            let file_id = if let Some(x) = path {
+            let file_id = if let Some(x) = &path {
                 self.input_file_for_rel_path(
                     config::EXECUTABLE.into(),
-                    FileType::SystemExecutable,
-                    x,
-                )?
+                    FileType::RazelExecutable,
+                    x.clone(),
+                )
+                .with_context(|| anyhow!("Failed to find razel executable for {x:?}"))?
                 .id
             } else {
-                self.executable_which(config::EXECUTABLE.into())?.id
+                self.executable_which(config::EXECUTABLE.into(), FileType::RazelExecutable)
+                    .with_context(|| anyhow!("Failed to find razel executable"))?
+                    .id
             };
             self.self_file_id = Some(file_id);
             Ok(file_id)
@@ -354,6 +355,8 @@ impl Razel {
                 Ok(_) => (FileType::ExecutableInWorkspace, path.to_path_buf()),
                 _ => (FileType::SystemExecutable, path.to_path_buf()),
             }
+        } else if arg == config::EXECUTABLE {
+            return self.lazy_self_file_id().map(|x| &self.files[x]);
         } else {
             // relative path or system binary name
             let abs = self.workspace_dir.join(path);
@@ -363,7 +366,7 @@ impl Razel {
             } else if arg.contains('/') || abs.is_file() {
                 (FileType::ExecutableInWorkspace, abs)
             } else {
-                return self.executable_which(arg);
+                return self.executable_which(arg, FileType::SystemExecutable);
             }
         };
         assert!(abs_path.is_absolute());
@@ -375,7 +378,11 @@ impl Razel {
         self.input_file_for_rel_path(arg, file_type, cwd_path)
     }
 
-    fn executable_which(&mut self, arg: String) -> Result<&File, anyhow::Error> {
+    fn executable_which(
+        &mut self,
+        arg: String,
+        file_type: FileType,
+    ) -> Result<&File, anyhow::Error> {
         if let Some(x) = self.which_to_file_id.get(&arg) {
             Ok(&self.files[*x])
         } else {
@@ -383,11 +390,7 @@ impl Razel {
                 which(&arg).with_context(|| format!("executable not found: {:?}", arg.clone()))?;
             debug!("which({}) => {:?}", arg, path);
             let id = self
-                .input_file_for_rel_path(
-                    arg.clone(),
-                    FileType::SystemExecutable,
-                    path.to_str().unwrap().into(),
-                )?
+                .input_file_for_rel_path(arg.clone(), file_type, path.to_str().unwrap().into())?
                 .id;
             self.which_to_file_id.insert(arg, id);
             Ok(&self.files[id])
@@ -478,7 +481,7 @@ impl Razel {
         let mut rdeps = vec![];
         for command in self.commands.iter_mut() {
             assert_eq!(command.schedule_state, ScheduleState::New);
-            for input_id in &command.inputs {
+            for input_id in chain(command.executables.iter(), command.inputs.iter()) {
                 if let Some(dep) = self.files[*input_id].creating_command {
                     command.unfinished_deps.push(dep);
                     rdeps.push((dep, command.id));
@@ -976,9 +979,7 @@ impl Razel {
         };
         // TODO properly build bazel_remote_exec::Directory tree
         let bzl_input_root = bazel_remote_exec::Directory {
-            files: command
-                .inputs
-                .iter()
+            files: chain(command.executables.iter(), command.inputs.iter())
                 .map(|x| {
                     let file = &self.files[*x];
                     assert!(file.digest.is_some(), "digest missing for {:?}", file.path);
