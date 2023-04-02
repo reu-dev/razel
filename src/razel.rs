@@ -14,9 +14,10 @@ use crate::bazel_remote_exec::command::EnvironmentVariable;
 use crate::bazel_remote_exec::{ActionResult, Digest, ExecutedActionMetadata, OutputFile};
 use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor, WasiExecutor};
+use crate::metadata::{write_graphs_html, Measurements};
 use crate::{
     bazel_remote_exec, config, force_remove_file, Arena, CGroup, Command, CommandBuilder,
-    CommandId, File, FileId, FileType, Measurements, Sandbox, Scheduler, TUI,
+    CommandId, File, FileId, FileType, Sandbox, Scheduler, TUI,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -329,8 +330,7 @@ impl Razel {
         }
         self.remove_outputs_of_not_run_actions_from_out_dir();
         Sandbox::cleanup();
-        self.measurements
-            .write_csv(&self.out_dir.join("measurements.csv"))?;
+        self.write_metadata()?;
         let stats = SchedulerStats {
             exec: SchedulerExecStats {
                 succeeded: self.succeeded.len(),
@@ -1009,6 +1009,14 @@ impl Razel {
             input_root_digest: Some(Digest::for_message(&bzl_input_root)),
             ..Default::default()
         }
+    }
+
+    fn write_metadata(&self) -> Result<(), anyhow::Error> {
+        let dir = self.out_dir.join("razel-metadata");
+        fs::create_dir_all(&dir)
+            .with_context(|| format!("Failed to create metadata directory: {dir:?}"))?;
+        self.measurements.write_csv(&dir.join("measurements.csv"))?;
+        Ok(())
     }
 }
 

@@ -2,7 +2,6 @@ pub use crate::razel::*;
 pub use cli::*;
 pub use command::*;
 pub use file::*;
-pub use measurements::*;
 pub use parse_batch::*;
 pub use rules::*;
 pub use sandbox::*;
@@ -13,7 +12,6 @@ mod cli;
 mod command;
 pub mod config;
 mod file;
-mod measurements;
 mod parse_batch;
 mod parse_jsonl;
 mod razel;
@@ -76,6 +74,12 @@ pub mod executors {
     mod executor;
     mod task;
     mod wasi;
+}
+
+pub mod metadata {
+    pub use measurements::*;
+
+    mod measurements;
 }
 
 pub mod utils {
