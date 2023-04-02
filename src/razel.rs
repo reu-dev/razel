@@ -1015,6 +1015,7 @@ impl Razel {
         let dir = self.out_dir.join("razel-metadata");
         fs::create_dir_all(&dir)
             .with_context(|| format!("Failed to create metadata directory: {dir:?}"))?;
+        write_graphs_html(&self.commands, &self.files, &dir.join("graphs.html"))?;
         self.measurements.write_csv(&dir.join("measurements.csv"))?;
         Ok(())
     }
