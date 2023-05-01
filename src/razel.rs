@@ -14,7 +14,7 @@ use crate::bazel_remote_exec::command::EnvironmentVariable;
 use crate::bazel_remote_exec::{ActionResult, Digest, ExecutedActionMetadata, OutputFile};
 use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor, WasiExecutor};
-use crate::metadata::{write_graphs_html, Measurements, Tag};
+use crate::metadata::{write_graphs_html, Measurements, Profile, Tag};
 use crate::{
     bazel_remote_exec, config, force_remove_file, Arena, CGroup, Command, CommandBuilder,
     CommandId, File, FileId, FileType, Sandbox, Scheduler, TUI,
@@ -82,6 +82,7 @@ pub struct Razel {
     cache_hits: usize,
     tui: TUI,
     measurements: Measurements,
+    profile: Profile,
 }
 
 impl Razel {
@@ -121,6 +122,7 @@ impl Razel {
             cache_hits: 0,
             tui: TUI::new(),
             measurements: Measurements::new(),
+            profile: Profile::new(),
         }
     }
 
@@ -906,6 +908,7 @@ impl Razel {
         } else {
             self.measurements
                 .collect(&self.commands[id].name, execution_result);
+            self.profile.collect(&self.commands[id], execution_result);
             if execution_result.success() {
                 self.set_output_file_digests(action_result.unwrap().output_files);
                 self.on_command_succeeded(id, execution_result);
@@ -1018,6 +1021,7 @@ impl Razel {
             .with_context(|| format!("Failed to create metadata directory: {dir:?}"))?;
         write_graphs_html(&self.commands, &self.files, &dir.join("graphs.html"))?;
         self.measurements.write_csv(&dir.join("measurements.csv"))?;
+        self.profile.write_json(&dir.join("execution_times.json"))?;
         Ok(())
     }
 }
