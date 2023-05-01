@@ -246,6 +246,7 @@ mod tests {
                 vec![],
                 None,
                 None,
+                vec![],
             )
             .map(|id| razel.get_command(id).unwrap())
             .unwrap();
@@ -269,6 +270,7 @@ mod tests {
                 vec![],
                 None,
                 None,
+                vec![],
             )
             .map(|id| razel.get_command(id).unwrap())
             .unwrap();
@@ -292,6 +294,7 @@ mod tests {
                 vec![],
                 None,
                 None,
+                vec![],
             )
             .map(|id| razel.get_command(id).unwrap())
             .unwrap();
@@ -315,6 +318,7 @@ mod tests {
                 vec![],
                 None,
                 None,
+                vec![],
             )
             .map(|id| razel.get_command(id).unwrap())
             .unwrap();
@@ -340,6 +344,7 @@ mod tests {
                 vec![],
                 None,
                 None,
+                vec![],
             )
             .map(|id| razel.get_command(id).unwrap())
             .unwrap();

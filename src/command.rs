@@ -6,6 +6,7 @@ use crate::executors::{
     AsyncTask, AsyncTaskExecutor, BlockingTaskExecutor, CustomCommandExecutor, Executor, TaskFn,
     WasiExecutor,
 };
+use crate::metadata::Tag;
 use crate::{ArenaId, FileId, FileType, Razel, ScheduleState};
 
 pub struct Command {
@@ -17,6 +18,7 @@ pub struct Command {
     pub inputs: Vec<FileId>,
     pub outputs: Vec<FileId>,
     pub executor: Executor,
+    pub tags: Vec<Tag>,
     /// dependencies which are not yet finished successfully
     pub unfinished_deps: Vec<CommandId>,
     /// commands which depend on this command
@@ -37,10 +39,11 @@ pub struct CommandBuilder {
     stdout_file: Option<PathBuf>,
     stderr_file: Option<PathBuf>,
     executor: Option<Executor>,
+    tags: Vec<Tag>,
 }
 
 impl CommandBuilder {
-    pub fn new(name: String, args: Vec<String>) -> CommandBuilder {
+    pub fn new(name: String, args: Vec<String>, tags: Vec<Tag>) -> CommandBuilder {
         CommandBuilder {
             name,
             args_with_exec_paths: args.clone(),
@@ -51,6 +54,7 @@ impl CommandBuilder {
             stdout_file: None,
             stderr_file: None,
             executor: None,
+            tags,
         }
     }
 
@@ -203,6 +207,7 @@ impl CommandBuilder {
             inputs: self.inputs,
             outputs: self.outputs,
             executor: self.executor.unwrap(),
+            tags: self.tags,
             unfinished_deps: vec![],
             reverse_deps: vec![],
             schedule_state: ScheduleState::New,

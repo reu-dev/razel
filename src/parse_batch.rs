@@ -43,7 +43,7 @@ fn create_command(
     command_line: Vec<String>,
 ) -> Result<(), anyhow::Error> {
     if command_line.first().unwrap() == config::EXECUTABLE {
-        parse_cli_within_file(razel, command_line, &name)?
+        parse_cli_within_file(razel, command_line, &name, vec![])?
     } else {
         let (stdout, stderr) = (None, None); // TODO parse redirects
         let (inputs, outputs) = if let Some(files) = rules.parse_command(&command_line)? {
@@ -63,6 +63,7 @@ fn create_command(
             outputs,
             stdout,
             stderr,
+            vec![],
         )?;
     }
     Ok(())

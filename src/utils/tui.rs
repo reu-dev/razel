@@ -7,6 +7,7 @@ use crossterm::terminal;
 use crossterm::tty::IsTty;
 use itertools::Itertools;
 use std::io::{stdout, Write};
+use crate::metadata::Tag;
 
 static A_BOLD: Attribute = Attribute::Bold;
 static A_RESET: Attribute = Attribute::Reset;
@@ -37,7 +38,9 @@ impl TUI {
     }
 
     pub fn command_succeeded(&mut self, command: &Command, execution_result: &ExecutionResult) {
-        if !self.verbose {
+        if (!self.verbose && !command.tags.contains(&Tag::Verbose))
+            || command.tags.contains(&Tag::Quiet)
+        {
             return;
         }
         self.clear_status();

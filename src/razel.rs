@@ -14,7 +14,7 @@ use crate::bazel_remote_exec::command::EnvironmentVariable;
 use crate::bazel_remote_exec::{ActionResult, Digest, ExecutedActionMetadata, OutputFile};
 use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor, WasiExecutor};
-use crate::metadata::{write_graphs_html, Measurements};
+use crate::metadata::{write_graphs_html, Measurements, Tag};
 use crate::{
     bazel_remote_exec, config, force_remove_file, Arena, CGroup, Command, CommandBuilder,
     CommandId, File, FileId, FileType, Sandbox, Scheduler, TUI,
@@ -198,8 +198,9 @@ impl Razel {
         outputs: Vec<String>,
         stdout: Option<String>,
         stderr: Option<String>,
+        tags: Vec<Tag>,
     ) -> Result<CommandId, anyhow::Error> {
-        let mut builder = CommandBuilder::new(name, args);
+        let mut builder = CommandBuilder::new(name, args, tags);
         builder.inputs(&inputs, self)?;
         builder.outputs(&outputs, self)?;
         if let Some(x) = stdout {
@@ -1054,6 +1055,7 @@ mod tests {
                     vec![],
                     None,
                     None,
+                    vec![],
                 )
                 .unwrap();
         }

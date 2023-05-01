@@ -79,9 +79,11 @@ pub mod executors {
 pub mod metadata {
     pub use graphs::*;
     pub use measurements::*;
+    pub use tags::*;
 
     mod graphs;
     mod measurements;
+    mod tags;
 }
 
 pub mod utils {

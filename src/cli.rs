@@ -4,6 +4,7 @@ use std::ffi::OsStr;
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::metadata::Tag;
 use crate::parse_jsonl::parse_jsonl_file;
 use crate::tasks::DownloadFileTask;
 use crate::{parse_batch_file, parse_command, tasks, CommandBuilder, FileType, Razel};
@@ -97,8 +98,9 @@ impl CliTasks {
         razel: &mut Razel,
         name: String,
         args: Vec<String>,
+        tags: Vec<Tag>,
     ) -> Result<(), anyhow::Error> {
-        let mut builder = CommandBuilder::new(name, args);
+        let mut builder = CommandBuilder::new(name, args, tags);
         match self {
             CliTasks::CsvConcat(x) => x.build(&mut builder, razel),
             CliTasks::CsvFilter(x) => x.build(&mut builder, razel),
@@ -245,7 +247,7 @@ pub fn parse_cli(args: Vec<String>, razel: &mut Razel) -> Result<Option<RunArgs>
             Some(Default::default())
         }
         CliCommands::Task(task) => {
-            task.build_command(razel, "task".to_string(), args)?;
+            task.build_command(razel, "task".to_string(), args, vec![])?;
             Some(Default::default())
         }
         CliCommands::Exec(exec) => {
@@ -270,6 +272,7 @@ pub fn parse_cli_within_file(
     razel: &mut Razel,
     args: Vec<String>,
     name: &str,
+    tags: Vec<Tag>,
 ) -> Result<(), anyhow::Error> {
     let cli = Cli::try_parse_from(args.iter())?;
     match cli.command {
@@ -277,7 +280,7 @@ pub fn parse_cli_within_file(
             parse_command(razel, command)?;
         }
         CliCommands::Task(task) => {
-            task.build_command(razel, name.to_owned(), args)?;
+            task.build_command(razel, name.to_owned(), args, tags)?;
         }
         _ => bail!("Razel subcommand not allowed within files"),
     }

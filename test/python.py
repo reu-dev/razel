@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
 import os.path as path
-import razel
+from razel import Razel
 
 workspace_dir = path.dirname(path.abspath(__file__))
-razel = razel.Razel.init(workspace_dir)
+razel = Razel.init(workspace_dir)
 
 # data/a.csv and data/f.csv are two input files
 a = razel.add_data_file('data/a.csv')
@@ -17,10 +17,12 @@ c = razel.add_task('c.csv', 'csv-concat', [a, b, razel.add_output_file('c.csv')]
 razel.add_task('filtered.csv', 'csv-filter', ['-i', c, '-o', razel.add_output_file('filtered.csv'), '-c', 'a', 'xyz']) \
     .ensure_equal(f)
 # add command to copy a file using the OS executable
-d = razel.add_command('d.csv', 'cp', [a, razel.add_output_file('d.csv')])
+d = razel.add_command('d.csv', 'cp', [a, razel.add_output_file('d.csv')]) \
+    .add_tag('copy')
 d.ensure_equal(a)
 # add command to copy a file using a WASM module with WASI
 razel.add_command('e.csv', 'bin/wasm32-wasi/cp.wasm', [d, razel.add_output_file('e.csv')]) \
+    .add_tag('copy') \
     .ensure_equal(a)
 
 if False:  # requires clang
@@ -30,6 +32,7 @@ if False:  # requires clang
     # run it, redirect stdout to a file and compare it with the output of another command
     razel.add_command('say_hi_using_c', say_hi, ['Razel']) \
         .write_stdout_to_file() \
+        .add_tag(Razel.Tag.VERBOSE) \
         .ensure_equal(razel.add_command('say_hi_using_echo', 'echo', ['Hi Razel!']).write_stdout_to_file())
 
 razel.write_razel_file()

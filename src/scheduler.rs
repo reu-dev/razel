@@ -154,6 +154,7 @@ mod tests {
                     executable: executable.to_string(),
                     ..Default::default()
                 }),
+                tags: vec![],
                 unfinished_deps: vec![],
                 reverse_deps: vec![],
                 schedule_state: ScheduleState::New,
