@@ -6,6 +6,7 @@
 
 [![Deno module](https://shield.deno.dev/x/razel)](https://deno.land/x/razel)
 [![Python module](https://img.shields.io/pypi/v/razel.svg)](https://pypi.org/pypi/razel)
+[![Rust crate](https://img.shields.io/crates/v/razel.svg)](https://crates.io/crates/razel)
 
 A command executor with caching. It is:
 
