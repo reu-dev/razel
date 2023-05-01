@@ -10,18 +10,23 @@ pub fn write_graphs_html(
     files: &Arena<File>,
     path: &Path,
 ) -> Result<()> {
+    let template = include_str!("graphs.in.html");
     let ignored_files = collect_ignored_files(files);
-    let contents = include_str!("graphs.in.html")
-        .replacen(
-            "{{graph_with_subgraphs}}",
-            &graph_with_subgraphs(commands, files, &ignored_files)?,
-            1,
-        )
-        .replacen(
-            "{{graph_simple}}",
-            &graph_simple(commands, files, &ignored_files)?,
-            1,
-        );
+    let contents = if commands.len() < 100 && files.len() - ignored_files.len() < 100 {
+        template
+            .replacen(
+                "{{graph_with_subgraphs}}",
+                &graph_with_subgraphs(commands, files, &ignored_files)?,
+                1,
+            )
+            .replacen(
+                "{{graph_simple}}",
+                &graph_simple(commands, files, &ignored_files)?,
+                1,
+            )
+    } else {
+        "Skipped generating graphs because of too many commands/files.".into()
+    };
     std::fs::write(path, contents)?;
     Ok(())
 }
