@@ -4,6 +4,7 @@ use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 use wasi_common::dir::DirCaps;
 use wasi_common::file::FileCaps;
 use wasi_common::pipe::WritePipe;
@@ -69,6 +70,7 @@ impl WasiExecutor {
             .context("instance.get_typed_func(_start)")?;
 
         let mut execution_result: ExecutionResult = Default::default();
+        let execution_start = Instant::now();
         match func.call(&mut store, ()) {
             Ok(()) => {
                 execution_result.status = ExecutionStatus::Success;
@@ -84,6 +86,7 @@ impl WasiExecutor {
                 }
             }
         }
+        execution_result.duration = Some(execution_start.elapsed());
 
         drop(store);
         execution_result.stdout = stdout_pipe

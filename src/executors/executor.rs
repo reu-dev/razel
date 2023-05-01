@@ -86,16 +86,18 @@ pub struct ExecutionResult {
 
 impl ExecutionResult {
     pub fn for_task(result: Result<(), Error>, execution_start: Instant) -> Self {
+        let duration = Some(execution_start.elapsed());
         match result {
             Ok(()) => Self {
                 status: ExecutionStatus::Success,
                 exit_code: Some(0),
-                duration: Some(execution_start.elapsed()),
+                duration,
                 ..Default::default()
             },
             Err(e) => Self {
                 status: ExecutionStatus::Failed,
                 error: Some(e),
+                duration,
                 ..Default::default()
             },
         }
