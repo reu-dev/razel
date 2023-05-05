@@ -1,4 +1,5 @@
 use crate::executors::ExecutionResult;
+use crate::metadata::Tag;
 use crate::{config, Command, SchedulerStats};
 use bstr::ByteSlice;
 use crossterm::cursor::{RestorePosition, SavePosition};
@@ -7,7 +8,6 @@ use crossterm::terminal;
 use crossterm::tty::IsTty;
 use itertools::Itertools;
 use std::io::{stdout, Write};
-use crate::metadata::Tag;
 
 static A_BOLD: Attribute = Attribute::Bold;
 static A_RESET: Attribute = Attribute::Reset;
