@@ -78,6 +78,8 @@ impl Default for RunArgs {
 
 #[derive(Subcommand)]
 enum CliTasks {
+    /// Write a value captured with a regex to a file
+    CaptureRegex(CaptureRegexTask),
     /// Concatenate multiple csv files - headers must match
     CsvConcat(CsvConcatTask),
     /// Filter a csv file - keeping only the specified cols
@@ -102,6 +104,7 @@ impl CliTasks {
     ) -> Result<(), anyhow::Error> {
         let mut builder = CommandBuilder::new(name, args, tags);
         match self {
+            CliTasks::CaptureRegex(x) => x.build(&mut builder, razel),
             CliTasks::CsvConcat(x) => x.build(&mut builder, razel),
             CliTasks::CsvFilter(x) => x.build(&mut builder, razel),
             CliTasks::WriteFile(x) => x.build(&mut builder, razel),
@@ -116,6 +119,27 @@ impl CliTasks {
 
 trait TaskBuilder {
     fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error>;
+}
+
+#[derive(Args, Debug)]
+struct CaptureRegexTask {
+    /// Input file to read
+    input: String,
+    /// File to write the captured value to
+    output: String,
+    /// Regex containing a single capturing group
+    regex: String,
+}
+
+impl TaskBuilder for CaptureRegexTask {
+    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
+        let input = builder.input(&self.input, razel)?;
+        let output = builder.output(&self.output, FileType::OutputFile, razel)?;
+        builder.blocking_task_executor(Arc::new(move || {
+            tasks::capture_regex(input.clone(), output.clone(), self.regex.clone())
+        }));
+        Ok(())
+    }
 }
 
 #[derive(Args, Debug)]
