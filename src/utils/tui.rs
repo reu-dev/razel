@@ -236,7 +236,7 @@ impl TUI {
 
     fn clear_status(&mut self) {
         if self.is_tty && self.status_printed {
-            print!("{}{:>80}{}", RestorePosition, "", RestorePosition);
+            print!("{}{:>90}{}", RestorePosition, "", RestorePosition);
             self.status_printed = false;
         }
     }
@@ -253,7 +253,7 @@ impl TUI {
     }
 
     fn line() {
-        let columns = terminal::size().map_or(80, |x| x.0 as usize);
+        let columns = terminal::size().map_or(90, |x| x.0 as usize);
         println!("{C_RED}{}{C_RESET}", "-".repeat(columns));
     }
 }
