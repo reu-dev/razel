@@ -4,6 +4,7 @@ from __future__ import annotations
 import abc
 import json
 import os
+from enum import Enum
 from typing import ClassVar, Optional, Any, TypeVar
 from collections.abc import Mapping, Sequence
 
@@ -11,6 +12,10 @@ from collections.abc import Mapping, Sequence
 class Razel:
     version: ClassVar[str] = "0.1.6"
     _instance: ClassVar[Optional[Razel]] = None
+
+    class Tag(str, Enum):
+        QUIET = 'razel:quiet'
+        VERBOSE = 'razel:verbose'
 
     def __init__(self, workspace_dir: str) -> None:
         self._workspace_dir = workspace_dir
@@ -138,6 +143,7 @@ class Command(abc.ABC):
         self._outputs = outputs
         self._stdout: File | None = None
         self._stderr: File | None = None
+        self._tags: Sequence[Razel.Tag | str] = []
         for out in self._outputs:
             out._created_by = self
 
@@ -166,6 +172,18 @@ class Command(abc.ABC):
     @property
     def stderr(self) -> File | None:
         return self._stderr
+
+    @property
+    def tags(self) -> Sequence[Razel.Tag | str]:
+        return self._tags
+
+    def add_tag(self, tag: Razel.Tag | str) -> Command:
+        self._tags.append(tag)
+        return self
+
+    def add_tags(self, tags: Sequence[Razel.Tag | str]) -> Command:
+        self._tags.extend(tags)
+        return self
 
     def ensure_equal(self, other: File | Command) -> None:
         Razel.instance().ensure_equal(self, other)
@@ -245,6 +263,8 @@ class CustomCommand(Command):
             j["stdout"] = self._stdout.file_name
         if self._stderr:
             j["stderr"] = self._stderr.file_name
+        if self._tags:
+            j["tags"] = self._tags
         return j
 
 
@@ -270,11 +290,14 @@ class Task(Command):
         return self._args
 
     def json(self) -> Mapping[str, Any]:
-        return {
+        j = {
             "name": self.name,
             "task": self.task,
             "args": [x.file_name if isinstance(x, File) else x for x in self.args],
         }
+        if self._tags:
+            j["tags"] = self._tags
+        return j
 
 
 def _map_arg_to_output_path(arg: str | File | Command) -> str:

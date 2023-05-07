@@ -1,4 +1,5 @@
 use crate::executors::ExecutionResult;
+use crate::metadata::Tag;
 use crate::{config, Command, SchedulerStats};
 use bstr::ByteSlice;
 use crossterm::cursor::{RestorePosition, SavePosition};
@@ -37,7 +38,9 @@ impl TUI {
     }
 
     pub fn command_succeeded(&mut self, command: &Command, execution_result: &ExecutionResult) {
-        if !self.verbose {
+        if (!self.verbose && !command.tags.contains(&Tag::Verbose))
+            || command.tags.contains(&Tag::Quiet)
+        {
             return;
         }
         self.clear_status();
@@ -233,7 +236,7 @@ impl TUI {
 
     fn clear_status(&mut self) {
         if self.is_tty && self.status_printed {
-            print!("{}{:>80}{}", RestorePosition, "", RestorePosition);
+            print!("{}{:>90}{}", RestorePosition, "", RestorePosition);
             self.status_printed = false;
         }
     }
@@ -250,7 +253,7 @@ impl TUI {
     }
 
     fn line() {
-        let columns = terminal::size().map_or(80, |x| x.0 as usize);
+        let columns = terminal::size().map_or(90, |x| x.0 as usize);
         println!("{C_RED}{}{C_RESET}", "-".repeat(columns));
     }
 }

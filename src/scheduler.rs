@@ -147,12 +147,14 @@ mod tests {
             let id = commands.alloc_with_id(|id| Command {
                 id,
                 name: format!("cmd_{id}"),
+                executables: vec![],
                 inputs: vec![],
                 outputs: vec![],
                 executor: Executor::CustomCommand(CustomCommandExecutor {
                     executable: executable.to_string(),
                     ..Default::default()
                 }),
+                tags: vec![],
                 unfinished_deps: vec![],
                 reverse_deps: vec![],
                 schedule_state: ScheduleState::New,

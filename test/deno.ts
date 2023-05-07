@@ -15,10 +15,12 @@ const c = razel.addTask('c.csv', 'csv-concat', [a, b, razel.addOutputFile('c.csv
 razel.addTask('filtered.csv', 'csv-filter', ['-i', c, '-o', razel.addOutputFile('filtered.csv'), '-c', 'a', 'xyz'])
     .ensureEqual(f);
 // add command to copy a file using the OS executable
-const d = razel.addCommand('d.csv', 'cp', [a, razel.addOutputFile('d.csv')]);
+const d = razel.addCommand('d.csv', 'cp', [a, razel.addOutputFile('d.csv')])
+    .addTag('copy');
 d.ensureEqual(a);
 // add command to copy a file using a WASM module with WASI
 razel.addCommand('e.csv', 'bin/wasm32-wasi/cp.wasm', [d, razel.addOutputFile('e.csv')])
+    .addTag('copy')
     .ensureEqual(a);
 
 if (false) {  // requires clang
@@ -28,6 +30,7 @@ if (false) {  // requires clang
     // run it, redirect stdout to a file and compare it with the output of another command
     razel.addCommand('say_hi_using_c', say_hi, ['Razel'])
         .writeStdoutToFile()
+        .addTag(Razel.Tag.Verbose)
         .ensureEqual(razel.addCommand('say_hi_using_echo', 'echo', ['Hi Razel!']).writeStdoutToFile());
 }
 

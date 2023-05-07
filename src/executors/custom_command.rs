@@ -65,13 +65,13 @@ impl CustomCommandExecutor {
                 result.exit_code = output.status.code();
                 result.stdout = output.stdout;
                 result.stderr = output.stderr;
-                result.duration = Some(execution_start.elapsed());
             }
             Err(e) => {
                 result.status = ExecutionStatus::Failed;
                 result.error = Some(e.into());
             }
         }
+        result.duration = Some(execution_start.elapsed());
         self.write_redirect_files(&cwd, &mut result).await;
         result
     }
@@ -246,6 +246,7 @@ mod tests {
                 vec![],
                 None,
                 None,
+                vec![],
             )
             .map(|id| razel.get_command(id).unwrap())
             .unwrap();
@@ -269,6 +270,7 @@ mod tests {
                 vec![],
                 None,
                 None,
+                vec![],
             )
             .map(|id| razel.get_command(id).unwrap())
             .unwrap();
@@ -292,6 +294,7 @@ mod tests {
                 vec![],
                 None,
                 None,
+                vec![],
             )
             .map(|id| razel.get_command(id).unwrap())
             .unwrap();
@@ -315,6 +318,7 @@ mod tests {
                 vec![],
                 None,
                 None,
+                vec![],
             )
             .map(|id| razel.get_command(id).unwrap())
             .unwrap();
@@ -340,6 +344,7 @@ mod tests {
                 vec![],
                 None,
                 None,
+                vec![],
             )
             .map(|id| razel.get_command(id).unwrap())
             .unwrap();

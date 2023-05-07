@@ -6,6 +6,7 @@
 
 [![Deno module](https://shield.deno.dev/x/razel)](https://deno.land/x/razel)
 [![Python module](https://img.shields.io/pypi/v/razel.svg)](https://pypi.org/pypi/razel)
+[![Rust crate](https://img.shields.io/crates/v/razel.svg)](https://crates.io/crates/razel)
 
 A command executor with caching. It is:
 
@@ -105,13 +106,23 @@ Razel is in active development and **not** ready for production. CLI and format 
 
 ### Measurements
 
-Razel parses the stdout of executed commands to capture runtime measurements and writes them to `razel-out/measurements.csv`.
+Razel parses the stdout of executed commands to capture runtime measurements and writes them to `razel-out/razel-metadata/measurements.csv`.
 Currently, the `<CTestMeasurement>` and `<DartMeasurement>` tags as used by [CTest/CDash](https://cmake.org/cmake/help/latest/command/ctest_test.html#additional-test-measurements) are supported:
 ```
 <CTestMeasurement type="numeric/double" name="score">12.3</CTestMeasurement>
 <CTestMeasurement type="text/string" name="result">ok</CTestMeasurement>
 ```
 Supporting custom formats is planned.
+
+### Tags
+
+Tags can be set on commands. Any custom string can be used as tag, a colon should be used for grouping.
+The tags are added to `razel-out/razel-metadata/execution_times.json`.
+Using tags for filtering commands and creating reports is planned. 
+
+Tags with `razel:` prefix are reserved and have special meaning:
+- `razel:quiet`: don't be verbose if command succeeded
+- `razel:verbose`: always show verbose output
 
 ### Param/Response files
 

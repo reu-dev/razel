@@ -6,14 +6,19 @@ use crate::executors::{
     AsyncTask, AsyncTaskExecutor, BlockingTaskExecutor, CustomCommandExecutor, Executor, TaskFn,
     WasiExecutor,
 };
+use crate::metadata::Tag;
 use crate::{ArenaId, FileId, FileType, Razel, ScheduleState};
 
 pub struct Command {
     pub id: CommandId,
     pub name: String,
+    /// user specified executable and optionally runtimes, e.g. razel for WASI
+    pub executables: Vec<FileId>,
+    /// input files excluding <Self::executables>
     pub inputs: Vec<FileId>,
     pub outputs: Vec<FileId>,
     pub executor: Executor,
+    pub tags: Vec<Tag>,
     /// dependencies which are not yet finished successfully
     pub unfinished_deps: Vec<CommandId>,
     /// commands which depend on this command
@@ -28,24 +33,28 @@ pub struct CommandBuilder {
     name: String,
     args_with_exec_paths: Vec<String>,
     args_with_out_paths: Vec<String>,
+    executables: Vec<FileId>,
     inputs: Vec<FileId>,
     outputs: Vec<FileId>,
     stdout_file: Option<PathBuf>,
     stderr_file: Option<PathBuf>,
     executor: Option<Executor>,
+    tags: Vec<Tag>,
 }
 
 impl CommandBuilder {
-    pub fn new(name: String, args: Vec<String>) -> CommandBuilder {
+    pub fn new(name: String, args: Vec<String>, tags: Vec<Tag>) -> CommandBuilder {
         CommandBuilder {
             name,
             args_with_exec_paths: args.clone(),
             args_with_out_paths: args,
+            executables: vec![],
             inputs: vec![],
             outputs: vec![],
             stdout_file: None,
             stderr_file: None,
             executor: None,
+            tags,
         }
     }
 
@@ -145,7 +154,7 @@ impl CommandBuilder {
         razel: &mut Razel,
     ) -> Result<(), anyhow::Error> {
         let file = razel.executable(executable)?;
-        self.inputs.push(file.id);
+        self.executables.push(file.id);
         self.executor = Some(Executor::CustomCommand(CustomCommandExecutor {
             executable: file.executable_for_command_line(),
             args: self.args_with_out_paths.clone(),
@@ -163,7 +172,7 @@ impl CommandBuilder {
         razel: &mut Razel,
     ) -> Result<(), anyhow::Error> {
         let file = razel.wasi_module(executable)?;
-        self.inputs.push(file.id);
+        self.executables.push(file.id);
         self.executor = Some(Executor::Wasi(WasiExecutor {
             module: None,
             module_file_id: Some(file.id),
@@ -194,9 +203,11 @@ impl CommandBuilder {
         Command {
             id,
             name: self.name,
+            executables: self.executables,
             inputs: self.inputs,
             outputs: self.outputs,
             executor: self.executor.unwrap(),
+            tags: self.tags,
             unfinished_deps: vec![],
             reverse_deps: vec![],
             schedule_state: ScheduleState::New,

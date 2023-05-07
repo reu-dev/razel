@@ -9,6 +9,7 @@ pub enum FileType {
     ExecutableInWorkspace,
     WasiModule,
     SystemExecutable,
+    RazelExecutable,
 }
 
 pub struct File {
@@ -29,7 +30,7 @@ impl File {
             FileType::OutputFile | FileType::ExecutableInWorkspace | FileType::WasiModule => {
                 assert!(path.is_relative())
             }
-            FileType::SystemExecutable => assert!(path.is_absolute()),
+            FileType::SystemExecutable | FileType::RazelExecutable => assert!(path.is_absolute()),
         };
         Self {
             id,
@@ -53,7 +54,9 @@ impl File {
                 // TODO command line should be directly executable
                 self.path.to_str().unwrap().to_string()
             }
-            FileType::SystemExecutable => self.path.to_str().unwrap().to_string(),
+            FileType::SystemExecutable | FileType::RazelExecutable => {
+                self.path.to_str().unwrap().to_string()
+            }
         }
     }
 }

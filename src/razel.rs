@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use std::{env, fs};
 
 use anyhow::{anyhow, bail, Context};
-use itertools::Itertools;
+use itertools::{chain, Itertools};
 use log::{debug, warn};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
@@ -14,9 +14,10 @@ use crate::bazel_remote_exec::command::EnvironmentVariable;
 use crate::bazel_remote_exec::{ActionResult, Digest, ExecutedActionMetadata, OutputFile};
 use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor, WasiExecutor};
+use crate::metadata::{write_graphs_html, Measurements, Profile, Tag};
 use crate::{
     bazel_remote_exec, config, force_remove_file, Arena, CGroup, Command, CommandBuilder,
-    CommandId, File, FileId, FileType, Measurements, Sandbox, Scheduler, TUI,
+    CommandId, File, FileId, FileType, Sandbox, Scheduler, TUI,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -81,6 +82,7 @@ pub struct Razel {
     cache_hits: usize,
     tui: TUI,
     measurements: Measurements,
+    profile: Profile,
 }
 
 impl Razel {
@@ -120,6 +122,7 @@ impl Razel {
             cache_hits: 0,
             tui: TUI::new(),
             measurements: Measurements::new(),
+            profile: Profile::new(),
         }
     }
 
@@ -197,8 +200,9 @@ impl Razel {
         outputs: Vec<String>,
         stdout: Option<String>,
         stderr: Option<String>,
+        tags: Vec<Tag>,
     ) -> Result<CommandId, anyhow::Error> {
-        let mut builder = CommandBuilder::new(name, args);
+        let mut builder = CommandBuilder::new(name, args, tags);
         builder.inputs(&inputs, self)?;
         builder.outputs(&outputs, self)?;
         if let Some(x) = stdout {
@@ -221,10 +225,8 @@ impl Razel {
         if !matches!(&self.commands[id].executor, Executor::CustomCommand(_)) {
             // add razel executable to command hash
             // TODO set digest to razel version once stable
-            let self_file_id = self
-                .lazy_self_file_id()
-                .with_context(|| anyhow!("Failed to find razel executable"))?;
-            self.commands[id].inputs.push(self_file_id);
+            let self_file_id = self.lazy_self_file_id()?;
+            self.commands[id].executables.push(self_file_id);
         }
         // patch outputs.creating_command
         for output_id in &self.commands[id].outputs {
@@ -243,15 +245,18 @@ impl Razel {
                 .canonicalize()
                 .ok()
                 .filter(|x| x.is_file());
-            let file_id = if let Some(x) = path {
+            let file_id = if let Some(x) = &path {
                 self.input_file_for_rel_path(
                     config::EXECUTABLE.into(),
-                    FileType::SystemExecutable,
-                    x,
-                )?
+                    FileType::RazelExecutable,
+                    x.clone(),
+                )
+                .with_context(|| anyhow!("Failed to find razel executable for {x:?}"))?
                 .id
             } else {
-                self.executable_which(config::EXECUTABLE.into())?.id
+                self.executable_which(config::EXECUTABLE.into(), FileType::RazelExecutable)
+                    .with_context(|| anyhow!("Failed to find razel executable"))?
+                    .id
             };
             self.self_file_id = Some(file_id);
             Ok(file_id)
@@ -328,8 +333,7 @@ impl Razel {
         }
         self.remove_outputs_of_not_run_actions_from_out_dir();
         Sandbox::cleanup();
-        self.measurements
-            .write_csv(&self.out_dir.join("measurements.csv"))?;
+        self.write_metadata()?;
         let stats = SchedulerStats {
             exec: SchedulerExecStats {
                 succeeded: self.succeeded.len(),
@@ -354,6 +358,8 @@ impl Razel {
                 Ok(_) => (FileType::ExecutableInWorkspace, path.to_path_buf()),
                 _ => (FileType::SystemExecutable, path.to_path_buf()),
             }
+        } else if arg == config::EXECUTABLE {
+            return self.lazy_self_file_id().map(|x| &self.files[x]);
         } else {
             // relative path or system binary name
             let abs = self.workspace_dir.join(path);
@@ -363,7 +369,7 @@ impl Razel {
             } else if arg.contains('/') || abs.is_file() {
                 (FileType::ExecutableInWorkspace, abs)
             } else {
-                return self.executable_which(arg);
+                return self.executable_which(arg, FileType::SystemExecutable);
             }
         };
         assert!(abs_path.is_absolute());
@@ -375,7 +381,11 @@ impl Razel {
         self.input_file_for_rel_path(arg, file_type, cwd_path)
     }
 
-    fn executable_which(&mut self, arg: String) -> Result<&File, anyhow::Error> {
+    fn executable_which(
+        &mut self,
+        arg: String,
+        file_type: FileType,
+    ) -> Result<&File, anyhow::Error> {
         if let Some(x) = self.which_to_file_id.get(&arg) {
             Ok(&self.files[*x])
         } else {
@@ -383,11 +393,7 @@ impl Razel {
                 which(&arg).with_context(|| format!("executable not found: {:?}", arg.clone()))?;
             debug!("which({}) => {:?}", arg, path);
             let id = self
-                .input_file_for_rel_path(
-                    arg.clone(),
-                    FileType::SystemExecutable,
-                    path.to_str().unwrap().into(),
-                )?
+                .input_file_for_rel_path(arg.clone(), file_type, path.to_str().unwrap().into())?
                 .id;
             self.which_to_file_id.insert(arg, id);
             Ok(&self.files[id])
@@ -478,7 +484,7 @@ impl Razel {
         let mut rdeps = vec![];
         for command in self.commands.iter_mut() {
             assert_eq!(command.schedule_state, ScheduleState::New);
-            for input_id in &command.inputs {
+            for input_id in chain(command.executables.iter(), command.inputs.iter()) {
                 if let Some(dep) = self.files[*input_id].creating_command {
                     command.unfinished_deps.push(dep);
                     rdeps.push((dep, command.id));
@@ -639,10 +645,18 @@ impl Razel {
         );
     }
 
-    fn collect_input_file_paths_for_command(&self, command: &Command) -> Vec<PathBuf> {
-        command
-            .inputs
-            .iter()
+    fn collect_input_file_paths_for_sandbox(&self, command: &Command) -> Vec<PathBuf> {
+        let command_executables = command.executables.iter().filter(|&&x| {
+            if matches!(command.executor, Executor::Wasi(_)) {
+                false
+            } else if let Some(self_file_id) = self.self_file_id {
+                // razel never calls itself
+                x != self_file_id
+            } else {
+                true
+            }
+        });
+        chain(command_executables, command.inputs.iter())
             .map(|x| self.files[*x].path.clone())
             .collect()
     }
@@ -667,7 +681,7 @@ impl Razel {
         let cache = self.cache.clone();
         let read_cache = self.read_cache;
         let executor = command.executor.clone();
-        let input_paths = self.collect_input_file_paths_for_command(command);
+        let sandbox_input_paths = self.collect_input_file_paths_for_sandbox(command);
         let output_paths = self.collect_output_file_paths_for_command(command);
         let sandbox = executor
             .use_sandbox()
@@ -680,7 +694,7 @@ impl Razel {
                 &cache,
                 read_cache,
                 &executor,
-                &input_paths,
+                &sandbox_input_paths,
                 &output_paths,
                 &sandbox,
                 cgroup,
@@ -708,7 +722,7 @@ impl Razel {
         cache: &Cache,
         read_cache: bool,
         executor: &Executor,
-        input_paths: &Vec<PathBuf>,
+        sandbox_input_paths: &Vec<PathBuf>,
         output_paths: &Vec<PathBuf>,
         sandbox: &Option<Sandbox>,
         cgroup: Option<CGroup>,
@@ -722,7 +736,7 @@ impl Razel {
                     action_digest,
                     cache,
                     executor,
-                    input_paths,
+                    sandbox_input_paths,
                     output_paths,
                     sandbox,
                     cgroup,
@@ -771,7 +785,7 @@ impl Razel {
         action_digest: &MessageDigest,
         cache: &Cache,
         executor: &Executor,
-        input_paths: &Vec<PathBuf>,
+        sandbox_input_paths: &Vec<PathBuf>,
         output_paths: &Vec<PathBuf>,
         sandbox: &Option<Sandbox>,
         cgroup: Option<CGroup>,
@@ -779,7 +793,7 @@ impl Razel {
     ) -> Result<(ExecutionResult, Option<ActionResult>), anyhow::Error> {
         if let Some(sandbox) = &sandbox {
             sandbox
-                .create(input_paths, output_paths)
+                .create(sandbox_input_paths, output_paths)
                 .await
                 .context("Sandbox::create()")?;
         } else {
@@ -894,6 +908,7 @@ impl Razel {
         } else {
             self.measurements
                 .collect(&self.commands[id].name, execution_result);
+            self.profile.collect(&self.commands[id], execution_result);
             if execution_result.success() {
                 self.set_output_file_digests(action_result.unwrap().output_files);
                 self.on_command_succeeded(id, execution_result);
@@ -976,9 +991,7 @@ impl Razel {
         };
         // TODO properly build bazel_remote_exec::Directory tree
         let bzl_input_root = bazel_remote_exec::Directory {
-            files: command
-                .inputs
-                .iter()
+            files: chain(command.executables.iter(), command.inputs.iter())
                 .map(|x| {
                     let file = &self.files[*x];
                     assert!(file.digest.is_some(), "digest missing for {:?}", file.path);
@@ -1000,6 +1013,16 @@ impl Razel {
             input_root_digest: Some(Digest::for_message(&bzl_input_root)),
             ..Default::default()
         }
+    }
+
+    fn write_metadata(&self) -> Result<(), anyhow::Error> {
+        let dir = self.out_dir.join("razel-metadata");
+        fs::create_dir_all(&dir)
+            .with_context(|| format!("Failed to create metadata directory: {dir:?}"))?;
+        write_graphs_html(&self.commands, &self.files, &dir.join("graphs.html"))?;
+        self.measurements.write_csv(&dir.join("measurements.csv"))?;
+        self.profile.write_json(&dir.join("execution_times.json"))?;
+        Ok(())
     }
 }
 
@@ -1036,6 +1059,7 @@ mod tests {
                     vec![],
                     None,
                     None,
+                    vec![],
                 )
                 .unwrap();
         }

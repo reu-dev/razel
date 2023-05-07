@@ -110,6 +110,13 @@ export class Razel {
     }
 }
 
+export namespace Razel {
+    export enum Tag {
+        Quiet = 'razel:quiet',
+        Verbose = 'razel:verbose',
+    }
+}
+
 export class File {
     constructor(public readonly fileName: string, public readonly isData: boolean, public createdBy: Command | null) {
     }
@@ -130,6 +137,7 @@ export class File {
 export abstract class Command {
     public stdout: File | undefined = undefined;
     public stderr: File | undefined = undefined;
+    public readonly tags: (Razel.Tag | string)[] = [];
 
     protected constructor(public readonly name: string, public readonly inputs: File[], public readonly outputs: File[]) {
         this.outputs.forEach(x => x.createdBy = this);
@@ -139,6 +147,16 @@ export abstract class Command {
         assertEquals(this.outputs.length, 1,
             `output() requires exactly one output file, but the command has ${this.outputs.length} outputs: ${this.name}`);
         return this.outputs[0];
+    }
+
+    addTag(tag: Razel.Tag | string): Command {
+        this.tags.push(tag);
+        return this;
+    }
+
+    addTags(tags: (Razel.Tag | string)[]): Command {
+        this.tags.push(...tags);
+        return this;
     }
 
     ensureEqual(other: File | Command): void {
@@ -204,6 +222,7 @@ export class CustomCommand extends Command {
             env: this.env,
             stdout: this.stdout?.fileName,
             stderr: this.stderr?.fileName,
+            tags: this.tags.length != 0 ? this.tags : undefined,
         };
     }
 }
@@ -225,6 +244,7 @@ export class Task extends Command {
             name: this.name,
             task: this.task,
             args: this.args.map(x => x instanceof File ? x.fileName : x),
+            tags: this.tags.length != 0 ? this.tags : undefined,
         };
     }
 }

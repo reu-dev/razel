@@ -7,6 +7,7 @@ use anyhow::Context;
 use log::debug;
 use serde::Deserialize;
 
+use crate::metadata::Tag;
 use crate::{config, parse_cli_within_file, Razel};
 
 pub fn parse_jsonl_file(razel: &mut Razel, file_name: &String) -> Result<(), anyhow::Error> {
@@ -38,12 +39,13 @@ pub fn parse_jsonl_file(razel: &mut Razel, file_name: &String) -> Result<(), any
                     c.outputs,
                     c.stdout,
                     c.stderr,
+                    c.tags,
                 )?;
             }
             RazelJson::Task(t) => {
                 let mut args: Vec<String> = vec![config::EXECUTABLE.into(), "task".into(), t.task];
                 args.extend(&mut t.args.iter().map(|x| x.into()));
-                parse_cli_within_file(razel, args.clone(), &t.name)
+                parse_cli_within_file(razel, args.clone(), &t.name, t.tags)
                     .with_context(|| format!("{}\n{}", t.name, args.join(" ")))?
             }
         }
@@ -73,6 +75,8 @@ struct RazelCustomCommandJson {
     outputs: Vec<String>,
     stdout: Option<String>,
     stderr: Option<String>,
+    #[serde(default)]
+    tags: Vec<Tag>,
 }
 
 #[derive(Deserialize)]
@@ -81,4 +85,6 @@ struct RazelTaskJson {
     name: String,
     task: String,
     args: Vec<String>,
+    #[serde(default)]
+    tags: Vec<Tag>,
 }
