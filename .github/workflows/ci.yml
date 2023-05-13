@@ -12,11 +12,16 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.8
       - uses: arduino/setup-protoc@v1
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - run: cargo fmt --check
       - run: cargo clippy --bins --tests
+      - run: pip install mypy
+      - run: mypy include/python/razel.py
 
   tests:
     name: Test ${{ matrix.os }}
