@@ -4,6 +4,8 @@ from __future__ import annotations
 import abc
 import json
 import os
+import subprocess
+import sys
 from enum import Enum
 from typing import ClassVar, Optional, Any, Tuple, TypeVar
 from collections.abc import Mapping, Sequence
@@ -75,6 +77,17 @@ class Razel:
             file2 = _map_arg_to_output_file(arg2)
             name = f"{file1.basename}##shouldNotEqual##{file2.basename}"
             self._add(Task(name, "ensure-not-equal", [file1, file2]))
+
+    def run(self, args: Sequence[str] = ["exec"]):
+        """Run the native razel binary to execute the commands."""
+        self.write_razel_file()
+        razel_binary_path = find_or_download_razel_binary(Razel.version)
+        cmd = [razel_binary_path]
+        cmd.extend(args)
+        print(" ".join(cmd))
+        status = subprocess.run(cmd, cwd=self._workspace_dir).returncode
+        if status != 0:
+            sys.exit(status)
 
     def write_razel_file(self) -> None:
         with open(os.path.join(self._workspace_dir, "razel.jsonl"), "w", encoding="utf-8") as file:
@@ -343,3 +356,62 @@ def _split_args_in_inputs_and_outputs(args: Sequence[str | File | Command]) -> T
     inputs = [x for x in args if isinstance(x, File) and (x.is_data or x.created_by)]
     outputs = [x for x in args if isinstance(x, File) and not x.is_data and x.created_by is None]
     return inputs, outputs
+
+
+def find_or_download_razel_binary(version: str) -> str:
+    ext = ".exe" if sys.platform == "Windows" else ""
+    # try to use razel binary from PATH
+    path = f"razel{ext}"
+    if get_razel_version(path) == version:
+        return path
+    # try to use razel binary from .cache
+    if sys.platform == "Darwin":
+        cache_dir = f"{os.environ['HOME']}/Library/Caches/de.reu-dev.razel"
+    elif sys.platform == "Windows":
+        localAppData = os.environ["LOCALAPPDATA"].replace('\\', '/')
+        cache_dir = f"{localAppData}/reu-dev/razel"
+    else:
+        cache_dir = f"{os.environ['HOME']}/.cache/razel"
+    path = f"{cache_dir}/razel{ext}"
+    if get_razel_version(path) == version:
+        return path
+    # download razel binary to .cache
+    download_razel_binary(version, path)
+    return path
+
+
+def get_razel_version(path: str) -> Optional[str]:
+    try:
+        p = subprocess.run([path, "--version"], capture_output=True, text=True)
+        if p.returncode != 0:
+            return None
+        return p.stdout.strip().split(" ")[1]
+    except:
+        return None
+
+
+def download_razel_binary(version: Optional[str], path: str):
+    import gzip
+    import pathlib
+    import urllib.request
+    download_tag = f"download/v{version}" if version else "latest/download"
+    if sys.platform == "Darwin":
+        build_target = "x86_64-apple-Darwin"
+    elif sys.platform == "Windows":
+        build_target = "x86_64-pc-Windows-msvc"
+    else:
+        build_target = "x86_64-unknown-linux-gnu"
+    url = f"https://github.com/reu-dev/razel/releases/{download_tag}/razel-{build_target}.gz"
+    print('Download razel binary from', url)
+    with urllib.request.urlopen(url) as response:
+        with gzip.GzipFile(fileobj=response) as uncompressed:
+            file_content = uncompressed.read()
+    print(f"Extract razel binary to {path}")
+    pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(file_content)
+    if sys.platform != "Windows":
+        subprocess.check_call(["chmod", "+x", path])
+    actual_version = get_razel_version(path)
+    assert actual_version, "Failed to download razel binary. To build it from source, run: cargo install razel"
+    print(f"Downloaded razel {actual_version}")
