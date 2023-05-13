@@ -239,7 +239,7 @@ class CustomCommand(Command):
     def add_output_file(self, arg: str | File) -> CustomCommand:
         """Add an output file which is not part of the command line."""
         file = arg if isinstance(arg, File) else Razel.instance().add_output_file(arg)
-        file._createdBy = self
+        file._created_by = self
         self._outputs.append(file)
         return self
 
