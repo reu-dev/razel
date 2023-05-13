@@ -33,11 +33,11 @@ serde_json = "1.0"
 sha2 = "0.10"
 simplelog = "0.12"
 tokio = { version = "1.21", features = ["full"] }
-tonic = "0.8"
-wasi-cap-std-sync = "6"
-wasi-common = {version = "6", default-features = false }
-wasmtime = {version = "6", default-features = false, features = ["async", "parallel-compilation", "cranelift", "pooling-allocator", "vtune"] }
-wasmtime-wasi = "6"
+tonic = "0.9"
+wasi-cap-std-sync = "8"
+wasi-common = { version = "8", default-features = false }
+wasmtime = { version = "8", default-features = false, features = ["async", "parallel-compilation", "cranelift", "pooling-allocator", "vtune"] }
+wasmtime-wasi = "8"
 which = "4"
 
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -45,7 +45,7 @@ procfs = { version = "0.14", features = [] }
 
 [build-dependencies]
 prost-build = "0.11"
-tonic-build = "0.8"
+tonic-build = "0.9"
 
 [dev-dependencies]
 approx = "0.5"
