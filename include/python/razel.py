@@ -5,7 +5,7 @@ import abc
 import json
 import os
 from enum import Enum
-from typing import ClassVar, Optional, Any, TypeVar
+from typing import ClassVar, Optional, Any, Tuple, TypeVar
 from collections.abc import Mapping, Sequence
 
 
@@ -139,13 +139,13 @@ class File:
 
 
 class Command(abc.ABC):
-    def __init__(self, name: str, inputs: Sequence[File], outputs: Sequence[File]) -> None:
+    def __init__(self, name: str, inputs: list[File], outputs: list[File]) -> None:
         self._name = name
         self._inputs = inputs
         self._outputs = outputs
         self._stdout: File | None = None
         self._stderr: File | None = None
-        self._tags: Sequence[Razel.Tag | str] = []
+        self._tags: list[Razel.Tag | str] = []
         for out in self._outputs:
             out._created_by = self
 
@@ -243,20 +243,20 @@ class CustomCommand(Command):
         self._outputs.append(file)
         return self
 
-    def write_stdout_to_file(self, path: str = None) -> CustomCommand:
+    def write_stdout_to_file(self, path: Optional[str] = None) -> CustomCommand:
         self._stdout = Razel.instance().add_output_file(path if path else self._name)
         self._stdout._created_by = self
         self._outputs.append(self._stdout)
         return self
 
-    def write_stderr_to_file(self, path: str = None) -> CustomCommand:
+    def write_stderr_to_file(self, path: Optional[str] = None) -> CustomCommand:
         self._stderr = Razel.instance().add_output_file(path if path else self._name)
         self._stderr._created_by = self
         self._outputs.append(self._stderr)
         return self
 
     def json(self) -> Mapping[str, Any]:
-        j = {
+        j: Any = {
             "name": self.name,
             "executable": self.executable,
             "args": [x.file_name if isinstance(x, File) else x for x in self.args],
@@ -339,7 +339,7 @@ def _map_args_to_output_files(args: Sequence[str | File | Command]) -> Sequence[
     return [x.output if isinstance(x, Command) else x for x in args]
 
 
-def _split_args_in_inputs_and_outputs(args: Sequence[str | File | Command]) -> (Sequence[File], Sequence[File]):
+def _split_args_in_inputs_and_outputs(args: Sequence[str | File | Command]) -> Tuple[list[File], list[File]]:
     inputs = [x for x in args if isinstance(x, File) and (x.is_data or x.created_by)]
     outputs = [x for x in args if isinstance(x, File) and not x.is_data and x.created_by is None]
     return inputs, outputs
