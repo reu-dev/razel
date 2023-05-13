@@ -88,8 +88,10 @@ class Razel:
     def _add(self, command: _Command) -> _Command:
         for existing in self._commands:
             if existing.name == command.name:
-                assert command.json() == existing.json(), \
-                    f"conflicting actions: {command.name}:\nexisting: {existing.json()}\nto add: {command.json()}"
+                existing_json = existing.json_for_comparing_to_existing_command()
+                command_son = command.json_for_comparing_to_existing_command()
+                assert command_son == existing_json, \
+                    f"conflicting command: {command.name}:\nexisting: {existing_json}\nto add:   {command_son}"
                 assert isinstance(existing, type(command))
                 return existing
 
@@ -195,6 +197,10 @@ class Command(abc.ABC):
     def json(self) -> Mapping[str, Any]:
         pass
 
+    @abc.abstractmethod
+    def json_for_comparing_to_existing_command(self) -> Mapping[str, Any]:
+        pass
+
 
 class CustomCommand(Command):
     def __init__(
@@ -267,6 +273,17 @@ class CustomCommand(Command):
             j["tags"] = self._tags
         return j
 
+    def json_for_comparing_to_existing_command(self) -> Mapping[str, Any]:
+        j: Any = {
+            "executable": self.executable,
+            "args": [x.file_name if isinstance(x, File) else x for x in self.args],
+            "inputs": [x.file_name for x in self._inputs],
+            "outputs": [x.file_name for x in self._outputs if x != self._stdout and x != self._stderr],
+        }
+        if self.env:
+            j["env"] = self.env
+        return j
+
 
 class Task(Command):
     @staticmethod
@@ -298,6 +315,12 @@ class Task(Command):
         if self._tags:
             j["tags"] = self._tags
         return j
+
+    def json_for_comparing_to_existing_command(self) -> Mapping[str, Any]:
+        return {
+            "task": self.task,
+            "args": [x.file_name if isinstance(x, File) else x for x in self.args],
+        }
 
 
 def _map_arg_to_output_path(arg: str | File | Command) -> str:

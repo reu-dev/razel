@@ -90,8 +90,12 @@ export class Razel {
     private add(command: Command): Command {
         const existing = this.commands.find(x => x.name === command.name);
         if (existing) {
-            assertEquals(command.json(), existing.json(),
-                `conflicting actions: ${command.name}:\nexisting: ${JSON.stringify(existing.json())}\nto add: ${JSON.stringify(command.json())}`);
+            const existingJson = existing.jsonForComparingToExistingCommand();
+            const commandJson = command.jsonForComparingToExistingCommand();
+            assertEquals(commandJson, existingJson,
+                `conflicting command: ${command.name}:\n\
+                existing: ${JSON.stringify(existingJson)}\n\
+                to add:   ${JSON.stringify(commandJson)}`);
             return existing;
         }
         this.commands.push(command);
@@ -168,6 +172,8 @@ export abstract class Command {
     }
 
     abstract json(): any;
+
+    abstract jsonForComparingToExistingCommand(): any;
 }
 
 export class CustomCommand extends Command {
@@ -225,6 +231,16 @@ export class CustomCommand extends Command {
             tags: this.tags.length != 0 ? this.tags : undefined,
         };
     }
+
+    jsonForComparingToExistingCommand(): any {
+        return {
+            executable: this.executable,
+            args: this.args.map(x => x instanceof File ? x.fileName : x),
+            inputs: this.inputs.map(x => x.fileName),
+            outputs: this.outputs.filter(x => x !== this.stdout && x !== this.stderr).map(x => x.fileName),
+            env: this.env,
+        };
+    }
 }
 
 export class Task extends Command {
@@ -245,6 +261,13 @@ export class Task extends Command {
             task: this.task,
             args: this.args.map(x => x instanceof File ? x.fileName : x),
             tags: this.tags.length != 0 ? this.tags : undefined,
+        };
+    }
+
+    jsonForComparingToExistingCommand(): any {
+        return {
+            task: this.task,
+            args: this.args.map(x => x instanceof File ? x.fileName : x),
         };
     }
 }
