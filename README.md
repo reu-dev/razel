@@ -21,38 +21,32 @@ dependencies.
 
 ## Getting Started
 
-Use [rustup](https://rustup.rs/) to install Rust. Install `protobuf-compiler`. Clone and build Razel:
-
-```bash
-cargo install razel
-```
-
 The native input format for Razel is a `razel.jsonl` file, see the example [test/razel.jsonl](test/razel.jsonl).
-```
-razel exec -f test/razel.jsonl
-```
+It can be run with `razel exec -f test/razel.jsonl`.
 
-The preferred way to create a `razel.jsonl` file is using one of the high-level APIs.
+The preferred way is to use one of the high-level APIs. Both allow specifying the commands in an object-oriented style
+and provide a `run()` function which creates the `razel.jsonl` file, downloads the native `razel` binary
+and uses it to execute the commands.
+
+Output files are created in `<cwd>/razel-out`.
 
 ### TypeScript API
 
 Install [Deno](https://deno.land/) to use the [TypeScript API](include/deno/razel.ts).
-Run the [example Deno script](test/deno.ts) to create `test/razel.jsonl` and execute it with Razel:
+Run the [example Deno script](test/deno.ts):
 
 ```bash
-deno run --allow-write=. --check test/deno.ts
-razel exec -f test/razel.jsonl
+deno run -A --check test/deno.ts -- -v
 ```
 
 ### Python API
 
 The [Python API](include/python/razel.py) requires Python >= 3.8.
-Run the [example Python script](test/python.py) to create `test/razel.jsonl` and execute it with Razel:
+Install the package and run the [example Python script](test/python.py):
 
 ```bash
 pip install razel
-python3 test/python.py
-razel exec -f test/razel.jsonl
+python test/python.py -v
 ```
 
 ### Batch file
@@ -65,6 +59,11 @@ Execute the example [test/batch.sh](test/batch.sh) with Razel:
 ```bash
 razel exec -f test/batch.sh
 ```
+
+### Building Razel from source
+
+Use [rustup](https://rustup.rs/) to install Rust. Install `protobuf-compiler`. Then run `cargo install razel`.
+
 
 ## Project Status
 
