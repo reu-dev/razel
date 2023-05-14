@@ -22,7 +22,8 @@ async function updateVersionInCargoLock() {
 async function updateVersionInApis(oldVersion: string, newVersion: string) {
     [
         ["include/deno/razel.ts", `version = "${oldVersion}"`],
-        ["include/python/razel.py", `version: ClassVar.str. = "${oldVersion}"`]
+        ["include/python/razel.py", `version: ClassVar.str. = "${oldVersion}"`],
+        ["test/deno.ts", `razel@v${oldVersion}`],
     ].forEach(([file, matcher]) => {
         const content = Deno.readTextFileSync(file);
         const matchResults = content.match(matcher);
