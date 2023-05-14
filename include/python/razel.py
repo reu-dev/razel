@@ -21,6 +21,7 @@ class Razel:
 
     def __init__(self, workspace_dir: str) -> None:
         self._workspace_dir = workspace_dir
+        self.razel_file = os.path.join(self._workspace_dir, "razel.jsonl")
         self._commands: list[Command] = []
 
     @staticmethod
@@ -78,19 +79,29 @@ class Razel:
             name = f"{file1.basename}##shouldNotEqual##{file2.basename}"
             self._add(Task(name, "ensure-not-equal", [file1, file2]))
 
-    def run(self, args: Sequence[str] = ["exec"]):
-        """Run the native razel binary to execute the commands."""
+    def run(self, args: list[str] = ["exec"]):
+        """Run the native razel binary to execute the commands.
+
+        Commands are written to `<workspace_dir>/razel.jsonl`. That file is processed with `razel exec`.
+        If the native razel binary is not available, it will be downloaded.
+
+        Output files are created in `<cwd>/razel-out`.
+        """
         self.write_razel_file()
         razel_binary_path = find_or_download_razel_binary(Razel.version)
         cmd = [razel_binary_path]
-        cmd.extend(args)
+        if len(args) > 0 and args[0] == "exec":
+            razel_file_rel = os.path.relpath(self.razel_file, os.curdir)
+            cmd.extend([args[0]] + ['-f', razel_file_rel] + args[1:])
+        else:
+            cmd.extend(args)
         print(" ".join(cmd))
-        status = subprocess.run(cmd, cwd=self._workspace_dir).returncode
+        status = subprocess.run(cmd).returncode
         if status != 0:
             sys.exit(status)
 
     def write_razel_file(self) -> None:
-        with open(os.path.join(self._workspace_dir, "razel.jsonl"), "w", encoding="utf-8") as file:
+        with open(self.razel_file, "w", encoding="utf-8") as file:
             for command in self._commands:
                 json.dump(command.json(), file, separators=(',', ':'))
                 file.write("\n")

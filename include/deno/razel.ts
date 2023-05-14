@@ -4,9 +4,11 @@ import * as path from 'https://deno.land/std@0.135.0/path/mod.ts';
 export class Razel {
     static version = "0.1.7";
     private static _instance: Razel;
+    razelFile: string;
     private commands: Command[] = [];
 
     private constructor(public readonly workspaceDir: string) {
+        this.razelFile = path.join(this.workspaceDir, 'razel.jsonl');
     }
 
     static init(workspaceDir: string): Razel {
@@ -70,13 +72,25 @@ export class Razel {
         }
     }
 
-    // Run the native razel binary to execute the commands.
+    /** Run the native razel binary to execute the commands.
+     *
+     * Commands are written to `<workspaceDir>/razel.jsonl`. That file is processed with `razel exec`.
+     * If the native razel binary is not available, it will be downloaded.
+     *
+     * Output files are created in `<cwd>/razel-out`.
+     */
     async run(args: string[] = ["exec"]) {
         await this.writeRazelFile();
         const razelBinaryPath = await findOrDownloadRazelBinary(Razel.version);
-        const cmd = [razelBinaryPath, ...args];
+        const cmd = [razelBinaryPath];
+        if (args.length > 0 && args[0] === 'exec') {
+            const razelFileRel = path.relative(Deno.cwd(), this.razelFile);
+            cmd.push(args[0], '-f', razelFileRel, ...args.slice(1));
+        } else {
+            cmd.push(...args);
+        }
         console.log(cmd.join(" "));
-        const status = await Deno.run({cmd, cwd: this.workspaceDir}).status();
+        const status = await Deno.run({cmd}).status();
         if (!status.success) {
             Deno.exit(status.code);
         }
@@ -84,7 +98,7 @@ export class Razel {
 
     async writeRazelFile() {
         const json = this.commands.map(x => JSON.stringify(x.json()));
-        await Deno.writeTextFile(path.join(this.workspaceDir, 'razel.jsonl'), json.join('\n') + '\n');
+        await Deno.writeTextFile(this.razelFile, json.join('\n') + '\n');
     }
 
     private add(command: Command): Command {
