@@ -58,19 +58,22 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
 
       - name: cache deno
         uses: actions/cache@v3
         with:
           path: .deno-cache/deps
-          key: ${{ runner.os }}-deno-${{ hashFiles('include/deno/razel.ts') }}
+          key: ${{ runner.os }}-deno-${{ hashFiles('include/deno/razel.ts', 'test/deno.ts') }}
 
       - run: cargo build
 
       - run: cargo run -- info
 
       - run: cargo test -- --nocapture --skip real_time_test
+
+      # install binary, to be used by following API tests
+      - run: cargo install --locked --path .
 
       # test local version of Deno API
       - run: deno run -A --check --import-map=test/deno_import_map.json test/deno.ts

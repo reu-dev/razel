@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os.path as path
+import sys
 from razel import Razel
 
 workspace_dir = path.dirname(path.abspath(__file__))
@@ -35,4 +36,5 @@ if False:  # requires clang
         .add_tag(Razel.Tag.VERBOSE) \
         .ensure_equal(razel.add_command('say_hi_using_echo', 'echo', ['Hi Razel!']).write_stdout_to_file())
 
-razel.write_razel_file()
+# execute the commands using the native razel binary (will be downloaded)
+razel.run(['exec'] + sys.argv[1:])

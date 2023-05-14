@@ -34,4 +34,5 @@ if (false) {  // requires clang
         .ensureEqual(razel.addCommand('say_hi_using_echo', 'echo', ['Hi Razel!']).writeStdoutToFile());
 }
 
-await razel.writeRazelFile();
+// execute the commands using the native razel binary (will be downloaded)
+await razel.run(['exec', ...Deno.args.slice(1)]);
