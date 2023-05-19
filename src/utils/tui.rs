@@ -236,7 +236,7 @@ impl TUI {
 
     fn clear_status(&mut self) {
         if self.is_tty && self.status_printed {
-            print!("{}{:>90}{}", RestorePosition, "", RestorePosition);
+            print!("{}{:>90}{}", RestorePosition, " ", RestorePosition);
             self.status_printed = false;
         }
     }
