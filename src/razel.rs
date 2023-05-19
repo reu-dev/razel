@@ -880,13 +880,9 @@ impl Razel {
                 auxiliary_metadata: vec![],
             }),
         };
-        // TODO add stdout/stderr files
-        if !execution_result.stdout.is_empty() && execution_result.stdout.len() < 1000 {
-            action_result.stdout_raw = execution_result.stdout.clone();
-        }
-        if !execution_result.stderr.is_empty() && execution_result.stderr.len() < 1000 {
-            action_result.stderr_raw = execution_result.stderr.clone();
-        }
+        // TODO add stdout/stderr files for non-small outputs
+        action_result.stdout_raw = execution_result.stdout.clone();
+        action_result.stderr_raw = execution_result.stderr.clone();
         cache
             .push_action_result(action_digest, &action_result)
             .await?;
