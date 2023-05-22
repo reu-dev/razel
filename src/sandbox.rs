@@ -1,4 +1,4 @@
-use crate::{config, force_hardlink};
+use crate::{config, force_symlink};
 use anyhow::Context;
 use std::path::PathBuf;
 use std::process;
@@ -45,7 +45,7 @@ impl Sandbox {
             }
             let src = input;
             let dst = self.dir.join(input);
-            force_hardlink(src, &dst).await?;
+            force_symlink(src, &dst).await?;
         }
         for output in outputs {
             let output_abs = self.dir.join(output);

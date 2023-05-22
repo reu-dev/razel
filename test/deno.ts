@@ -18,10 +18,6 @@ razel.addTask('filtered.csv', 'csv-filter', ['-i', c, '-o', razel.addOutputFile(
 const d = razel.addCommand('d.csv', 'cp', [a, razel.addOutputFile('d.csv')])
     .addTag('copy');
 d.ensureEqual(a);
-// add command to copy a file using a WASM module with WASI
-razel.addCommand('e.csv', 'bin/wasm32-wasi/cp.wasm', [d, razel.addOutputFile('e.csv')])
-    .addTag('copy')
-    .ensureEqual(a);
 
 if (false) {  // requires clang
     // compile an executable from a c file

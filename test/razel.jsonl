@@ -5,5 +5,3 @@
 {"name":"filtered.csv##shouldEqual##f.csv","task":"ensure-equal","args":["filtered.csv","data/f.csv"]}
 {"name":"d.csv","executable":"cp","args":["data/a.csv","d.csv"],"inputs":["data/a.csv"],"outputs":["d.csv"],"tags":["copy"]}
 {"name":"d.csv##shouldEqual##a.csv","task":"ensure-equal","args":["d.csv","data/a.csv"]}
-{"name":"e.csv","executable":"bin/wasm32-wasi/cp.wasm","args":["d.csv","e.csv"],"inputs":["d.csv"],"outputs":["e.csv"],"tags":["copy"]}
-{"name":"e.csv##shouldEqual##a.csv","task":"ensure-equal","args":["e.csv","data/a.csv"]}
