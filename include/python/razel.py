@@ -268,13 +268,25 @@ class CustomCommand(Command):
         return self
 
     def write_stdout_to_file(self, path: Optional[str] = None) -> CustomCommand:
-        self._stdout = Razel.instance().add_output_file(path if path else self._name)
+        new_stdout_name = path if path else self._name + ".stdout.txt"
+
+        if self._stdout:
+            assert self._stdout.file_name == new_stdout_name
+            return self
+
+        self._stdout = Razel.instance().add_output_file(new_stdout_name)
         self._stdout._created_by = self
         self._outputs.append(self._stdout)
         return self
 
     def write_stderr_to_file(self, path: Optional[str] = None) -> CustomCommand:
-        self._stderr = Razel.instance().add_output_file(path if path else self._name)
+        new_stderr_name = path if path else self._name + ".stderr.txt"
+
+        if self._stderr:
+            assert self._stderr.file_name == new_stderr_name
+            return self
+
+        self._stderr = Razel.instance().add_output_file(new_stderr_name)
         self._stderr._created_by = self
         self._outputs.append(self._stderr)
         return self
