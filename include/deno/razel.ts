@@ -219,14 +219,24 @@ export class CustomCommand extends Command {
     }
 
     writeStdoutToFile(path?: string): CustomCommand {
-        this.stdout = Razel.instance().addOutputFile(path ? path : this.name);
+        const newFile = Razel.instance().addOutputFile(path ? path : this.name + ".stdout.txt");
+        if (this.stdout) {
+            assertEquals(newFile.fileName, this.stdout.fileName);
+            return this;
+        }
+        this.stdout = newFile;
         this.stdout.createdBy = this;
         this.outputs.push(this.stdout);
         return this;
     }
 
     writeStderrToFile(path?: string): CustomCommand {
-        this.stderr = Razel.instance().addOutputFile(path ? path : this.name);
+        const newFile = Razel.instance().addOutputFile(path ? path : this.name + ".stderr.txt");
+        if (this.stderr) {
+            assertEquals(newFile.fileName, this.stderr.fileName);
+            return this;
+        }
+        this.stderr = newFile;
         this.stderr.createdBy = this;
         this.outputs.push(this.stderr);
         return this;
