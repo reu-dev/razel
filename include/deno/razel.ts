@@ -45,7 +45,7 @@ export class Razel {
     // Add a task to compare two files. In case of two commands, all output files will be compared.
     ensureEqual(arg1: File | Command, arg2: File | Command): void {
         if (arg1 instanceof Command && arg2 instanceof Command) {
-            assertEquals(arg1.outputs.length, arg2.outputs.length);
+            assertEquals(arg1.outputs.length, arg2.outputs.length, "Commands to compare have different number of output files!");
             for (let i = 0; i != arg1.outputs.length; ++i) {
                 this.ensureEqual(arg1.outputs[i], arg2.outputs[i]);
             }
@@ -60,7 +60,7 @@ export class Razel {
     // Add a task to compare two files. In case of two commands, all output files will be compared.
     ensureNotEqual(arg1: File | Command, arg2: File | Command): void {
         if (arg1 instanceof Command && arg2 instanceof Command) {
-            assertEquals(arg1.outputs.length, arg2.outputs.length);
+            assertEquals(arg1.outputs.length, arg2.outputs.length, "Commands to compare have different number of output files!");
             for (let i = 0; i != arg1.outputs.length; ++i) {
                 this.ensureEqual(arg1.outputs[i], arg2.outputs[i]);
             }

@@ -58,7 +58,7 @@ class Razel:
     def ensure_equal(self, arg1: File | Command, arg2: File | Command) -> None:
         """Add a task to compare two files. In case of two commands, all output files will be compared."""
         if isinstance(arg1, Command) and isinstance(arg2, Command):
-            assert len(arg1.outputs) == len(arg2.outputs)
+            assert len(arg1.outputs) == len(arg2.outputs), "Commands to compare have different number of output files!"
             for i in range(len(arg1.outputs)):
                 self.ensure_equal(arg1.outputs[i], arg2.outputs[i])
         else:
@@ -70,7 +70,7 @@ class Razel:
     def ensure_not_equal(self, arg1: File | Command, arg2: File | Command) -> None:
         """Add a task to compare two files. In case of two commands, all output files will be compared."""
         if isinstance(arg1, Command) and isinstance(arg2, Command):
-            assert len(arg1.outputs) == len(arg2.outputs)
+            assert len(arg1.outputs) == len(arg2.outputs), "Commands to compare have different number of output files!"
             for i in range(len(arg1.outputs)):
                 self.ensure_equal(arg1.outputs[i], arg2.outputs[i])
         else:
