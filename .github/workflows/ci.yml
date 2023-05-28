@@ -76,7 +76,7 @@ jobs:
       - run: cargo install --locked --path .
 
       # test local version of Deno API
-      - run: deno run -A --check --import-map=test/deno_import_map.json test/deno.ts
+      - run: deno run -A --check test/deno.ts
       - run: git diff --exit-code test/razel.jsonl
 
       # test local version of Python API
