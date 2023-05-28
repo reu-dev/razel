@@ -20,22 +20,24 @@ async function updateVersionInCargoLock() {
 }
 
 async function updateVersionInApis(oldVersion: string, newVersion: string) {
-    [
+    assert(!oldVersion.startsWith('v'));
+    assert(!newVersion.startsWith('v'));
+    for (const [file, matcher] of [
         ["include/deno/razel.ts", `version = "${oldVersion}"`],
         ["include/python/razel.py", `version: ClassVar.str. = "${oldVersion}"`],
         ["test/deno.ts", `razel@v${oldVersion}`],
-    ].forEach(([file, matcher]) => {
+    ]) {
         const content = Deno.readTextFileSync(file);
         const matchResults = content.match(matcher);
         assert(matchResults);
         const [oldLine] = matchResults;
         const newLine = oldLine.replace(oldVersion, newVersion);
         Deno.writeTextFileSync(file, content.replace(oldLine, newLine));
-    });
+        await exec(["git", "add", file]);
+    }
 }
 
 async function createTag(tag: string) {
-    await exec(["git", "add", "Cargo.toml", "Cargo.lock", "include"]);
     await exec(["git", "diff", "--cached"]);
     await exec(["git", "commit", "-m", `Release ${tag}`]);
     await exec(["git", "tag", tag]);
@@ -66,5 +68,6 @@ console.log('newVersion:    ', newVersion);
 console.log('tag:           ', tag);
 appendToOutputFile(outputFilePath, newVersion, tag);
 await updateVersionInCargoLock();
+await exec(["git", "add", "Cargo.toml", "Cargo.lock"]);
 await updateVersionInApis(oldVersion, newVersion);
 await createTag(tag);
