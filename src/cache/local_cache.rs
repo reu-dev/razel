@@ -9,7 +9,7 @@ use tokio::io::AsyncReadExt;
 use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
 use crate::cache::{message_to_pb_buf, MessageDigest};
 use crate::config::select_cache_dir;
-use crate::{force_remove_file, force_symlink, set_file_readonly};
+use crate::{force_remove_file, force_symlink, set_file_readonly, write_gitignore};
 
 #[derive(Clone)]
 pub struct LocalCache {
@@ -25,6 +25,7 @@ impl LocalCache {
         let cas_dir = dir.join("cas");
         std::fs::create_dir_all(&ac_dir)?;
         std::fs::create_dir_all(&cas_dir)?;
+        write_gitignore(&dir);
         Ok(Self {
             dir,
             ac_dir,
