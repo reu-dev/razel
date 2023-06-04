@@ -16,8 +16,8 @@ use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor, WasiExecutor};
 use crate::metadata::{write_graphs_html, Measurements, Profile, Tag};
 use crate::{
-    bazel_remote_exec, config, force_remove_file, Arena, CGroup, Command, CommandBuilder,
-    CommandId, File, FileId, FileType, Sandbox, Scheduler, TUI,
+    bazel_remote_exec, config, force_remove_file, write_gitignore, Arena, CGroup, Command,
+    CommandBuilder, CommandId, File, FileId, FileType, Sandbox, Scheduler, GITIGNORE_FILENAME, TUI,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -522,6 +522,7 @@ impl Razel {
                         .get(path_wo_prefix)
                         .filter(|x| self.files[**x].path == path)
                         .is_none()
+                        && path_wo_prefix.to_string_lossy() != GITIGNORE_FILENAME
                     {
                         fs::remove_file(path).ok();
                     }
@@ -599,6 +600,7 @@ impl Razel {
             fs::create_dir_all(x)
                 .with_context(|| format!("Failed to create output directory: {x:?}"))?;
         }
+        write_gitignore(&self.out_dir);
         Ok(())
     }
 
