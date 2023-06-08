@@ -69,17 +69,8 @@ jobs:
       - uses: arduino/setup-protoc@v1
         with:
           repo-token: ${{secrets.GITHUB_TOKEN}}
+      - uses: Swatinem/rust-cache@v2
       - run: rustup show
-      - name: cache cargo
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{runner.os}}-cargo-${{hashFiles('**/Cargo.lock')}}
       - run: cargo build --release --bin razel
       - uses: actions/upload-artifact@v3
         with:
