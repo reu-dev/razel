@@ -66,6 +66,11 @@ pub struct Razel {
     /// directory of output files - relative to current_dir
     out_dir: PathBuf,
     cache: Cache,
+    /// directory to use as PWD for executing commands
+    ///
+    /// Should be but on same device as local cache dir to quickly move outfile file to cache.
+    /// Ideally outside the workspace dir to help IDE indexer.
+    sandbox_dir: PathBuf,
     files: Arena<File>,
     /// maps paths relative to current_dir (without out_dir prefix) to <File>s
     path_to_file_id: HashMap<PathBuf, FileId>,
@@ -93,6 +98,11 @@ impl Razel {
         let workspace_dir = current_dir.clone();
         let out_dir = PathBuf::from(config::OUT_DIR);
         let cache = Cache::new(&workspace_dir).unwrap();
+        let sandbox_dir = cache
+            .local_cache
+            .dir
+            .join("sandbox")
+            .join(std::process::id().to_string());
         debug!("workspace_dir: {:?}", workspace_dir);
         debug!("out_dir:       {:?}", current_dir.join(&out_dir));
         let cgroup = match Self::create_cgroup() {
@@ -109,6 +119,7 @@ impl Razel {
             current_dir,
             out_dir,
             cache,
+            sandbox_dir,
             files: Default::default(),
             path_to_file_id: Default::default(),
             which_to_file_id: Default::default(),
@@ -169,6 +180,12 @@ impl Razel {
         }
         debug!("workspace_dir: {:?}", self.workspace_dir);
         self.cache = Cache::new(&self.workspace_dir)?;
+        self.sandbox_dir = self
+            .cache
+            .local_cache
+            .dir
+            .join("sandbox")
+            .join(std::process::id().to_string());
         Ok(())
     }
 
@@ -308,7 +325,7 @@ impl Razel {
             bail!("no commands added");
         }
         self.tui.verbose = verbose;
-        Sandbox::cleanup();
+        Sandbox::cleanup(&self.sandbox_dir);
         self.create_dependency_graph();
         self.remove_unknown_files_from_out_dir(&self.out_dir).ok();
         self.digest_input_files().await?;
@@ -332,7 +349,7 @@ impl Razel {
             }
         }
         self.remove_outputs_of_not_run_actions_from_out_dir();
-        Sandbox::cleanup();
+        Sandbox::cleanup(&self.sandbox_dir);
         self.write_metadata()?;
         let stats = SchedulerStats {
             exec: SchedulerExecStats {
@@ -687,7 +704,7 @@ impl Razel {
         let output_paths = self.collect_output_file_paths_for_command(command);
         let sandbox = executor
             .use_sandbox()
-            .then(|| Sandbox::new(&command.id.to_string()));
+            .then(|| Sandbox::new(&self.sandbox_dir, &command.id.to_string()));
         let cgroup = self.cgroup.clone();
         let out_dir = self.out_dir.clone();
         tokio::task::spawn(async move {
