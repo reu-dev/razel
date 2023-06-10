@@ -15,15 +15,13 @@ pub fn select_cache_dir(workspace_dir: &Path) -> Result<PathBuf, anyhow::Error> 
     let project_dirs = ProjectDirs::from("de", "reu-dev", EXECUTABLE).unwrap();
     let home_cache: PathBuf = project_dirs.cache_dir().into();
     std::fs::create_dir_all(&home_cache)?;
-    Ok(
-        if device_of_dir(home_cache.parent().unwrap())?
-            == device_of_dir(workspace_dir.parent().unwrap())?
-        {
-            home_cache
-        } else {
-            workspace_dir.parent().unwrap().join(".razel-cache")
-        },
-    )
+    let home_cache_device = device_of_dir(&home_cache)?;
+    let workspace_device = device_of_dir(workspace_dir)?;
+    Ok(if home_cache_device == workspace_device {
+        home_cache
+    } else {
+        workspace_dir.join(".razel-cache")
+    })
 }
 
 #[cfg(target_family = "unix")]
@@ -51,6 +49,8 @@ fn device_of_dir(dir: &Path) -> Result<String, anyhow::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::TempDir;
+    use crate::unique_test_name;
     use directories::UserDirs;
     use std::env;
 
@@ -69,14 +69,14 @@ mod tests {
     fn workspace_within_home() {
         let user_dirs = UserDirs::new().unwrap();
         let home_dir = user_dirs.home_dir();
-        let workspace_dir = home_dir.join("ws");
-        check_cache_dir(&workspace_dir);
+        let workspace = TempDir::with_dir(home_dir.join(format!(".tmp-{}", unique_test_name!())));
+        check_cache_dir(workspace.dir());
     }
 
     #[test]
     fn workspace_within_temp() {
-        let temp_dir = env::temp_dir();
-        let workspace_dir = temp_dir.join("ws");
-        check_cache_dir(&workspace_dir);
+        let workspace =
+            TempDir::with_dir(env::temp_dir().join(format!(".tmp-{}", unique_test_name!())));
+        check_cache_dir(workspace.dir());
     }
 }

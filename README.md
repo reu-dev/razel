@@ -28,7 +28,7 @@ The preferred way is to use one of the high-level APIs. Both allow specifying th
 and provide a `run()` function which creates the `razel.jsonl` file, downloads the native `razel` binary
 and uses it to execute the commands.
 
-Output files are created in `<cwd>/razel-out`.
+Paths of inputs files are relative to the workspace (directory of `razel.jsonl`). Output files are created in `<cwd>/razel-out`.
 
 ### TypeScript API
 
@@ -58,6 +58,13 @@ Execute the example [test/batch.sh](test/batch.sh) with Razel:
 
 ```bash
 razel exec -f test/batch.sh
+```
+
+### Running in Docker/Podman container
+
+The workspace directory can be mounted into a container:
+```bash
+podman run -t -v $PWD:$PWD -w $PWD denoland/deno deno run -A test/deno.ts
 ```
 
 ### Building Razel from source
