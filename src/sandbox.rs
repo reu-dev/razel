@@ -1,7 +1,6 @@
-use crate::{config, force_symlink};
+use crate::force_symlink;
 use anyhow::Context;
-use std::path::PathBuf;
-use std::process;
+use std::path::{Path, PathBuf};
 use tokio::fs;
 
 /// TODO sandbox does not stop writing to input files
@@ -11,21 +10,13 @@ pub struct Sandbox {
 }
 
 impl Sandbox {
-    pub fn cleanup() {
-        let base_dir: PathBuf = [config::SANDBOX_DIR, ".sandbox"].iter().collect();
+    pub fn cleanup(base_dir: &Path) {
         std::fs::remove_dir_all(base_dir).ok();
     }
 
-    pub fn new(command_id: &str) -> Self {
+    pub fn new(base_dir: &Path, command_id: &str) -> Self {
         Self {
-            dir: [
-                config::SANDBOX_DIR,
-                ".sandbox",
-                &process::id().to_string(),
-                command_id,
-            ]
-            .iter()
-            .collect(),
+            dir: base_dir.join(command_id),
         }
     }
 
@@ -70,7 +61,7 @@ impl Sandbox {
 mod tests {
     use super::*;
     use crate::tasks::ensure_equal;
-    use crate::unique_test_name;
+    use crate::{new_tmp_dir, unique_test_name};
     use std::fs;
 
     const OUTPUT_FILE_CONTENT: &str = "OUTPUT_FILE_CONTENT";
@@ -96,7 +87,8 @@ mod tests {
     }
 
     async fn test_sandbox(command_id: String, input: PathBuf, output: PathBuf) {
-        let sandbox = Sandbox::new(&command_id);
+        let base_dir = new_tmp_dir!();
+        let sandbox = Sandbox::new(&base_dir.join("sandbox"), &command_id);
         let sandbox_dir = sandbox
             .create(&vec![input.clone()], &vec![output.clone()])
             .await
