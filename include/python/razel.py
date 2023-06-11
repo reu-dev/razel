@@ -4,6 +4,7 @@ from __future__ import annotations
 import abc
 import json
 import os
+import platform
 import subprocess
 import sys
 from enum import Enum
@@ -12,7 +13,7 @@ from collections.abc import Mapping, Sequence
 
 
 class Razel:
-    version: ClassVar[str] = "0.1.8"
+    version: ClassVar[str] = "0.1.9"
     _instance: ClassVar[Optional[Razel]] = None
 
     class Tag(str, Enum):
@@ -378,15 +379,15 @@ def _split_args_in_inputs_and_outputs(args: Sequence[str | File | Command]) -> T
 
 
 def find_or_download_razel_binary(version: str) -> str:
-    ext = ".exe" if sys.platform == "Windows" else ""
+    ext = ".exe" if platform.system() == "Windows" or platform.system().startswith("CYGWIN") else ""
     # try to use razel binary from PATH
     path = f"razel{ext}"
     if get_razel_version(path) == version:
         return path
     # try to use razel binary from .cache
-    if sys.platform == "Darwin":
+    if platform.system() == "Darwin":
         cache_dir = f"{os.environ['HOME']}/Library/Caches/de.reu-dev.razel"
-    elif sys.platform == "Windows":
+    elif platform.system() == "Windows":
         localAppData = os.environ["LOCALAPPDATA"].replace('\\', '/')
         cache_dir = f"{localAppData}/reu-dev/razel"
     else:
@@ -414,9 +415,9 @@ def download_razel_binary(version: Optional[str], path: str):
     import pathlib
     import urllib.request
     download_tag = f"download/v{version}" if version else "latest/download"
-    if sys.platform == "Darwin":
+    if platform.system() == "Darwin":
         build_target = "x86_64-apple-Darwin"
-    elif sys.platform == "Windows":
+    elif platform.system() == "Windows" or platform.system().startswith("CYGWIN"):
         build_target = "x86_64-pc-Windows-msvc"
     else:
         build_target = "x86_64-unknown-linux-gnu"
@@ -429,7 +430,7 @@ def download_razel_binary(version: Optional[str], path: str):
     pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "wb") as f:
         f.write(file_content)
-    if sys.platform != "Windows":
+    if platform.system() != "Windows":
         subprocess.check_call(["chmod", "+x", path])
     actual_version = get_razel_version(path)
     assert actual_version, "Failed to download razel binary. To build it from source, run: cargo install razel"

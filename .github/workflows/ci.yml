@@ -18,6 +18,7 @@ jobs:
       - uses: arduino/setup-protoc@v1
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
       - run: cargo clippy --bins --tests
       - run: pip install mypy
@@ -26,7 +27,7 @@ jobs:
   tests:
     name: Test ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -44,27 +45,18 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - run: deno info
-      - run: deno --version
-      - run: protoc --version
-      - run: rustup show
-
-      - name: cache cargo
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
-
       - name: cache deno
         uses: actions/cache@v3
         with:
           path: .deno-cache/deps
           key: ${{ runner.os }}-deno-${{ hashFiles('include/deno/razel.ts', 'test/deno.ts') }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: deno info
+      - run: deno --version
+      - run: protoc --version
+      - run: rustup show
 
       - run: cargo build
 
@@ -73,7 +65,7 @@ jobs:
       - run: cargo test -- --nocapture --skip real_time_test
 
       # install binary, to be used by following API tests
-      - run: cargo install --locked --path .
+      - run: cargo install --force --locked --path .
 
       # test local version of Deno API
       - run: deno run -A --check test/deno.ts
