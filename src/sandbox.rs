@@ -60,35 +60,32 @@ impl Sandbox {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::new_tmp_dir;
     use crate::tasks::ensure_equal;
-    use crate::{new_tmp_dir, unique_test_name};
     use std::fs;
 
     const OUTPUT_FILE_CONTENT: &str = "OUTPUT_FILE_CONTENT";
 
     #[tokio::test]
     async fn no_parent() {
-        test_sandbox(
-            unique_test_name!(),
-            "README.md".into(),
-            "output-file.txt".into(),
-        )
-        .await;
+        let base_dir = new_tmp_dir!();
+        test_sandbox(base_dir.dir(), "README.md".into(), "output-file.txt".into()).await;
     }
 
     #[tokio::test]
     async fn two_parents() {
+        let base_dir = new_tmp_dir!();
         test_sandbox(
-            unique_test_name!(),
+            base_dir.dir(),
             "test/data/a.csv".into(),
             "test/data/output-file.txt".into(),
         )
         .await;
     }
 
-    async fn test_sandbox(command_id: String, input: PathBuf, output: PathBuf) {
-        let base_dir = new_tmp_dir!();
-        let sandbox = Sandbox::new(&base_dir.join("sandbox"), &command_id);
+    async fn test_sandbox(base_dir: &Path, input: PathBuf, output: PathBuf) {
+        let command_id = "0";
+        let sandbox = Sandbox::new(base_dir, command_id);
         let sandbox_dir = sandbox
             .create(&vec![input.clone()], &vec![output.clone()])
             .await
