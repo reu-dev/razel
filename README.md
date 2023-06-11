@@ -49,7 +49,7 @@ pip install razel
 python test/python.py -v
 ```
 
-### Batch file
+### Batch file (experimental)
 
 In addition to `razel.jsonl`, Razel can directly execute a batch file containing commands.
 Input and output files need to be specified, which is WIP.
