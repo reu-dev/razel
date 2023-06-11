@@ -1,5 +1,5 @@
 import * as path from 'https://deno.land/std@0.135.0/path/mod.ts';
-import {Razel} from 'https://deno.land/x/razel@v0.1.9/razel.ts';
+import {Razel} from 'https://deno.land/x/razel@v0.1.10/razel.ts';
 
 const workspaceDir = path.resolve(path.dirname(path.fromFileUrl(import.meta.url)));
 const razel = Razel.init(workspaceDir);
