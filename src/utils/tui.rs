@@ -43,6 +43,11 @@ impl TUI {
         {
             return;
         }
+        let stdout = execution_result.stdout.to_str_lossy();
+        let stderr = execution_result.stderr.to_str_lossy();
+        if !self.verbose && stdout.is_empty() && stderr.is_empty() {
+            return;
+        }
         self.clear_status();
         Self::field(
             format!("{:?} ", execution_result.status).as_str(),
@@ -56,8 +61,6 @@ impl TUI {
                 command.name.clone()
             },
         );
-        let stdout = execution_result.stdout.to_str_lossy();
-        let stderr = execution_result.stderr.to_str_lossy();
         let print_stream_name = !stdout.is_empty() && !stderr.is_empty();
         Self::field(
             if print_stream_name { "stdout:\n" } else { "" },
