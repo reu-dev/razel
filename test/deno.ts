@@ -19,6 +19,13 @@ const d = razel.addCommand('d.csv', 'cp', [a, razel.addOutputFile('d.csv')])
     .addTag('copy');
 d.ensureEqual(a);
 
+// add command that will always be executed without caching
+razel.addCommand('cmake-sleep', 'cmake', ['-E', 'sleep', '0.010'])
+    .addTag(Razel.Tag.NoCache);
+// add command with unspecified output files
+razel.addCommand('cmake-touch-files', 'cmake', ['-E', 'touch', 'razel-out/cmake-touch-1', 'razel-out/cmake-touch-2'])
+    .addTag(Razel.Tag.NoSandbox);
+
 if (false) {  // requires clang
     // compile an executable from a c file
     const say_hi = razel.addCommand('say_hi', 'clang',

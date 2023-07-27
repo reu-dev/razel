@@ -130,8 +130,14 @@ export class Razel {
 
 export namespace Razel {
     export enum Tag {
+        // don't be verbose if command succeeded
         Quiet = 'razel:quiet',
+        // always show verbose output
         Verbose = 'razel:verbose',
+        // always execute a command without caching
+        NoCache = 'razel:no-cache',
+        // disable sandbox and also cache - for commands with unspecified input/output files
+        NoSandbox = 'razel:no-sandbox',
     }
 }
 

@@ -48,6 +48,19 @@ impl Sandbox {
         Ok(&self.dir)
     }
 
+    pub async fn move_output_files_into_out_dir(
+        &self,
+        output_paths: &Vec<PathBuf>,
+    ) -> Result<(), anyhow::Error> {
+        for dst in output_paths {
+            let src = self.dir.join(dst);
+            tokio::fs::rename(&src, &dst)
+                .await
+                .with_context(|| format!("move_output_files_into_out_dir {src:?} -> {dst:?}"))?;
+        }
+        Ok(())
+    }
+
     /// Remove tmp dir
     pub async fn destroy(&self) -> Result<(), anyhow::Error> {
         fs::remove_dir_all(&self.dir)

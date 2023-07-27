@@ -96,25 +96,20 @@ impl LocalCache {
 
     pub async fn move_output_file_into_cache(
         &self,
-        sandbox_dir: &Option<PathBuf>,
+        sandbox_dir: Option<&PathBuf>,
         out_dir: &PathBuf,
-        exec_path: &PathBuf,
-    ) -> Result<OutputFile, anyhow::Error> {
-        let src = sandbox_dir
-            .as_ref()
-            .map_or(exec_path.clone(), |x| x.join(exec_path));
+        file: &OutputFile,
+    ) -> Result<(), anyhow::Error> {
+        let src = if let Some(sandbox_dir) = sandbox_dir {
+            sandbox_dir.join(out_dir).join(&file.path)
+        } else {
+            out_dir.join(&file.path)
+        };
         if src.is_symlink() {
             bail!("output file must not be a symlink: {:?}", src);
         }
-        let digest = Digest::for_file(&src).await?;
+        let digest = file.digest.as_ref().unwrap();
         let dst = self.cas_dir.join(&digest.hash);
-        let path: String = exec_path.strip_prefix(out_dir).map_or_else(
-            |_| exec_path.to_str().unwrap().into(),
-            |x| x.to_str().unwrap().into(),
-        );
-        if !Path::new(&path).is_relative() {
-            bail!("path should be relative: {}", path);
-        }
         /* call set_file_readonly() before renaming, because is_blob_cached()
          * might remove the file in between from another thread */
         set_file_readonly(&src)
@@ -123,31 +118,25 @@ impl LocalCache {
         match tokio::fs::rename(&src, &dst).await {
             Ok(()) => {}
             Err(e) => {
-                if !self.is_blob_cached(&digest).await {
+                if !self.is_blob_cached(digest).await {
                     return Err(e).with_context(|| format!("mv {src:?} -> {dst:?}"));
                 }
                 // behave like src was moved
-                force_remove_file(src).await?;
+                force_remove_file(&src).await?;
             }
         }
-        Ok(OutputFile {
-            path,
-            digest: Some(digest),
-            is_executable: false,
-            contents: vec![],
-            node_properties: None,
-        })
+        Ok(())
     }
 
     pub async fn symlink_output_files_into_out_dir(
         &self,
-        action_result: &ActionResult,
+        output_files: &Vec<OutputFile>,
         out_dir: &Path,
     ) -> Result<(), anyhow::Error> {
         if out_dir.starts_with(&self.cas_dir) {
             bail!("out_dir should not be within cas dir: {:?}", out_dir);
         }
-        for file in &action_result.output_files {
+        for file in output_files {
             let cas_path = self.cas_dir.join(&file.digest.as_ref().unwrap().hash);
             let out_path = out_dir.join(&file.path);
             force_symlink(&cas_path, &out_path).await?;
