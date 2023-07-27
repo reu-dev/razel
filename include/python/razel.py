@@ -18,7 +18,13 @@ class Razel:
 
     class Tag(str, Enum):
         QUIET = 'razel:quiet'
+        """don't be verbose if command succeeded"""
         VERBOSE = 'razel:verbose'
+        """always show verbose output"""
+        NO_CACHE = 'razel:no-cache',
+        """always execute a command without caching"""
+        NO_SANDBOX = 'razel:no-sandbox',
+        """disable sandbox and also cache - for commands with unspecified input/output files"""
 
     def __init__(self, workspace_dir: str) -> None:
         self._workspace_dir = workspace_dir
