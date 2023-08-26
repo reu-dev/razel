@@ -211,11 +211,13 @@ class Command(abc.ABC):
         return self._tags
 
     def add_tag(self, tag: Razel.Tag | str) -> Command:
-        self._tags.append(tag)
+        if tag not in self._tags:
+            self._tags.append(tag)
         return self
 
     def add_tags(self, tags: Sequence[Razel.Tag | str]) -> Command:
-        self._tags.extend(tags)
+        for tag in tags:
+            self.add_tag(tag)
         return self
 
     def ensure_equal(self, other: File | Command) -> None:
@@ -258,7 +260,8 @@ class CustomCommand(Command):
     def add_input_file(self, arg: str | File) -> CustomCommand:
         """Add an input file which is not part of the command line."""
         file = arg if isinstance(arg, File) else Razel.instance().add_data_file(arg)
-        self._inputs.append(file)
+        if not any(x.file_name == file.file_name for x in self._inputs):
+            self._inputs.append(file)
         return self
 
     def add_input_files(self, args: Sequence[str | File]) -> CustomCommand:
@@ -270,8 +273,9 @@ class CustomCommand(Command):
     def add_output_file(self, arg: str | File) -> CustomCommand:
         """Add an output file which is not part of the command line."""
         file = arg if isinstance(arg, File) else Razel.instance().add_output_file(arg)
-        file._created_by = self
-        self._outputs.append(file)
+        if not any(x.file_name == file.file_name for x in self._outputs):
+            file._created_by = self
+            self._outputs.append(file)
         return self
 
     def write_stdout_to_file(self, path: Optional[str] = None) -> CustomCommand:
@@ -316,11 +320,9 @@ class CustomCommand(Command):
         j: Any = {
             "executable": self.executable,
             "args": [x.file_name if isinstance(x, File) else x for x in self.args],
-            "inputs": [x.file_name for x in self._inputs],
-            "outputs": [x.file_name for x in self._outputs if x != self._stdout and x != self._stderr],
+            # additional input/output files might be added after constructor(), therefore not adding them here
+            # additional env variables might be added after constructor(), therefore not adding them here
         }
-        if self.env:
-            j["env"] = self.env
         return j
 
 
