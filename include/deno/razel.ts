@@ -174,12 +174,14 @@ export abstract class Command {
     }
 
     addTag(tag: Razel.Tag | string): Command {
-        this.tags.push(tag);
+        if (!this.tags.includes(tag)) {
+            this.tags.push(tag);
+        }
         return this;
     }
 
     addTags(tags: (Razel.Tag | string)[]): Command {
-        this.tags.push(...tags);
+        tags.forEach(x => this.addTag(x));
         return this;
     }
 
@@ -206,7 +208,9 @@ export class CustomCommand extends Command {
     // Add an input file which is not part of the command line.
     addInputFile(arg: string | File): CustomCommand {
         const file = arg instanceof File ? arg : Razel.instance().addDataFile(arg);
-        this.inputs.push(file);
+        if (!this.inputs.some(x => x.fileName === file.fileName)) {
+            this.inputs.push(file);
+        }
         return this;
     }
 
@@ -219,8 +223,10 @@ export class CustomCommand extends Command {
     // Add an output file which is not part of the command line.
     addOutputFile(arg: string | File): CustomCommand {
         const file = arg instanceof File ? arg : Razel.instance().addOutputFile(arg);
-        file.createdBy = this;
-        this.outputs.push(file);
+        if (!this.outputs.some(x => x.fileName === file.fileName)) {
+            file.createdBy = this;
+            this.outputs.push(file);
+        }
         return this;
     }
 
@@ -266,9 +272,8 @@ export class CustomCommand extends Command {
         return {
             executable: this.executable,
             args: this.args.map(x => x instanceof File ? x.fileName : x),
-            inputs: this.inputs.map(x => x.fileName),
-            outputs: this.outputs.filter(x => x !== this.stdout && x !== this.stderr).map(x => x.fileName),
-            env: this.env,
+            // additional input/output files might be added after constructor(), therefore not adding them here
+            // additional env variables might be added after constructor(), therefore not adding them here
         };
     }
 }
