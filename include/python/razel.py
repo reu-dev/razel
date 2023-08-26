@@ -27,6 +27,7 @@ class Razel:
         """disable sandbox and also cache - for commands with unspecified input/output files"""
 
     def __init__(self, workspace_dir: str) -> None:
+        assert os.path.isabs(workspace_dir)
         self._workspace_dir = workspace_dir
         self.razel_file = os.path.join(self._workspace_dir, "razel.jsonl")
         self._commands: list[Command] = []
@@ -134,7 +135,7 @@ class Razel:
         return name.replace(":", ".")  # target names may not contain ':'
 
     def _rel_path(self, file_name: str) -> str:
-        if not os.path.isabs(file_name):
+        if not os.path.isabs(file_name) or not file_name.startswith(self._workspace_dir):
             return file_name
 
         return os.path.relpath(file_name, self._workspace_dir)

@@ -8,6 +8,7 @@ export class Razel {
     private commands: Command[] = [];
 
     private constructor(public readonly workspaceDir: string) {
+        assert(path.isAbsolute(workspaceDir));
         this.razelFile = path.join(this.workspaceDir, 'razel.jsonl');
     }
 
@@ -121,7 +122,7 @@ export class Razel {
     }
 
     private relPath(fileName: string): string {
-        if (!path.isAbsolute(fileName)) {
+        if (!path.isAbsolute(fileName) || !fileName.startsWith(this.workspaceDir)) {
             return fileName;
         }
         return path.relative(this.workspaceDir, fileName);
