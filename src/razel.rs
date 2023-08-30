@@ -217,6 +217,7 @@ impl Razel {
         outputs: Vec<String>,
         stdout: Option<String>,
         stderr: Option<String>,
+        deps: Vec<String>,
         tags: Vec<Tag>,
     ) -> Result<CommandId, anyhow::Error> {
         let mut builder = CommandBuilder::new(name, args, tags);
@@ -227,6 +228,9 @@ impl Razel {
         }
         if let Some(x) = stderr {
             builder.stderr(&x, self)?;
+        }
+        for dep in &deps {
+            builder.dep(dep, self)?;
         }
         if executable.ends_with(".wasm") {
             builder.wasi_executor(executable, env, self)?;
@@ -308,6 +312,10 @@ impl Razel {
         self.commands.get(id)
     }
 
+    pub fn get_command_by_name(&self, command_name: &String) -> Option<&Command> {
+        self.commands.iter().find(|x| &x.name == command_name)
+    }
+
     pub fn add_tag_for_command(&mut self, name: &str, tag: Tag) -> Result<(), anyhow::Error> {
         match self.commands.iter_mut().find(|x| x.name == name) {
             Some(x) => {
@@ -369,6 +377,9 @@ impl Razel {
         self.start_ready_commands(&tx);
         let mut start_more_commands = true;
         while self.scheduler.running() != 0 {
+            // TODO also wait on timer if tui_status_is_dirty
+            // https://github.com/rust-lang/futures-rs/issues/1906
+
             if let Some((id, execution_result, output_files)) = rx.recv().await {
                 self.on_command_finished(id, &execution_result, output_files);
                 if execution_result.status == ExecutionStatus::SystemError
@@ -534,11 +545,16 @@ impl Razel {
         let mut rdeps = vec![];
         for command in self.commands.iter_mut() {
             assert_eq!(command.schedule_state, ScheduleState::New);
+            command.unfinished_deps.reserve(command.deps.len());
             for input_id in chain(command.executables.iter(), command.inputs.iter()) {
                 if let Some(dep) = self.files[*input_id].creating_command {
                     command.unfinished_deps.push(dep);
                     rdeps.push((dep, command.id));
                 }
+            }
+            for dep in &command.deps {
+                command.unfinished_deps.push(*dep);
+                rdeps.push((*dep, command.id));
             }
             if command.unfinished_deps.is_empty() {
                 command.schedule_state = ScheduleState::Ready;
@@ -687,6 +703,7 @@ impl Razel {
         self.update_status();
     }
 
+    // TODO delay: leaky bottle
     fn update_status(&mut self) {
         self.tui.status(
             self.succeeded.len(),
@@ -1171,6 +1188,7 @@ mod tests {
                     vec![],
                     None,
                     None,
+                    vec![],
                     vec![],
                 )
                 .unwrap();

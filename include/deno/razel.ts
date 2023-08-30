@@ -162,6 +162,7 @@ export class File {
 export abstract class Command {
     public stdout: File | undefined = undefined;
     public stderr: File | undefined = undefined;
+    public readonly deps: Command[] = [];
     public readonly tags: (Razel.Tag | string)[] = [];
 
     protected constructor(public readonly name: string, public readonly inputs: File[], public readonly outputs: File[]) {
@@ -172,6 +173,18 @@ export abstract class Command {
         assertEquals(this.outputs.length, 1,
             `output() requires exactly one output file, but the command has ${this.outputs.length} outputs: ${this.name}`);
         return this.outputs[0];
+    }
+
+    addDependency(dependency: Command): Command {
+        if (!this.deps.includes(dependency)) {
+            this.deps.push(dependency);
+        }
+        return this;
+    }
+
+    addDependencies(dependencies: Command[]): Command {
+        dependencies.forEach(x => this.addDependency(x));
+        return this;
     }
 
     addTag(tag: Razel.Tag | string): Command {
@@ -265,6 +278,7 @@ export class CustomCommand extends Command {
             env: this.env,
             stdout: this.stdout?.fileName,
             stderr: this.stderr?.fileName,
+            deps: this.deps.length != 0 ? this.deps.map(x => x.name) : undefined,
             tags: this.tags.length != 0 ? this.tags : undefined,
         };
     }
@@ -296,6 +310,7 @@ export class Task extends Command {
             name: this.name,
             task: this.task,
             args: this.args.map(x => x instanceof File ? x.fileName : x),
+            deps: this.deps.length != 0 ? this.deps.map(x => x.name) : undefined,
             tags: this.tags.length != 0 ? this.tags : undefined,
         };
     }

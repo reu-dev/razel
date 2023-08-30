@@ -64,6 +64,7 @@ fn create_command(
             stdout,
             stderr,
             vec![],
+            vec![],
         )?;
     }
     Ok(())
