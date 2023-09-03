@@ -37,7 +37,6 @@ impl TUI {
         }
     }
 
-    // name, status, duration, stdout, stderr
     pub fn command_succeeded(&mut self, command: &Command, execution_result: &ExecutionResult) {
         if (!self.verbose && !command.tags.contains(&Tag::Verbose))
             || command.tags.contains(&Tag::Quiet)
@@ -220,7 +219,6 @@ impl TUI {
         );
     }
 
-    // TODO move to Executor (drop color for <more args>)
     pub fn format_command_line(args_with_executable: &Vec<String>) -> String {
         let mut iter = args_with_executable.iter().map(|x| {
             if x.is_empty() {
