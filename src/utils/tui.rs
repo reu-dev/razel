@@ -85,6 +85,12 @@ impl TUI {
     }
 
     pub fn command_failed(&mut self, command: &Command, execution_result: &ExecutionResult) {
+        if command.tags.contains(&Tag::Condition)
+            && !self.verbose
+            && !command.tags.contains(&Tag::Verbose)
+        {
+            return;
+        }
         self.clear_status();
         println!();
         Self::line();
@@ -173,7 +179,7 @@ impl TUI {
     pub fn finished(&mut self, stats: &SchedulerStats) {
         self.clear_status();
         println!(
-            "{A_BOLD}{}{} {}{C_RESET}{A_RESET}: {A_BOLD}{}{}{C_RESET}{A_RESET} succeeded ({} cached), {A_BOLD}{}{}{C_RESET}{A_RESET} failed, {A_BOLD}{}{}{C_RESET}{A_RESET} not run.",
+            "{A_BOLD}{}{} {}{C_RESET}{A_RESET}: {A_BOLD}{}{}{C_RESET}{A_RESET} succeeded ({} cached), {A_BOLD}{}{}{C_RESET}{A_RESET} failed, {A_BOLD}{}{A_RESET} skipped, {A_BOLD}{}{}{C_RESET}{A_RESET} not run.",
             if stats.exec.finished_successfully() {
                 C_GREEN
             } else {
@@ -204,6 +210,7 @@ impl TUI {
                 C_RESET
             },
             stats.exec.failed,
+            stats.exec.skipped,
             if stats.exec.not_run > 0 {
                 C_RED
             } else {

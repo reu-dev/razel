@@ -31,6 +31,8 @@ pub enum ScheduleState {
     Succeeded,
     /// Command execution failed
     Failed,
+    /// Command could not be started because it depends on a failed condition
+    Skipped,
 }
 
 #[derive(Debug, Default)]
@@ -45,6 +47,7 @@ pub struct SchedulerStats {
 pub struct SchedulerExecStats {
     pub succeeded: usize,
     pub failed: usize,
+    pub skipped: usize,
     pub not_run: usize,
 }
 
@@ -84,6 +87,7 @@ pub struct Razel {
     scheduler: Scheduler,
     succeeded: Vec<CommandId>,
     failed: Vec<CommandId>,
+    skipped: Vec<CommandId>,
     cache_hits: usize,
     tui: TUI,
     measurements: Measurements,
@@ -130,6 +134,7 @@ impl Razel {
             scheduler: Scheduler::new(worker_threads),
             succeeded: vec![],
             failed: vec![],
+            skipped: vec![],
             cache_hits: 0,
             tui: TUI::new(),
             measurements: Measurements::new(),
@@ -377,13 +382,10 @@ impl Razel {
         self.start_ready_commands(&tx);
         let mut start_more_commands = true;
         while self.scheduler.running() != 0 {
-            // TODO also wait on timer if tui_status_is_dirty
-            // https://github.com/rust-lang/futures-rs/issues/1906
-
             if let Some((id, execution_result, output_files)) = rx.recv().await {
                 self.on_command_finished(id, &execution_result, output_files);
                 if execution_result.status == ExecutionStatus::SystemError
-                    || (!execution_result.success() && !keep_going)
+                    || (!self.failed.is_empty() && !keep_going)
                 {
                     start_more_commands = false;
                 }
@@ -399,6 +401,7 @@ impl Razel {
             exec: SchedulerExecStats {
                 succeeded: self.succeeded.len(),
                 failed: self.failed.len(),
+                skipped: self.skipped.len(),
                 not_run: self.waiting.len() + self.scheduler.ready(),
             },
             cache_hits: self.cache_hits,
@@ -703,7 +706,6 @@ impl Razel {
         self.update_status();
     }
 
-    // TODO delay: leaky bottle
     fn update_status(&mut self) {
         self.tui.status(
             self.succeeded.len(),
@@ -1043,6 +1045,8 @@ impl Razel {
             if execution_result.success() {
                 self.set_output_file_digests(output_files);
                 self.on_command_succeeded(id, execution_result);
+            } else if self.commands[id].tags.contains(&Tag::Condition) {
+                self.on_condition_failed(id, execution_result);
             } else {
                 self.on_command_failed(id, execution_result);
             }
@@ -1070,11 +1074,11 @@ impl Razel {
         self.tui.command_succeeded(command, execution_result);
         for rdep_id in command.reverse_deps.clone() {
             let rdep = &mut self.commands[rdep_id];
-            assert_eq!(rdep.schedule_state, ScheduleState::Waiting);
             assert!(!rdep.unfinished_deps.is_empty());
             rdep.unfinished_deps
                 .swap_remove(rdep.unfinished_deps.iter().position(|x| *x == id).unwrap());
             if rdep.unfinished_deps.is_empty() {
+                assert_eq!(rdep.schedule_state, ScheduleState::Waiting);
                 rdep.schedule_state = ScheduleState::Ready;
                 self.waiting.remove(&rdep_id);
                 self.scheduler.push_ready(rdep);
@@ -1091,6 +1095,24 @@ impl Razel {
         self.failed.push(id);
         let command = &self.commands[id];
         self.tui.command_failed(command, execution_result);
+    }
+
+    fn on_condition_failed(&mut self, id: CommandId, execution_result: &ExecutionResult) {
+        let command = &self.commands[id];
+        self.tui.command_failed(command, execution_result);
+        let mut ids_to_skip = command.reverse_deps.clone();
+        while let Some(id_to_skip) = ids_to_skip.pop() {
+            let to_skip = &mut self.commands[id_to_skip];
+            if to_skip.schedule_state == ScheduleState::Skipped {
+                continue;
+            }
+            assert_eq!(to_skip.schedule_state, ScheduleState::Waiting);
+            assert!(!to_skip.unfinished_deps.is_empty());
+            to_skip.schedule_state = ScheduleState::Skipped;
+            self.waiting.remove(&id_to_skip);
+            self.skipped.push(id_to_skip);
+            ids_to_skip.extend(to_skip.reverse_deps.iter());
+        }
     }
 
     fn get_bzl_action_for_command(&self, command: &Command) -> bazel_remote_exec::Action {

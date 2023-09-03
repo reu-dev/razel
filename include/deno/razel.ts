@@ -135,6 +135,8 @@ export namespace Razel {
         Quiet = 'razel:quiet',
         // always show verbose output
         Verbose = 'razel:verbose',
+        // keep running and don't be verbose if command failed
+        Condition = 'razel:condition',
         // always execute a command without caching
         NoCache = 'razel:no-cache',
         // disable sandbox and also cache - for commands with unspecified input/output files
@@ -175,14 +177,14 @@ export abstract class Command {
         return this.outputs[0];
     }
 
-    addDependency(dependency: Command): Command {
+    addDependency(dependency: Command): this {
         if (!this.deps.includes(dependency)) {
             this.deps.push(dependency);
         }
         return this;
     }
 
-    addDependencies(dependencies: Command[]): Command {
+    addDependencies(dependencies: Command[]): this {
         dependencies.forEach(x => this.addDependency(x));
         return this;
     }
