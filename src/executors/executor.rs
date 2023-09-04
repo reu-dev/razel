@@ -1,5 +1,6 @@
 use crate::CGroup;
 use anyhow::Error;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
@@ -125,7 +126,7 @@ impl fmt::Debug for ExecutionResult {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum ExecutionStatus {
     NotStarted,
     FailedToStart,

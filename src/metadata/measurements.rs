@@ -2,6 +2,7 @@ use crate::executors::ExecutionResult;
 use bstr::ByteSlice;
 use itertools::Itertools;
 use regex::Regex;
+use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -39,18 +40,23 @@ impl Measurements {
         }
     }
 
-    pub fn collect(&mut self, command_name: &str, execution_result: &ExecutionResult) {
-        let mut measurements = self.capture(execution_result.stdout.to_str_lossy().as_ref());
-        if measurements.is_empty() {
-            return;
+    pub fn collect(
+        &mut self,
+        command_name: &str,
+        execution_result: &ExecutionResult,
+    ) -> Map<String, Value> {
+        let (mut row, map) = self.capture(execution_result.stdout.to_str_lossy().as_ref());
+        if !row.is_empty() {
+            row[0] = command_name.to_owned();
+            row[1] = format!("{:?}", execution_result.status);
+            self.rows.push(row);
         }
-        measurements[0] = command_name.to_owned();
-        measurements[1] = format!("{:?}", execution_result.status);
-        self.rows.push(measurements);
+        map
     }
 
-    fn capture(&mut self, text: &str) -> Vec<String> {
-        let mut measurements: Vec<String> = vec![];
+    fn capture(&mut self, text: &str) -> (Vec<String>, Map<String, Value>) {
+        let mut vec: Vec<String> = vec![];
+        let mut map: Map<String, Value> = Default::default();
         for re in &self.re {
             for captures in re.captures_iter(text) {
                 let keys_len = self.cols.len();
@@ -58,13 +64,17 @@ impl Measurements {
                     .cols
                     .entry(captures["key"].to_string())
                     .or_insert(keys_len);
-                if measurements.len() < col + 1 {
-                    measurements.resize(col + 1, Default::default());
+                if vec.len() < col + 1 {
+                    vec.resize(col + 1, Default::default());
                 }
-                measurements[col] = captures["value"].to_string();
+                vec[col] = captures["value"].to_string();
+                map.insert(
+                    captures["key"].to_string(),
+                    Value::String(captures["value"].to_string()),
+                );
             }
         }
-        measurements
+        (vec, map)
     }
 
     pub fn write_csv(&self, path: &PathBuf) -> Result<(), anyhow::Error> {
@@ -79,7 +89,9 @@ impl Measurements {
                 .map(|(x, _)| x),
         )?;
         for x in &self.rows {
-            writer.write_record(x)?;
+            let mut fixed_size_row = x.clone();
+            fixed_size_row.resize(self.cols.len(), Default::default());
+            writer.write_record(fixed_size_row)?;
         }
         writer.flush()?;
         Ok(())
@@ -104,7 +116,7 @@ mod tests {
         assert_eq!(
             measurements.capture(
                 r#"<CTestMeasurement type="numeric/float" name="score">12.3</CTestMeasurement>"#,
-            ),
+            ).0,
             vec!["".to_string(), "".to_string(), "12.3".to_string()]
         );
         assert_eq!(measurements.cols.get("score"), Some(&FIXED_COLS));
@@ -114,9 +126,11 @@ mod tests {
     fn dart() {
         let mut measurements = Measurements::new();
         assert_eq!(
-            measurements.capture(
-                r#"<DartMeasurement type="numeric/float" name="score">12.3</DartMeasurement>"#,
-            ),
+            measurements
+                .capture(
+                    r#"<DartMeasurement type="numeric/float" name="score">12.3</DartMeasurement>"#,
+                )
+                .0,
             vec!["".to_string(), "".to_string(), "12.3".to_string()]
         );
         assert_eq!(measurements.cols.get("score"), Some(&FIXED_COLS));
@@ -126,14 +140,16 @@ mod tests {
     fn ctest_and_dart() {
         let mut measurements = Measurements::new();
         assert_eq!(
-            measurements.capture(
-                r#"
+            measurements
+                .capture(
+                    r#"
                 <CTestMeasurement type="numeric/float" name="score">12.3</CTestMeasurement>
                 <CTestMeasurement  name="cost"  type="numeric/integer">3</CTestMeasurement>
                 <DartMeasurement type="text/string" name="color_fg">blue</DartMeasurement>
                 <DartMeasurement name="color bg" type="text/string">grey</DartMeasurement>
                 "#,
-            ),
+                )
+                .0,
             vec![
                 "".to_string(),
                 "".to_string(),

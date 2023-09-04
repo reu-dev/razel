@@ -14,7 +14,7 @@ use crate::bazel_remote_exec::command::EnvironmentVariable;
 use crate::bazel_remote_exec::{ActionResult, Digest, ExecutedActionMetadata, OutputFile};
 use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor, WasiExecutor};
-use crate::metadata::{write_graphs_html, Measurements, Profile, Tag};
+use crate::metadata::{write_graphs_html, LogFile, Measurements, Profile, Tag};
 use crate::{
     bazel_remote_exec, config, force_remove_file, write_gitignore, Arena, CGroup, Command,
     CommandBuilder, CommandId, File, FileId, FileType, Sandbox, Scheduler, GITIGNORE_FILENAME, TUI,
@@ -92,6 +92,7 @@ pub struct Razel {
     tui: TUI,
     measurements: Measurements,
     profile: Profile,
+    log_file: LogFile,
 }
 
 impl Razel {
@@ -139,6 +140,7 @@ impl Razel {
             tui: TUI::new(),
             measurements: Measurements::new(),
             profile: Profile::new(),
+            log_file: Default::default(),
         }
     }
 
@@ -1039,9 +1041,12 @@ impl Razel {
         if retry {
             self.on_command_retry(id, execution_result);
         } else {
-            self.measurements
+            let measurements = self
+                .measurements
                 .collect(&self.commands[id].name, execution_result);
             self.profile.collect(&self.commands[id], execution_result);
+            self.log_file
+                .push(&self.commands[id], execution_result, measurements);
             if execution_result.success() {
                 self.set_output_file_digests(output_files);
                 self.on_command_succeeded(id, execution_result);
@@ -1173,6 +1178,7 @@ impl Razel {
         write_graphs_html(&self.commands, &self.files, &dir.join("graphs.html"))?;
         self.measurements.write_csv(&dir.join("measurements.csv"))?;
         self.profile.write_json(&dir.join("execution_times.json"))?;
+        self.log_file.write(&dir.join("log.json"))?;
         Ok(())
     }
 }
