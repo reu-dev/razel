@@ -126,16 +126,15 @@ fn graph_simple(
 fn mermaid(lines: &[String]) -> String {
     // defaultRenderer is useless for non-tiny number of nodes
     // useMaxWidth breaks zooming/panning
-    let config =
-        r##"%%{init: {"flowchart": {"defaultRenderer": "elk", "useMaxWidth": false}} }%%"##;
+    let config = r#"%%{init: {"flowchart": {"defaultRenderer": "elk", "useMaxWidth": false}} }%%"#;
     format!(
-        r##"
+        r#"
 <pre class="mermaid">
 flowchart LR
 {config}
 {}
 </pre>
-    "##,
+    "#,
         lines.join("\n")
     )
 }
