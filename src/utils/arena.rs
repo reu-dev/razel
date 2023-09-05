@@ -12,7 +12,7 @@ pub struct ArenaId<T>(ArenaIdType, PhantomData<T>);
 
 impl<T> Clone for ArenaId<T> {
     fn clone(&self) -> Self {
-        ArenaId(self.0 as ArenaIdType, PhantomData)
+        *self
     }
 }
 

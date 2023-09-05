@@ -27,7 +27,7 @@ pub async fn set_file_readonly(path: &Path) -> Result<(), anyhow::Error> {
 
 pub async fn force_remove_file(path: impl AsRef<Path>) -> Result<(), anyhow::Error> {
     let path = path.as_ref();
-    if matches!(tokio::fs::remove_file(path).await, Err(_)) {
+    if tokio::fs::remove_file(path).await.is_err() {
         if let Ok(metadata) = tokio::fs::metadata(path).await {
             drop_readonly_flag(path, metadata)
                 .await
