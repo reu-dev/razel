@@ -189,14 +189,14 @@ export abstract class Command {
         return this;
     }
 
-    addTag(tag: Razel.Tag | string): Command {
+    addTag(tag: Razel.Tag | string): this {
         if (!this.tags.includes(tag)) {
             this.tags.push(tag);
         }
         return this;
     }
 
-    addTags(tags: (Razel.Tag | string)[]): Command {
+    addTags(tags: (Razel.Tag | string)[]): this {
         tags.forEach(x => this.addTag(x));
         return this;
     }
