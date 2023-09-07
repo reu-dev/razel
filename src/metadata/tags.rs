@@ -8,6 +8,8 @@ pub enum Tag {
     Quiet,
     #[serde(rename = "razel:verbose")]
     Verbose,
+    #[serde(rename = "razel:condition")]
+    Condition,
     #[serde(rename = "razel:no-cache")]
     NoCache,
     #[serde(rename = "razel:no-sandbox")]
@@ -25,6 +27,7 @@ impl<'de> Deserialize<'de> for Tag {
             match x {
                 "quiet" => Ok(Tag::Quiet),
                 "verbose" => Ok(Tag::Verbose),
+                "condition" => Ok(Tag::Condition),
                 "no-cache" => Ok(Tag::NoCache),
                 "no-sandbox" => Ok(Tag::NoSandbox),
                 _ => Err(Error::custom(format!(

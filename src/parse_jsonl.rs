@@ -39,6 +39,7 @@ pub fn parse_jsonl_file(razel: &mut Razel, file_name: &String) -> Result<(), any
                     c.outputs,
                     c.stdout,
                     c.stderr,
+                    c.deps,
                     c.tags,
                 )?;
             }
@@ -75,6 +76,8 @@ struct RazelCustomCommandJson {
     outputs: Vec<String>,
     stdout: Option<String>,
     stderr: Option<String>,
+    #[serde(default)]
+    deps: Vec<String>,
     #[serde(default)]
     tags: Vec<Tag>,
 }

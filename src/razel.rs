@@ -14,7 +14,7 @@ use crate::bazel_remote_exec::command::EnvironmentVariable;
 use crate::bazel_remote_exec::{ActionResult, Digest, ExecutedActionMetadata, OutputFile};
 use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor, WasiExecutor};
-use crate::metadata::{write_graphs_html, Measurements, Profile, Tag};
+use crate::metadata::{write_graphs_html, LogFile, Measurements, Profile, Tag};
 use crate::{
     bazel_remote_exec, config, force_remove_file, write_gitignore, Arena, CGroup, Command,
     CommandBuilder, CommandId, File, FileId, FileType, Sandbox, Scheduler, GITIGNORE_FILENAME, TUI,
@@ -31,6 +31,8 @@ pub enum ScheduleState {
     Succeeded,
     /// Command execution failed
     Failed,
+    /// Command could not be started because it depends on a failed condition
+    Skipped,
 }
 
 #[derive(Debug, Default)]
@@ -45,6 +47,7 @@ pub struct SchedulerStats {
 pub struct SchedulerExecStats {
     pub succeeded: usize,
     pub failed: usize,
+    pub skipped: usize,
     pub not_run: usize,
 }
 
@@ -84,10 +87,12 @@ pub struct Razel {
     scheduler: Scheduler,
     succeeded: Vec<CommandId>,
     failed: Vec<CommandId>,
+    skipped: Vec<CommandId>,
     cache_hits: usize,
     tui: TUI,
     measurements: Measurements,
     profile: Profile,
+    log_file: LogFile,
 }
 
 impl Razel {
@@ -130,10 +135,12 @@ impl Razel {
             scheduler: Scheduler::new(worker_threads),
             succeeded: vec![],
             failed: vec![],
+            skipped: vec![],
             cache_hits: 0,
             tui: TUI::new(),
             measurements: Measurements::new(),
             profile: Profile::new(),
+            log_file: Default::default(),
         }
     }
 
@@ -217,6 +224,7 @@ impl Razel {
         outputs: Vec<String>,
         stdout: Option<String>,
         stderr: Option<String>,
+        deps: Vec<String>,
         tags: Vec<Tag>,
     ) -> Result<CommandId, anyhow::Error> {
         let mut builder = CommandBuilder::new(name, args, tags);
@@ -227,6 +235,9 @@ impl Razel {
         }
         if let Some(x) = stderr {
             builder.stderr(&x, self)?;
+        }
+        for dep in &deps {
+            builder.dep(dep, self)?;
         }
         if executable.ends_with(".wasm") {
             builder.wasi_executor(executable, env, self)?;
@@ -308,6 +319,10 @@ impl Razel {
         self.commands.get(id)
     }
 
+    pub fn get_command_by_name(&self, command_name: &String) -> Option<&Command> {
+        self.commands.iter().find(|x| &x.name == command_name)
+    }
+
     pub fn add_tag_for_command(&mut self, name: &str, tag: Tag) -> Result<(), anyhow::Error> {
         match self.commands.iter_mut().find(|x| x.name == name) {
             Some(x) => {
@@ -372,7 +387,7 @@ impl Razel {
             if let Some((id, execution_result, output_files)) = rx.recv().await {
                 self.on_command_finished(id, &execution_result, output_files);
                 if execution_result.status == ExecutionStatus::SystemError
-                    || (!execution_result.success() && !keep_going)
+                    || (!self.failed.is_empty() && !keep_going)
                 {
                     start_more_commands = false;
                 }
@@ -388,6 +403,7 @@ impl Razel {
             exec: SchedulerExecStats {
                 succeeded: self.succeeded.len(),
                 failed: self.failed.len(),
+                skipped: self.skipped.len(),
                 not_run: self.waiting.len() + self.scheduler.ready(),
             },
             cache_hits: self.cache_hits,
@@ -534,11 +550,16 @@ impl Razel {
         let mut rdeps = vec![];
         for command in self.commands.iter_mut() {
             assert_eq!(command.schedule_state, ScheduleState::New);
+            command.unfinished_deps.reserve(command.deps.len());
             for input_id in chain(command.executables.iter(), command.inputs.iter()) {
                 if let Some(dep) = self.files[*input_id].creating_command {
                     command.unfinished_deps.push(dep);
                     rdeps.push((dep, command.id));
                 }
+            }
+            for dep in &command.deps {
+                command.unfinished_deps.push(*dep);
+                rdeps.push((*dep, command.id));
             }
             if command.unfinished_deps.is_empty() {
                 command.schedule_state = ScheduleState::Ready;
@@ -1020,12 +1041,17 @@ impl Razel {
         if retry {
             self.on_command_retry(id, execution_result);
         } else {
-            self.measurements
+            let measurements = self
+                .measurements
                 .collect(&self.commands[id].name, execution_result);
             self.profile.collect(&self.commands[id], execution_result);
+            self.log_file
+                .push(&self.commands[id], execution_result, measurements);
             if execution_result.success() {
                 self.set_output_file_digests(output_files);
                 self.on_command_succeeded(id, execution_result);
+            } else if self.commands[id].tags.contains(&Tag::Condition) {
+                self.on_condition_failed(id, execution_result);
             } else {
                 self.on_command_failed(id, execution_result);
             }
@@ -1053,11 +1079,11 @@ impl Razel {
         self.tui.command_succeeded(command, execution_result);
         for rdep_id in command.reverse_deps.clone() {
             let rdep = &mut self.commands[rdep_id];
-            assert_eq!(rdep.schedule_state, ScheduleState::Waiting);
             assert!(!rdep.unfinished_deps.is_empty());
             rdep.unfinished_deps
                 .swap_remove(rdep.unfinished_deps.iter().position(|x| *x == id).unwrap());
             if rdep.unfinished_deps.is_empty() {
+                assert_eq!(rdep.schedule_state, ScheduleState::Waiting);
                 rdep.schedule_state = ScheduleState::Ready;
                 self.waiting.remove(&rdep_id);
                 self.scheduler.push_ready(rdep);
@@ -1074,6 +1100,24 @@ impl Razel {
         self.failed.push(id);
         let command = &self.commands[id];
         self.tui.command_failed(command, execution_result);
+    }
+
+    fn on_condition_failed(&mut self, id: CommandId, execution_result: &ExecutionResult) {
+        let command = &self.commands[id];
+        self.tui.command_failed(command, execution_result);
+        let mut ids_to_skip = command.reverse_deps.clone();
+        while let Some(id_to_skip) = ids_to_skip.pop() {
+            let to_skip = &mut self.commands[id_to_skip];
+            if to_skip.schedule_state == ScheduleState::Skipped {
+                continue;
+            }
+            assert_eq!(to_skip.schedule_state, ScheduleState::Waiting);
+            assert!(!to_skip.unfinished_deps.is_empty());
+            to_skip.schedule_state = ScheduleState::Skipped;
+            self.waiting.remove(&id_to_skip);
+            self.skipped.push(id_to_skip);
+            ids_to_skip.extend(to_skip.reverse_deps.iter());
+        }
     }
 
     fn get_bzl_action_for_command(&self, command: &Command) -> bazel_remote_exec::Action {
@@ -1134,6 +1178,7 @@ impl Razel {
         write_graphs_html(&self.commands, &self.files, &dir.join("graphs.html"))?;
         self.measurements.write_csv(&dir.join("measurements.csv"))?;
         self.profile.write_json(&dir.join("execution_times.json"))?;
+        self.log_file.write(&dir.join("log.json"))?;
         Ok(())
     }
 }
@@ -1171,6 +1216,7 @@ mod tests {
                     vec![],
                     None,
                     None,
+                    vec![],
                     vec![],
                 )
                 .unwrap();

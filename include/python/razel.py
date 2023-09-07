@@ -21,6 +21,8 @@ class Razel:
         """don't be verbose if command succeeded"""
         VERBOSE = 'razel:verbose'
         """always show verbose output"""
+        CONDITION = 'razel:condition'
+        """keep running and don't be verbose if command failed"""
         NO_CACHE = 'razel:no-cache',
         """always execute a command without caching"""
         NO_SANDBOX = 'razel:no-sandbox',
@@ -177,6 +179,7 @@ class Command(abc.ABC):
         self._outputs = outputs
         self._stdout: File | None = None
         self._stderr: File | None = None
+        self._deps: list[Command] = []
         self._tags: list[Razel.Tag | str] = []
         for out in self._outputs:
             out._created_by = self
@@ -210,6 +213,16 @@ class Command(abc.ABC):
     @property
     def tags(self) -> Sequence[Razel.Tag | str]:
         return self._tags
+
+    def add_dependency(self, dependency: Command) -> Command:
+        if dependency not in self._deps:
+            self._deps.append(dependency)
+        return self
+
+    def add_dependencies(self, dependencies: Sequence[Command]) -> Command:
+        for dependency in dependencies:
+            self.add_dependency(dependency)
+        return self
 
     def add_tag(self, tag: Razel.Tag | str) -> Command:
         if tag not in self._tags:
@@ -313,6 +326,8 @@ class CustomCommand(Command):
             j["stdout"] = self._stdout.file_name
         if self._stderr:
             j["stderr"] = self._stderr.file_name
+        if self._deps:
+            j["deps"] = [x.name for x in self._deps]
         if self._tags:
             j["tags"] = self._tags
         return j
@@ -354,6 +369,8 @@ class Task(Command):
             "task": self.task,
             "args": [x.file_name if isinstance(x, File) else x for x in self.args],
         }
+        if self._deps:
+            j["deps"] = [x.name for x in self._deps]
         if self._tags:
             j["tags"] = self._tags
         return j

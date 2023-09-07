@@ -135,6 +135,8 @@ export namespace Razel {
         Quiet = 'razel:quiet',
         // always show verbose output
         Verbose = 'razel:verbose',
+        // keep running and don't be verbose if command failed
+        Condition = 'razel:condition',
         // always execute a command without caching
         NoCache = 'razel:no-cache',
         // disable sandbox and also cache - for commands with unspecified input/output files
@@ -162,6 +164,7 @@ export class File {
 export abstract class Command {
     public stdout: File | undefined = undefined;
     public stderr: File | undefined = undefined;
+    public readonly deps: Command[] = [];
     public readonly tags: (Razel.Tag | string)[] = [];
 
     protected constructor(public readonly name: string, public readonly inputs: File[], public readonly outputs: File[]) {
@@ -174,14 +177,26 @@ export abstract class Command {
         return this.outputs[0];
     }
 
-    addTag(tag: Razel.Tag | string): Command {
+    addDependency(dependency: Command): this {
+        if (!this.deps.includes(dependency)) {
+            this.deps.push(dependency);
+        }
+        return this;
+    }
+
+    addDependencies(dependencies: Command[]): this {
+        dependencies.forEach(x => this.addDependency(x));
+        return this;
+    }
+
+    addTag(tag: Razel.Tag | string): this {
         if (!this.tags.includes(tag)) {
             this.tags.push(tag);
         }
         return this;
     }
 
-    addTags(tags: (Razel.Tag | string)[]): Command {
+    addTags(tags: (Razel.Tag | string)[]): this {
         tags.forEach(x => this.addTag(x));
         return this;
     }
@@ -265,6 +280,7 @@ export class CustomCommand extends Command {
             env: this.env,
             stdout: this.stdout?.fileName,
             stderr: this.stderr?.fileName,
+            deps: this.deps.length != 0 ? this.deps.map(x => x.name) : undefined,
             tags: this.tags.length != 0 ? this.tags : undefined,
         };
     }
@@ -296,6 +312,7 @@ export class Task extends Command {
             name: this.name,
             task: this.task,
             args: this.args.map(x => x instanceof File ? x.fileName : x),
+            deps: this.deps.length != 0 ? this.deps.map(x => x.name) : undefined,
             tags: this.tags.length != 0 ? this.tags : undefined,
         };
     }

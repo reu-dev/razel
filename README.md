@@ -129,8 +129,14 @@ Using tags for filtering commands and creating reports is planned.
 Tags with `razel:` prefix are reserved and have special meaning:
 - `razel:quiet`: don't be verbose if command succeeded
 - `razel:verbose`: always show verbose output
+- `razel:condition`: keep running and don't be verbose if command failed        
 - `razel:no-cache`: always execute a command without caching
 - `razel:no-sandbox`: disable sandbox and also cache - for commands with unspecified input/output files
+
+### Conditional execution / Skipping command
+
+Commands can be skipped based on the execution result of another command. Set the `razel:condition` tag on a command
+and use that one as dependency for other commands. 
 
 ### Param/Response files
 

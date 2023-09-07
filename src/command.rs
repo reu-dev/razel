@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Context};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -17,6 +18,8 @@ pub struct Command {
     /// input files excluding <Self::executables>
     pub inputs: Vec<FileId>,
     pub outputs: Vec<FileId>,
+    /// dependencies on other commands in addition to input files
+    pub deps: Vec<CommandId>,
     pub executor: Executor,
     pub tags: Vec<Tag>,
     /// dependencies which are not yet finished successfully
@@ -38,6 +41,7 @@ pub struct CommandBuilder {
     outputs: Vec<FileId>,
     stdout_file: Option<PathBuf>,
     stderr_file: Option<PathBuf>,
+    deps: Vec<CommandId>,
     executor: Option<Executor>,
     tags: Vec<Tag>,
 }
@@ -53,6 +57,7 @@ impl CommandBuilder {
             outputs: vec![],
             stdout_file: None,
             stderr_file: None,
+            deps: vec![],
             executor: None,
             tags,
         }
@@ -147,6 +152,14 @@ impl CommandBuilder {
         Ok(())
     }
 
+    pub fn dep(&mut self, command_name: &String, razel: &mut Razel) -> Result<(), anyhow::Error> {
+        let command_id = razel
+            .get_command_by_name(command_name)
+            .with_context(|| anyhow!("unknown command for dep: {command_name}"))?;
+        self.deps.push(command_id.id);
+        Ok(())
+    }
+
     pub fn custom_command_executor(
         &mut self,
         executable: String,
@@ -206,6 +219,7 @@ impl CommandBuilder {
             executables: self.executables,
             inputs: self.inputs,
             outputs: self.outputs,
+            deps: self.deps,
             executor: self.executor.unwrap(),
             tags: self.tags,
             unfinished_deps: vec![],

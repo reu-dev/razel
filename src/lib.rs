@@ -78,11 +78,13 @@ pub mod executors {
 
 pub mod metadata {
     pub use graphs::*;
+    pub use log_file::*;
     pub use measurements::*;
     pub use profile::*;
     pub use tags::*;
 
     mod graphs;
+    mod log_file;
     mod measurements;
     mod profile;
     mod tags;

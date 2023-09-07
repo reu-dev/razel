@@ -150,6 +150,7 @@ mod tests {
                 executables: vec![],
                 inputs: vec![],
                 outputs: vec![],
+                deps: vec![],
                 executor: Executor::CustomCommand(CustomCommandExecutor {
                     executable: executable.to_string(),
                     ..Default::default()
