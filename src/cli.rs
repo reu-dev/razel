@@ -1,11 +1,13 @@
+use anyhow::bail;
+use clap::{Args, Parser, Subcommand};
 use std::ffi::OsStr;
 use std::path::Path;
 use std::sync::Arc;
 
-use clap::{Args, Parser, Subcommand};
-
+use crate::metadata::Tag;
 use crate::parse_jsonl::parse_jsonl_file;
-use crate::{parse_batch_file, parse_command, tasks, CommandBuilder, Razel};
+use crate::tasks::DownloadFileTask;
+use crate::{parse_batch_file, parse_command, tasks, CommandBuilder, FileType, Razel};
 
 #[derive(Parser)]
 #[clap(name = "razel")]
@@ -32,7 +34,7 @@ enum CliCommands {
     /// List commands from a razel.jsonl or batch file
     #[clap(visible_alias = "ls", visible_alias = "show-only")]
     ListCommands {
-        /// file with commands to list
+        /// File with commands to list
         #[clap(short, long, default_value = "razel.jsonl")]
         file: String,
     },
@@ -44,39 +46,116 @@ enum CliCommands {
 
 #[derive(Args, Debug)]
 struct Exec {
-    /// file with commands to execute
+    /// File with commands to execute
     #[clap(short, long, default_value = "razel.jsonl")]
     file: String,
+    #[clap(flatten)]
+    run_args: RunArgs,
+}
+
+#[derive(Args, Debug)]
+pub struct RunArgs {
+    /// No execution, just list commands
+    #[clap(short, long, visible_alias = "ls")]
+    pub no_execution: bool,
+    /// Do not stop on first failure
+    #[clap(short, long, visible_alias = "keep-running")]
+    pub keep_going: bool,
+    /// Show verbose output
+    #[clap(short, long)]
+    pub verbose: bool,
+}
+
+impl Default for RunArgs {
+    fn default() -> Self {
+        Self {
+            no_execution: false,
+            keep_going: false,
+            verbose: true,
+        }
+    }
 }
 
 #[derive(Subcommand)]
 enum CliTasks {
+    /// Write a value captured with a regex to a file
+    CaptureRegex(CaptureRegexTask),
     /// Concatenate multiple csv files - headers must match
     CsvConcat(CsvConcatTask),
     /// Filter a csv file - keeping only the specified cols
     CsvFilter(CsvFilterTask),
     /// Write a text file
     WriteFile(WriteFileTask),
+    /// Download a file
+    DownloadFile(DownloadFileTaskBuilder),
     /// Ensure that two files are equal
     EnsureEqual(EnsureEqualTask),
     /// Ensure that two files are not equal
     EnsureNotEqual(EnsureNotEqualTask),
 }
 
+impl CliTasks {
+    pub fn build_command(
+        self,
+        razel: &mut Razel,
+        name: String,
+        args: Vec<String>,
+        tags: Vec<Tag>,
+    ) -> Result<(), anyhow::Error> {
+        let mut builder = CommandBuilder::new(name, args, tags);
+        match self {
+            CliTasks::CaptureRegex(x) => x.build(&mut builder, razel),
+            CliTasks::CsvConcat(x) => x.build(&mut builder, razel),
+            CliTasks::CsvFilter(x) => x.build(&mut builder, razel),
+            CliTasks::WriteFile(x) => x.build(&mut builder, razel),
+            CliTasks::DownloadFile(x) => x.build(&mut builder, razel),
+            CliTasks::EnsureEqual(x) => x.build(&mut builder, razel),
+            CliTasks::EnsureNotEqual(x) => x.build(&mut builder, razel),
+        }?;
+        razel.push(builder)?;
+        Ok(())
+    }
+}
+
+trait TaskBuilder {
+    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error>;
+}
+
+#[derive(Args, Debug)]
+struct CaptureRegexTask {
+    /// Input file to read
+    input: String,
+    /// File to write the captured value to
+    output: String,
+    /// Regex containing a single capturing group
+    regex: String,
+}
+
+impl TaskBuilder for CaptureRegexTask {
+    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
+        let input = builder.input(&self.input, razel)?;
+        let output = builder.output(&self.output, FileType::OutputFile, razel)?;
+        builder.blocking_task_executor(Arc::new(move || {
+            tasks::capture_regex(input.clone(), output.clone(), self.regex.clone())
+        }));
+        Ok(())
+    }
+}
+
 #[derive(Args, Debug)]
 struct CsvConcatTask {
-    /// input csv files
+    /// Input csv files
     #[clap(required = true)]
     input: Vec<String>,
-    /// concatenated file to create
+    /// Concatenated file to create
     output: String,
 }
 
-impl CsvConcatTask {
+impl TaskBuilder for CsvConcatTask {
     fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
         let inputs = builder.inputs(&self.input, razel)?;
-        let output = builder.output(&self.output, razel)?;
-        builder.task_executor(Arc::new(move || {
+        let output = builder.output(&self.output, FileType::OutputFile, razel)?;
+        builder.blocking_task_executor(Arc::new(move || {
             tasks::csv_concat(inputs.clone(), output.clone())
         }));
         Ok(())
@@ -94,11 +173,11 @@ struct CsvFilterTask {
     cols: Vec<String>,
 }
 
-impl CsvFilterTask {
+impl TaskBuilder for CsvFilterTask {
     fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
         let input = builder.input(&self.input, razel)?;
-        let output = builder.output(&self.output, razel)?;
-        builder.task_executor(Arc::new(move || {
+        let output = builder.output(&self.output, FileType::OutputFile, razel)?;
+        builder.blocking_task_executor(Arc::new(move || {
             tasks::csv_filter(input.clone(), output.clone(), self.cols.clone())
         }));
         Ok(())
@@ -107,18 +186,45 @@ impl CsvFilterTask {
 
 #[derive(Args, Debug)]
 struct WriteFileTask {
-    /// file to create
+    /// File to create
     file: String,
-    /// lines to write
+    /// Lines to write
     lines: Vec<String>,
 }
 
-impl WriteFileTask {
+impl TaskBuilder for WriteFileTask {
     fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
-        let output = builder.output(&self.file, razel)?;
-        builder.task_executor(Arc::new(move || {
+        let output = builder.output(&self.file, FileType::OutputFile, razel)?;
+        builder.blocking_task_executor(Arc::new(move || {
             tasks::write_file(output.clone(), self.lines.clone())
         }));
+        Ok(())
+    }
+}
+
+#[derive(Args, Debug)]
+struct DownloadFileTaskBuilder {
+    #[clap(short, long)]
+    url: String,
+    #[clap(short, long)]
+    output: String,
+    #[clap(short, long)]
+    executable: bool,
+}
+
+impl TaskBuilder for DownloadFileTaskBuilder {
+    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
+        let file_type = if self.executable {
+            FileType::ExecutableInWorkspace
+        } else {
+            FileType::OutputFile
+        };
+        let output = builder.output(&self.output, file_type, razel)?;
+        builder.async_task_executor(DownloadFileTask {
+            url: self.url,
+            output,
+            executable: self.executable,
+        });
         Ok(())
     }
 }
@@ -129,11 +235,11 @@ struct EnsureEqualTask {
     file2: String,
 }
 
-impl EnsureEqualTask {
+impl TaskBuilder for EnsureEqualTask {
     fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
         let file1 = builder.input(&self.file1, razel)?;
         let file2 = builder.input(&self.file2, razel)?;
-        builder.task_executor(Arc::new(move || {
+        builder.blocking_task_executor(Arc::new(move || {
             tasks::ensure_equal(file1.clone(), file2.clone())
         }));
         Ok(())
@@ -146,37 +252,63 @@ struct EnsureNotEqualTask {
     file2: String,
 }
 
-impl EnsureNotEqualTask {
+impl TaskBuilder for EnsureNotEqualTask {
     fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
         let file1 = builder.input(&self.file1, razel)?;
         let file2 = builder.input(&self.file2, razel)?;
-        builder.task_executor(Arc::new(move || {
+        builder.blocking_task_executor(Arc::new(move || {
             tasks::ensure_not_equal(file1.clone(), file2.clone())
         }));
         Ok(())
     }
 }
 
-pub fn parse_cli(
-    args: Vec<String>,
-    razel: &mut Razel,
-    name: Option<String>,
-) -> Result<(), anyhow::Error> {
-    let cli = Cli::try_parse_from(args.iter())?;
-    match cli.command {
-        CliCommands::Command { command } => parse_command(razel, command),
-        CliCommands::Task(task) => match_task(razel, name.unwrap(), task, args),
-        CliCommands::Exec(exec) => apply_file(razel, &exec.file),
+pub fn parse_cli(args: Vec<String>, razel: &mut Razel) -> Result<Option<RunArgs>, anyhow::Error> {
+    let cli = Cli::parse_from(args.iter());
+    Ok(match cli.command {
+        CliCommands::Command { command } => {
+            parse_command(razel, command)?;
+            Some(Default::default())
+        }
+        CliCommands::Task(task) => {
+            task.build_command(razel, "task".to_string(), args, vec![])?;
+            Some(Default::default())
+        }
+        CliCommands::Exec(exec) => {
+            apply_file(razel, &exec.file)?;
+            Some(exec.run_args)
+        }
         CliCommands::ListCommands { file } => {
             apply_file(razel, &file)?;
-            razel.list_commands();
-            std::process::exit(0);
+            Some(RunArgs {
+                no_execution: true,
+                ..Default::default()
+            })
         }
         CliCommands::Info => {
             razel.show_info();
-            std::process::exit(0);
+            None
         }
+    })
+}
+
+pub fn parse_cli_within_file(
+    razel: &mut Razel,
+    args: Vec<String>,
+    name: &str,
+    tags: Vec<Tag>,
+) -> Result<(), anyhow::Error> {
+    let cli = Cli::try_parse_from(args.iter())?;
+    match cli.command {
+        CliCommands::Command { command } => {
+            parse_command(razel, command)?;
+        }
+        CliCommands::Task(task) => {
+            task.build_command(razel, name.to_owned(), args, tags)?;
+        }
+        _ => bail!("Razel subcommand not allowed within files"),
     }
+    Ok(())
 }
 
 fn apply_file(razel: &mut Razel, file: &String) -> Result<(), anyhow::Error> {
@@ -184,22 +316,4 @@ fn apply_file(razel: &mut Razel, file: &String) -> Result<(), anyhow::Error> {
         Some("jsonl") => parse_jsonl_file(razel, file),
         _ => parse_batch_file(razel, file),
     }
-}
-
-fn match_task(
-    razel: &mut Razel,
-    name: String,
-    task: CliTasks,
-    args: Vec<String>,
-) -> Result<(), anyhow::Error> {
-    let mut builder = CommandBuilder::new(name, args);
-    match task {
-        CliTasks::CsvConcat(x) => x.build(&mut builder, razel),
-        CliTasks::CsvFilter(x) => x.build(&mut builder, razel),
-        CliTasks::EnsureEqual(x) => x.build(&mut builder, razel),
-        CliTasks::EnsureNotEqual(x) => x.build(&mut builder, razel),
-        CliTasks::WriteFile(x) => x.build(&mut builder, razel),
-    }?;
-    razel.push(builder)?;
-    Ok(())
 }

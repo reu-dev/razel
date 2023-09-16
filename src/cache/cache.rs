@@ -51,27 +51,27 @@ impl Cache {
 
     pub async fn move_output_file_into_cache(
         &self,
-        sandbox_dir: &Option<PathBuf>,
+        sandbox_dir: Option<&PathBuf>,
         out_dir: &PathBuf,
-        exec_path: &PathBuf,
-    ) -> Result<OutputFile, anyhow::Error> {
-        let (output_file, cache_path) = self
+        file: &OutputFile,
+    ) -> Result<(), anyhow::Error> {
+        let cache_path = self
             .local_cache
-            .move_output_file_into_cache(sandbox_dir, out_dir, exec_path)
+            .move_output_file_into_cache(sandbox_dir, out_dir, file)
             .await?;
         if let Some(remote_cache) = &self.remote_cache {
-            remote_cache.push_blob(output_file.digest.clone().unwrap(), cache_path);
+            remote_cache.push_blob(file.digest.clone().unwrap(), cache_path);
         }
-        Ok(output_file)
+        Ok(())
     }
 
     pub async fn symlink_output_files_into_out_dir(
         &self,
-        action_result: &ActionResult,
+        output_files: &Vec<OutputFile>,
         out_dir: &Path,
     ) -> Result<(), anyhow::Error> {
         self.local_cache
-            .symlink_output_files_into_out_dir(action_result, out_dir)
+            .symlink_output_files_into_out_dir(output_files, out_dir)
             .await
     }
 }
@@ -84,7 +84,7 @@ impl Digest {
         use sha2::Digest;
         let file = File::open(&path)
             .await
-            .with_context(|| format!("Failed to open {:?}", path))?;
+            .with_context(|| format!("Failed to open {path:?}"))?;
         let mut reader = BufReader::new(file);
         let mut hasher = Sha256::new();
         let mut buffer = [0; 1024];
@@ -93,7 +93,7 @@ impl Digest {
             let count = reader
                 .read(&mut buffer)
                 .await
-                .with_context(|| format!("Failed to read {:?}", path))?;
+                .with_context(|| format!("Failed to read {path:?}"))?;
             if count == 0 {
                 break;
             }

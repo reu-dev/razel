@@ -12,22 +12,30 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.8
       - uses: arduino/setup-protoc@v1
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
       - run: cargo clippy --bins --tests
+      - run: pip install mypy
+      - run: mypy include/python/razel.py
 
   tests:
     name: Test ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-20.04, windows-2019 ]  # macos-11, macos-12, windows-2022
+        os: [ macos-11, ubuntu-20.04, windows-2019 ]
     steps:
       - uses: actions/checkout@v3
+        with:
+          lfs: true
 
       - uses: denoland/setup-deno@v1
         with:
@@ -37,32 +45,38 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: cache deno
+        uses: actions/cache@v3
+        with:
+          path: .deno-cache/deps
+          key: ${{ runner.os }}-deno-${{ hashFiles('include/deno/razel.ts', 'test/deno.ts') }}
+
+      - uses: Swatinem/rust-cache@v2
+
       - run: deno info
       - run: deno --version
       - run: protoc --version
       - run: rustup show
 
-      - name: cache cargo
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: cache deno
-        uses: actions/cache@v3
-        with:
-          path: .deno-cache/deps
-          key: ${{ runner.os }}-deno-${{ hashFiles('include/deno/razel.ts') }}
-
-      - run: deno run -A test/deno.ts
-
       - run: cargo build
 
       - run: cargo run -- info
 
-      - run: cargo test -- --skip real_time_test --skip grpc_server
+      - run: cargo test -- --nocapture --skip real_time_test --skip grpc_server
+
+      # install binary, to be used by following API tests
+      - run: cargo install --force --locked --path .
+
+      # test local version of Deno API
+      - run: deno run -A --check test/deno.ts
+      - run: git diff --exit-code test/razel.jsonl
+
+      # test local version of Python API
+      - name: Set up python3.8
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.8
+      - run: python3 test/python.py
+        env:
+          PYTHONPATH: include/python
+      - run: git diff --exit-code test/razel.jsonl

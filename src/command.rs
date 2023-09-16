@@ -1,15 +1,27 @@
+use anyhow::{anyhow, Context};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use crate::executors::{CustomCommandExecutor, Executor, TaskExecutor, TaskFn};
-use crate::{ArenaId, FileId, Razel, ScheduleState};
+use crate::executors::{
+    AsyncTask, AsyncTaskExecutor, BlockingTaskExecutor, CustomCommandExecutor, Executor, TaskFn,
+    WasiExecutor,
+};
+use crate::metadata::Tag;
+use crate::{ArenaId, FileId, FileType, Razel, ScheduleState};
 
 pub struct Command {
     pub id: CommandId,
     pub name: String,
+    /// user specified executable and optionally runtimes, e.g. razel for WASI
+    pub executables: Vec<FileId>,
+    /// input files excluding <Self::executables>
     pub inputs: Vec<FileId>,
     pub outputs: Vec<FileId>,
+    /// dependencies on other commands in addition to input files
+    pub deps: Vec<CommandId>,
     pub executor: Executor,
+    pub tags: Vec<Tag>,
     /// dependencies which are not yet finished successfully
     pub unfinished_deps: Vec<CommandId>,
     /// commands which depend on this command
@@ -24,20 +36,30 @@ pub struct CommandBuilder {
     name: String,
     args_with_exec_paths: Vec<String>,
     args_with_out_paths: Vec<String>,
+    executables: Vec<FileId>,
     inputs: Vec<FileId>,
     outputs: Vec<FileId>,
+    stdout_file: Option<PathBuf>,
+    stderr_file: Option<PathBuf>,
+    deps: Vec<CommandId>,
     executor: Option<Executor>,
+    tags: Vec<Tag>,
 }
 
 impl CommandBuilder {
-    pub fn new(name: String, args: Vec<String>) -> CommandBuilder {
+    pub fn new(name: String, args: Vec<String>, tags: Vec<Tag>) -> CommandBuilder {
         CommandBuilder {
             name,
             args_with_exec_paths: args.clone(),
             args_with_out_paths: args,
+            executables: vec![],
             inputs: vec![],
             outputs: vec![],
+            stdout_file: None,
+            stderr_file: None,
+            deps: vec![],
             executor: None,
+            tags,
         }
     }
 
@@ -59,10 +81,10 @@ impl CommandBuilder {
 
     pub fn input(&mut self, path: &String, razel: &mut Razel) -> Result<PathBuf, anyhow::Error> {
         razel.input_file(path.clone()).map(|file| {
-            self.map_exec_path(path, file.exec_path.to_str().unwrap());
-            self.map_out_path(path, file.out_path.to_str().unwrap());
+            self.map_exec_path(path, file.path.to_str().unwrap());
+            self.map_out_path(path, file.path.to_str().unwrap());
             self.inputs.push(file.id);
-            file.out_path.clone()
+            file.path.clone()
         })
     }
 
@@ -76,20 +98,25 @@ impl CommandBuilder {
             .iter()
             .map(|path| {
                 let file = razel.input_file(path.clone())?;
-                self.map_exec_path(path, file.exec_path.to_str().unwrap());
-                self.map_out_path(path, file.out_path.to_str().unwrap());
+                self.map_exec_path(path, file.path.to_str().unwrap());
+                self.map_out_path(path, file.path.to_str().unwrap());
                 self.inputs.push(file.id);
-                Ok(file.out_path.clone())
+                Ok(file.path.clone())
             })
             .collect()
     }
 
-    pub fn output(&mut self, path: &String, razel: &mut Razel) -> Result<PathBuf, anyhow::Error> {
-        razel.output_file(path).map(|file| {
-            self.map_exec_path(path, file.exec_path.to_str().unwrap());
-            self.map_out_path(path, file.out_path.to_str().unwrap());
+    pub fn output(
+        &mut self,
+        path: &String,
+        file_type: FileType,
+        razel: &mut Razel,
+    ) -> Result<PathBuf, anyhow::Error> {
+        razel.output_file(path, file_type).map(|file| {
+            self.map_exec_path(path, file.path.to_str().unwrap());
+            self.map_out_path(path, file.path.to_str().unwrap());
             self.outputs.push(file.id);
-            file.out_path.clone()
+            file.path.clone()
         })
     }
 
@@ -102,13 +129,35 @@ impl CommandBuilder {
         paths
             .iter()
             .map(|path| {
-                let file = razel.output_file(path)?;
-                self.map_exec_path(path, file.exec_path.to_str().unwrap());
-                self.map_out_path(path, file.out_path.to_str().unwrap());
+                let file = razel.output_file(path, FileType::OutputFile)?;
+                self.map_exec_path(path, file.path.to_str().unwrap());
+                self.map_out_path(path, file.path.to_str().unwrap());
                 self.outputs.push(file.id);
-                Ok(file.out_path.clone())
+                Ok(file.path.clone())
             })
             .collect()
+    }
+
+    pub fn stdout(&mut self, path: &String, razel: &mut Razel) -> Result<(), anyhow::Error> {
+        let file = razel.output_file(path, FileType::OutputFile)?;
+        self.outputs.push(file.id);
+        self.stdout_file = Some(file.path.clone());
+        Ok(())
+    }
+
+    pub fn stderr(&mut self, path: &String, razel: &mut Razel) -> Result<(), anyhow::Error> {
+        let file = razel.output_file(path, FileType::OutputFile)?;
+        self.outputs.push(file.id);
+        self.stderr_file = Some(file.path.clone());
+        Ok(())
+    }
+
+    pub fn dep(&mut self, command_name: &String, razel: &mut Razel) -> Result<(), anyhow::Error> {
+        let command_id = razel
+            .get_command_by_name(command_name)
+            .with_context(|| anyhow!("unknown command for dep: {command_name}"))?;
+        self.deps.push(command_id.id);
+        Ok(())
     }
 
     pub fn custom_command_executor(
@@ -118,17 +167,46 @@ impl CommandBuilder {
         razel: &mut Razel,
     ) -> Result<(), anyhow::Error> {
         let file = razel.executable(executable)?;
-        self.inputs.push(file.id);
+        self.executables.push(file.id);
         self.executor = Some(Executor::CustomCommand(CustomCommandExecutor {
-            executable: file.exec_path.to_str().unwrap().into(),
+            executable: file.executable_for_command_line(),
             args: self.args_with_out_paths.clone(),
             env,
+            stdout_file: self.stdout_file.clone(),
+            stderr_file: self.stderr_file.clone(),
         }));
         Ok(())
     }
 
-    pub fn task_executor(&mut self, f: TaskFn) {
-        self.executor = Some(Executor::Task(TaskExecutor {
+    pub fn wasi_executor(
+        &mut self,
+        executable: String,
+        env: HashMap<String, String>,
+        razel: &mut Razel,
+    ) -> Result<(), anyhow::Error> {
+        let file = razel.wasi_module(executable)?;
+        self.executables.push(file.id);
+        self.executor = Some(Executor::Wasi(WasiExecutor {
+            module: None,
+            module_file_id: Some(file.id),
+            executable: file.executable_for_command_line(),
+            args: self.args_with_out_paths.clone(),
+            env,
+            stdout_file: self.stdout_file.clone(),
+            stderr_file: self.stderr_file.clone(),
+        }));
+        Ok(())
+    }
+
+    pub fn async_task_executor(&mut self, task: impl AsyncTask + Send + Sync + 'static) {
+        self.executor = Some(Executor::AsyncTask(AsyncTaskExecutor {
+            task: Arc::new(task),
+            args: self.args_with_out_paths.clone(),
+        }));
+    }
+
+    pub fn blocking_task_executor(&mut self, f: TaskFn) {
+        self.executor = Some(Executor::BlockingTask(BlockingTaskExecutor {
             f,
             args: self.args_with_out_paths.clone(),
         }));
@@ -138,9 +216,12 @@ impl CommandBuilder {
         Command {
             id,
             name: self.name,
+            executables: self.executables,
             inputs: self.inputs,
             outputs: self.outputs,
+            deps: self.deps,
             executor: self.executor.unwrap(),
+            tags: self.tags,
             unfinished_deps: vec![],
             reverse_deps: vec![],
             schedule_state: ScheduleState::New,

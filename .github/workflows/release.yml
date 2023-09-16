@@ -1,0 +1,139 @@
+name: Create Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      releaseType:
+        description: 'Release type'
+        default: 'patch'
+        type: choice
+        options:
+          - prepatch
+          - patch
+          - preminor
+          - minor
+          # - premajor
+          # - major
+        required: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  bump-version-and-create-tag:
+    name: Bump ${{github.event.inputs.releaseType}} version
+    outputs:
+      VERSION: ${{steps.bump-version.outputs.VERSION}}
+      TAG: ${{steps.bump-version.outputs.TAG}}
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v3
+      - uses: denoland/setup-deno@v1
+      - name: Configure git
+        run: |
+         git config user.email "${{github.actor}}@users.noreply.github.com"
+         git config user.name "${{github.actor}}"
+      - run: echo $GITHUB_OUTPUT
+      - run: cat $GITHUB_OUTPUT
+      - run: |
+          .github/workflows/bump-version-and-create-tag.ts ${{github.event.inputs.releaseType}} $GITHUB_OUTPUT
+          cat $GITHUB_OUTPUT
+        id: bump-version
+      - run: echo ${{steps.bump-version.outputs.TAG}}
+
+  build:
+    name: build ${{matrix.target}}
+    needs: [bump-version-and-create-tag]
+    runs-on: ${{matrix.os}}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: macos-11
+            target: x86_64-apple-darwin
+          - os: ubuntu-20.04
+            target: x86_64-unknown-linux-gnu
+          - os: windows-2019
+            target: x86_64-pc-windows-msvc
+    steps:
+      - run: echo ${{needs.bump-version-and-create-tag.outputs.TAG}}
+      - uses: actions/checkout@v3
+        with:
+          lfs: true
+          ref: refs/tags/${{needs.bump-version-and-create-tag.outputs.TAG}}
+      - uses: arduino/setup-protoc@v1
+        with:
+          repo-token: ${{secrets.GITHUB_TOKEN}}
+      - uses: Swatinem/rust-cache@v2
+      - run: rustup show
+      - run: cargo build --release --bin razel
+      - uses: actions/upload-artifact@v3
+        with:
+          name: razel-${{matrix.target}}
+          path: |
+            target/release/razel
+            target/release/razel.exe
+          if-no-files-found: error
+          retention-days: 3
+
+  publish-github:
+    needs:
+      - bump-version-and-create-tag
+      - build
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v3
+      - run: ls -al
+      - run: ls -al razel-*/
+      - name: Zip binaries
+        run: |
+          for dir in $(ls -d razel-*); do
+            gzip --stdout --keep $dir/* > $dir.gz
+            zip -j $dir.zip $dir/*
+          done
+        shell: bash
+      - run: ls -al
+      - uses: softprops/action-gh-release@v1
+        with:
+          generate_release_notes: true
+          tag_name: ${{needs.bump-version-and-create-tag.outputs.TAG}}
+          files: |
+            razel-*.gz
+            razel-*.zip
+
+  publish-crates_io:
+    needs:
+      - bump-version-and-create-tag
+      - publish-github
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: refs/tags/${{needs.bump-version-and-create-tag.outputs.TAG}}
+      - uses: arduino/setup-protoc@v1
+        with:
+          repo-token: ${{secrets.GITHUB_TOKEN}}
+      - run: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{secrets.CARGO_REGISTRY_TOKEN}}
+
+  publish-pypi:
+    needs:
+      - bump-version-and-create-tag
+      - publish-github
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: refs/tags/${{needs.bump-version-and-create-tag.outputs.TAG}}
+      - run: .dist/publish-pypi.sh ${{needs.bump-version-and-create-tag.outputs.VERSION}}
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{secrets.PYPI_TOKEN}}

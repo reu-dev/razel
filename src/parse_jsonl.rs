@@ -4,10 +4,11 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 use anyhow::Context;
-use log::info;
+use log::debug;
 use serde::Deserialize;
 
-use crate::{config, parse_cli, Razel};
+use crate::metadata::Tag;
+use crate::{config, parse_cli_within_file, Razel};
 
 pub fn parse_jsonl_file(razel: &mut Razel, file_name: &String) -> Result<(), anyhow::Error> {
     razel.set_workspace_dir(Path::new(file_name).parent().unwrap())?;
@@ -36,28 +37,33 @@ pub fn parse_jsonl_file(razel: &mut Razel, file_name: &String) -> Result<(), any
                     c.env,
                     c.inputs,
                     c.outputs,
+                    c.stdout,
+                    c.stderr,
+                    c.deps,
+                    c.tags,
                 )?;
             }
             RazelJson::Task(t) => {
                 let mut args: Vec<String> = vec![config::EXECUTABLE.into(), "task".into(), t.task];
                 args.extend(&mut t.args.iter().map(|x| x.into()));
-                parse_cli(args.clone(), razel, Some(t.name.clone()))
+                parse_cli_within_file(razel, args.clone(), &t.name, t.tags)
                     .with_context(|| format!("{}\n{}", t.name, args.join(" ")))?
             }
         }
     }
-    info!("Added {} commands from {}", razel.len(), file_name);
+    debug!("Added {} commands from {file_name}", razel.len());
     Ok(())
 }
 
 #[derive(Deserialize)]
-#[serde(untagged)]
+#[serde(deny_unknown_fields, untagged)]
 enum RazelJson {
     CustomCommand(RazelCustomCommandJson),
     Task(RazelTaskJson),
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RazelCustomCommandJson {
     name: String,
     executable: String,
@@ -68,11 +74,20 @@ struct RazelCustomCommandJson {
     inputs: Vec<String>,
     #[serde(default)]
     outputs: Vec<String>,
+    stdout: Option<String>,
+    stderr: Option<String>,
+    #[serde(default)]
+    deps: Vec<String>,
+    #[serde(default)]
+    tags: Vec<Tag>,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RazelTaskJson {
     name: String,
     task: String,
     args: Vec<String>,
+    #[serde(default)]
+    tags: Vec<Tag>,
 }

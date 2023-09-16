@@ -1,10 +1,10 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use std::{env, fs};
 
-use anyhow::{bail, Context};
-use itertools::Itertools;
+use anyhow::{anyhow, bail, Context};
+use itertools::{chain, Itertools};
 use log::{debug, warn};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
@@ -13,10 +13,11 @@ use which::which;
 use crate::bazel_remote_exec::command::EnvironmentVariable;
 use crate::bazel_remote_exec::{ActionResult, Digest, ExecutedActionMetadata, OutputFile};
 use crate::cache::{BlobDigest, Cache, MessageDigest};
-use crate::executors::{ExecutionResult, ExecutionStatus, Executor};
+use crate::executors::{ExecutionResult, ExecutionStatus, Executor, WasiExecutor};
+use crate::metadata::{write_graphs_html, LogFile, Measurements, Profile, Tag};
 use crate::{
-    bazel_remote_exec, config, Arena, CGroup, Command, CommandBuilder, CommandId, File, FileId,
-    Measurements, Sandbox, Scheduler, TUI,
+    bazel_remote_exec, config, force_remove_file, write_gitignore, Arena, CGroup, Command,
+    CommandBuilder, CommandId, File, FileId, FileType, Sandbox, Scheduler, GITIGNORE_FILENAME, TUI,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -30,6 +31,8 @@ pub enum ScheduleState {
     Succeeded,
     /// Command execution failed
     Failed,
+    /// Command could not be started because it depends on a failed condition
+    Skipped,
 }
 
 #[derive(Debug, Default)]
@@ -44,6 +47,7 @@ pub struct SchedulerStats {
 pub struct SchedulerExecStats {
     pub succeeded: usize,
     pub failed: usize,
+    pub skipped: usize,
     pub not_run: usize,
 }
 
@@ -53,7 +57,7 @@ impl SchedulerExecStats {
     }
 }
 
-type ExecutionResultChannel = (CommandId, ExecutionResult, Option<ActionResult>);
+type ExecutionResultChannel = (CommandId, ExecutionResult, Vec<OutputFile>);
 
 pub struct Razel {
     pub read_cache: bool,
@@ -65,7 +69,13 @@ pub struct Razel {
     /// directory of output files - relative to current_dir
     out_dir: PathBuf,
     cache: Cache,
+    /// directory to use as PWD for executing commands
+    ///
+    /// Should be but on same device as local cache dir to quickly move outfile file to cache.
+    /// Ideally outside the workspace dir to help IDE indexer.
+    sandbox_dir: PathBuf,
     files: Arena<File>,
+    /// maps paths relative to current_dir (without out_dir prefix) to <File>s
     path_to_file_id: HashMap<PathBuf, FileId>,
     which_to_file_id: HashMap<String, FileId>,
     /// razel executable - used in Action::input_root_digest for versioning tasks
@@ -77,9 +87,12 @@ pub struct Razel {
     scheduler: Scheduler,
     succeeded: Vec<CommandId>,
     failed: Vec<CommandId>,
+    skipped: Vec<CommandId>,
     cache_hits: usize,
     tui: TUI,
     measurements: Measurements,
+    profile: Profile,
+    log_file: LogFile,
 }
 
 impl Razel {
@@ -90,6 +103,11 @@ impl Razel {
         let workspace_dir = current_dir.clone();
         let out_dir = PathBuf::from(config::OUT_DIR);
         let cache = Cache::new(&workspace_dir).unwrap();
+        let sandbox_dir = cache
+            .local_cache
+            .dir
+            .join("sandbox")
+            .join(std::process::id().to_string());
         debug!("workspace_dir: {:?}", workspace_dir);
         debug!("out_dir:       {:?}", current_dir.join(&out_dir));
         let cgroup = match Self::create_cgroup() {
@@ -106,6 +124,7 @@ impl Razel {
             current_dir,
             out_dir,
             cache,
+            sandbox_dir,
             files: Default::default(),
             path_to_file_id: Default::default(),
             which_to_file_id: Default::default(),
@@ -116,16 +135,18 @@ impl Razel {
             scheduler: Scheduler::new(worker_threads),
             succeeded: vec![],
             failed: vec![],
+            skipped: vec![],
             cache_hits: 0,
             tui: TUI::new(),
             measurements: Measurements::new(),
+            profile: Profile::new(),
+            log_file: Default::default(),
         }
     }
 
     #[cfg(target_os = "linux")]
     fn create_cgroup() -> Result<Option<CGroup>, anyhow::Error> {
         use crate::get_available_memory;
-        use log::info;
         let available = get_available_memory()?;
         let mut limit = available;
         let existing_limit = CGroup::new("".into()).read::<u64>("memory", "memory.limit_in_bytes");
@@ -137,7 +158,7 @@ impl Razel {
         cgroup.create("memory")?;
         cgroup.write("memory", "memory.limit_in_bytes", limit)?;
         cgroup.write("memory", "memory.swappiness", 0)?;
-        info!(
+        debug!(
             "create_cgroup(): available: {}MiB, limit: {:?}MiB -> set limit {}MiB",
             available / 1024 / 1024,
             existing_limit.ok().map(|x| x / 1024 / 1024),
@@ -166,6 +187,12 @@ impl Razel {
         }
         debug!("workspace_dir: {:?}", self.workspace_dir);
         self.cache = Cache::new(&self.workspace_dir)?;
+        self.sandbox_dir = self
+            .cache
+            .local_cache
+            .dir
+            .join("sandbox")
+            .join(std::process::id().to_string());
         Ok(())
     }
 
@@ -186,6 +213,7 @@ impl Razel {
         println!("worker threads:   {}", self.worker_threads);
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn push_custom_command(
         &mut self,
         name: String,
@@ -194,21 +222,41 @@ impl Razel {
         env: HashMap<String, String>,
         inputs: Vec<String>,
         outputs: Vec<String>,
+        stdout: Option<String>,
+        stderr: Option<String>,
+        deps: Vec<String>,
+        tags: Vec<Tag>,
     ) -> Result<CommandId, anyhow::Error> {
-        let mut builder = CommandBuilder::new(name, args);
+        let mut builder = CommandBuilder::new(name, args, tags);
         builder.inputs(&inputs, self)?;
         builder.outputs(&outputs, self)?;
-        builder.custom_command_executor(executable, env, self)?;
+        if let Some(x) = stdout {
+            builder.stdout(&x, self)?;
+        }
+        if let Some(x) = stderr {
+            builder.stderr(&x, self)?;
+        }
+        for dep in &deps {
+            builder.dep(dep, self)?;
+        }
+        if executable.ends_with(".wasm") {
+            builder.wasi_executor(executable, env, self)?;
+        } else {
+            builder.custom_command_executor(executable, env, self)?;
+        }
         self.push(builder)
     }
 
     pub fn push(&mut self, builder: CommandBuilder) -> Result<CommandId, anyhow::Error> {
         // TODO check if name is unique
         let id = self.commands.alloc_with_id(|id| builder.build(id));
-        if let Executor::Task(_) = &self.commands[id].executor {
+        let command = &mut self.commands[id];
+        Self::check_tags(command)?;
+        if !matches!(&command.executor, Executor::CustomCommand(_)) {
+            // add razel executable to command hash
             // TODO set digest to razel version once stable
             let self_file_id = self.lazy_self_file_id()?;
-            self.commands[id].inputs.push(self_file_id);
+            self.commands[id].executables.push(self_file_id);
         }
         // patch outputs.creating_command
         for output_id in &self.commands[id].outputs {
@@ -219,16 +267,70 @@ impl Razel {
         Ok(id)
     }
 
-    fn lazy_self_file_id(&mut self) -> Result<FileId, anyhow::Error> {
-        if self.self_file_id.is_none() {
-            self.self_file_id = Some(self.executable(env::args().next().unwrap())?.id);
+    fn check_tags(command: &mut Command) -> Result<(), anyhow::Error> {
+        match &command.executor {
+            Executor::CustomCommand(_) => {
+                if command.tags.contains(&Tag::NoSandbox) && !command.tags.contains(&Tag::NoCache) {
+                    // executing a command without sandbox is not reliable, therefore don't cache it
+                    command.tags.push(Tag::NoCache);
+                }
+            }
+            Executor::Wasi(_) => {
+                if command.tags.contains(&Tag::NoSandbox) {
+                    bail!(
+                        "Tag is not supported for WASI executor: {}",
+                        serde_json::to_string(&Tag::NoSandbox).unwrap()
+                    );
+                }
+            }
+            _ => {}
         }
-        Ok(self.self_file_id.unwrap())
+        Ok(())
+    }
+
+    fn lazy_self_file_id(&mut self) -> Result<FileId, anyhow::Error> {
+        if let Some(x) = self.self_file_id {
+            Ok(x)
+        } else {
+            let path = Path::new(&env::args().next().unwrap())
+                .canonicalize()
+                .ok()
+                .filter(|x| x.is_file());
+            let file_id = if let Some(x) = &path {
+                self.input_file_for_rel_path(
+                    config::EXECUTABLE.into(),
+                    FileType::RazelExecutable,
+                    x.clone(),
+                )
+                .with_context(|| anyhow!("Failed to find razel executable for {x:?}"))?
+                .id
+            } else {
+                self.executable_which(config::EXECUTABLE.into(), FileType::RazelExecutable)
+                    .with_context(|| anyhow!("Failed to find razel executable"))?
+                    .id
+            };
+            self.self_file_id = Some(file_id);
+            Ok(file_id)
+        }
     }
 
     #[cfg(test)]
     pub fn get_command(&self, id: CommandId) -> Option<&Command> {
         self.commands.get(id)
+    }
+
+    pub fn get_command_by_name(&self, command_name: &String) -> Option<&Command> {
+        self.commands.iter().find(|x| &x.name == command_name)
+    }
+
+    pub fn add_tag_for_command(&mut self, name: &str, tag: Tag) -> Result<(), anyhow::Error> {
+        match self.commands.iter_mut().find(|x| x.name == name) {
+            Some(x) => {
+                x.tags.push(tag);
+                Ok(())
+            }
+            _ => bail!("Command not found: {name}"),
+        }
     }
 
     pub fn list_commands(&mut self) {
@@ -238,9 +340,14 @@ impl Razel {
             println!("# {}", command.name);
             println!(
                 "{}",
-                TUI::format_command_line(&command.executor.args_with_executable())
+                TUI::format_command_line(
+                    &command
+                        .executor
+                        .command_line_with_redirects(&self.tui.razel_executable)
+                )
             );
             command.schedule_state = ScheduleState::Succeeded;
+            self.scheduler.set_finished_and_get_retry_flag(id, false);
             for rdep_id in command.reverse_deps.clone() {
                 let rdep = &mut self.commands[rdep_id];
                 assert_eq!(rdep.schedule_state, ScheduleState::Waiting);
@@ -256,37 +363,47 @@ impl Razel {
         }
     }
 
-    pub async fn run(&mut self) -> Result<SchedulerStats, anyhow::Error> {
+    pub async fn run(
+        &mut self,
+        keep_going: bool,
+        verbose: bool,
+    ) -> Result<SchedulerStats, anyhow::Error> {
         let preparation_start = Instant::now();
         if self.commands.is_empty() {
             bail!("no commands added");
         }
-        Sandbox::cleanup();
+        self.tui.verbose = verbose;
+        Sandbox::cleanup(&self.sandbox_dir);
         self.create_dependency_graph();
         self.remove_unknown_files_from_out_dir(&self.out_dir).ok();
         self.digest_input_files().await?;
         self.create_output_dirs()?;
+        self.create_wasi_modules()?;
         let (tx, mut rx) = mpsc::channel(32);
         let execution_start = Instant::now();
         self.start_ready_commands(&tx);
-        while !self.scheduler.is_empty() {
-            if let Some((id, execution_result, action_result)) = rx.recv().await {
-                self.on_command_finished(id, &execution_result, action_result);
-                if execution_result.status == ExecutionStatus::SystemError {
-                    break;
+        let mut start_more_commands = true;
+        while self.scheduler.running() != 0 {
+            if let Some((id, execution_result, output_files)) = rx.recv().await {
+                self.on_command_finished(id, &execution_result, output_files);
+                if execution_result.status == ExecutionStatus::SystemError
+                    || (!self.failed.is_empty() && !keep_going)
+                {
+                    start_more_commands = false;
                 }
-                self.start_ready_commands(&tx);
+                if start_more_commands {
+                    self.start_ready_commands(&tx);
+                }
             }
         }
-        assert_eq!(self.scheduler.running(), 0);
         self.remove_outputs_of_not_run_actions_from_out_dir();
-        Sandbox::cleanup();
-        self.measurements
-            .write_csv(&self.out_dir.join("measurements.csv"))?;
+        Sandbox::cleanup(&self.sandbox_dir);
+        self.write_metadata()?;
         let stats = SchedulerStats {
             exec: SchedulerExecStats {
                 succeeded: self.succeeded.len(),
                 failed: self.failed.len(),
+                skipped: self.skipped.len(),
                 not_run: self.waiting.len() + self.scheduler.ready(),
             },
             cache_hits: self.cache_hits,
@@ -297,17 +414,53 @@ impl Razel {
         Ok(stats)
     }
 
-    /// Register an executable to be used for a command
+    /// Register an executable file
     pub fn executable(&mut self, arg: String) -> Result<&File, anyhow::Error> {
-        if arg.contains('.') {
-            self.input_file(arg)
-        } else if let Some(x) = self.which_to_file_id.get(&arg) {
+        let path = Path::new(&arg);
+        let (file_type, abs_path) = if let Some(x) = arg.strip_prefix("./") {
+            (FileType::ExecutableInWorkspace, self.workspace_dir.join(x))
+        } else if path.is_absolute() {
+            match path.strip_prefix(&self.workspace_dir) {
+                Ok(_) => (FileType::ExecutableInWorkspace, path.to_path_buf()),
+                _ => (FileType::SystemExecutable, path.to_path_buf()),
+            }
+        } else if arg == config::EXECUTABLE {
+            return self.lazy_self_file_id().map(|x| &self.files[x]);
+        } else {
+            // relative path or system binary name
+            let abs = self.workspace_dir.join(path);
+            let cwd_path = abs.strip_prefix(&self.current_dir).unwrap().to_path_buf();
+            if let Some(id) = self.path_to_file_id.get(&cwd_path) {
+                return Ok(&self.files[*id]);
+            } else if arg.contains('/') || abs.is_file() {
+                (FileType::ExecutableInWorkspace, abs)
+            } else {
+                return self.executable_which(arg, FileType::SystemExecutable);
+            }
+        };
+        assert!(abs_path.is_absolute());
+        let cwd_path = if file_type == FileType::SystemExecutable {
+            abs_path
+        } else {
+            self.rel_path(&abs_path.to_str().unwrap().into())?
+        };
+        self.input_file_for_rel_path(arg, file_type, cwd_path)
+    }
+
+    fn executable_which(
+        &mut self,
+        arg: String,
+        file_type: FileType,
+    ) -> Result<&File, anyhow::Error> {
+        if let Some(x) = self.which_to_file_id.get(&arg) {
             Ok(&self.files[*x])
         } else {
             let path =
                 which(&arg).with_context(|| format!("executable not found: {:?}", arg.clone()))?;
             debug!("which({}) => {:?}", arg, path);
-            let id = self.input_file(path.to_str().unwrap().into())?.id;
+            let id = self
+                .input_file_for_rel_path(arg.clone(), file_type, path.to_str().unwrap().into())?
+                .id;
             self.which_to_file_id.insert(arg, id);
             Ok(&self.files[id])
         }
@@ -315,26 +468,34 @@ impl Razel {
 
     pub fn input_file(&mut self, arg: String) -> Result<&File, anyhow::Error> {
         let rel_path = self.rel_path(&arg)?;
+        self.input_file_for_rel_path(arg, FileType::DataFile, rel_path)
+    }
+
+    fn input_file_for_rel_path(
+        &mut self,
+        arg: String,
+        file_type: FileType,
+        rel_path: PathBuf,
+    ) -> Result<&File, anyhow::Error> {
         let id = self
             .path_to_file_id
             .get(&rel_path)
             .cloned()
             .unwrap_or_else(|| {
-                let id = self.files.alloc_with_id(|id| File {
-                    id,
-                    arg,
-                    exec_path: rel_path.clone(),
-                    out_path: rel_path.clone(),
-                    creating_command: None,
-                    digest: None,
-                });
+                let id = self
+                    .files
+                    .alloc_with_id(|id| File::new(id, arg, file_type, rel_path.clone()));
                 self.path_to_file_id.insert(rel_path, id);
                 id
             });
         Ok(&self.files[id])
     }
 
-    pub fn output_file(&mut self, arg: &String) -> Result<&File, anyhow::Error> {
+    pub fn output_file(
+        &mut self,
+        arg: &String,
+        file_type: FileType,
+    ) -> Result<&File, anyhow::Error> {
         let rel_path = self.rel_path(arg)?;
         if let Some(file) = self.path_to_file_id.get(&rel_path).map(|x| &self.files[*x]) {
             if let Some(creating_command) = file.creating_command {
@@ -350,16 +511,16 @@ impl Razel {
                 );
             }
         }
-        let id = self.files.alloc_with_id(|id| File {
-            id,
-            creating_command: None, // will be patched in Scheduler::push()
-            exec_path: rel_path.clone(),
-            out_path: self.out_dir.join(&rel_path),
-            arg: arg.clone(),
-            digest: None,
+        let id = self.files.alloc_with_id(|id| {
+            File::new(id, arg.clone(), file_type, self.out_dir.join(&rel_path))
         });
         self.path_to_file_id.insert(rel_path, id);
         Ok(&self.files[id])
+    }
+
+    pub fn wasi_module(&mut self, arg: String) -> Result<&File, anyhow::Error> {
+        let rel_path = self.rel_path(&arg)?;
+        self.input_file_for_rel_path(arg, FileType::WasiModule, rel_path)
     }
 
     /// Maps a relative path from workspace dir to cwd, allow absolute path
@@ -389,11 +550,16 @@ impl Razel {
         let mut rdeps = vec![];
         for command in self.commands.iter_mut() {
             assert_eq!(command.schedule_state, ScheduleState::New);
-            for input_id in &command.inputs {
+            command.unfinished_deps.reserve(command.deps.len());
+            for input_id in chain(command.executables.iter(), command.inputs.iter()) {
                 if let Some(dep) = self.files[*input_id].creating_command {
                     command.unfinished_deps.push(dep);
                     rdeps.push((dep, command.id));
                 }
+            }
+            for dep in &command.deps {
+                command.unfinished_deps.push(*dep);
+                rdeps.push((*dep, command.id));
             }
             if command.unfinished_deps.is_empty() {
                 command.schedule_state = ScheduleState::Ready;
@@ -425,8 +591,9 @@ impl Razel {
                     if self
                         .path_to_file_id
                         .get(path_wo_prefix)
-                        .filter(|x| self.files[**x].out_path == path)
+                        .filter(|x| self.files[**x].path == path)
                         .is_none()
+                        && path_wo_prefix.to_string_lossy() != GITIGNORE_FILENAME
                     {
                         fs::remove_file(path).ok();
                     }
@@ -439,7 +606,7 @@ impl Razel {
     fn remove_outputs_of_not_run_actions_from_out_dir(&self) {
         for command_id in self.waiting.iter().chain(self.scheduler.ready_ids().iter()) {
             for file_id in &self.commands[*command_id].outputs {
-                fs::remove_file(&self.files[*file_id].out_path).ok();
+                fs::remove_file(&self.files[*file_id].path).ok();
             }
         }
     }
@@ -482,7 +649,7 @@ impl Razel {
         while let Some(file) = self.files.get_and_inc_id(next_id) {
             if file.creating_command.is_none() {
                 let id = file.id;
-                let path = file.exec_path.clone();
+                let path = file.path.clone();
                 let tx = tx_option.clone().unwrap();
                 tokio::spawn(async move {
                     tx.send((id, Digest::for_file(path).await)).await.ok();
@@ -497,12 +664,39 @@ impl Razel {
         let dirs = self
             .files
             .iter()
-            .map(|x| x.out_path.parent().unwrap())
+            .map(|x| x.path.parent().unwrap())
             .sorted_unstable()
             .dedup();
         for x in dirs {
             fs::create_dir_all(x)
-                .with_context(|| format!("Failed to create output directory: {:?}", x))?;
+                .with_context(|| format!("Failed to create output directory: {x:?}"))?;
+        }
+        write_gitignore(&self.out_dir);
+        Ok(())
+    }
+
+    fn create_wasi_modules(&mut self) -> Result<(), anyhow::Error> {
+        let mut engine = None;
+        let mut modules: HashMap<FileId, wasmtime::Module> = HashMap::new();
+        for command in self.commands.iter_mut() {
+            if let Executor::Wasi(executor) = &mut command.executor {
+                let file_id = executor.module_file_id.unwrap();
+                let module = match modules.entry(file_id) {
+                    hash_map::Entry::Occupied(x) => x.get().clone(),
+                    hash_map::Entry::Vacant(x) => {
+                        if engine.is_none() {
+                            engine = Some(WasiExecutor::create_engine()?);
+                        }
+                        let module = WasiExecutor::create_module(
+                            engine.as_ref().unwrap(),
+                            &executor.executable,
+                        )?;
+                        x.insert(module.clone());
+                        module
+                    }
+                };
+                executor.module = Some(module);
+            }
         }
         Ok(())
     }
@@ -524,11 +718,19 @@ impl Razel {
         );
     }
 
-    fn collect_input_file_paths_for_command(&self, command: &Command) -> Vec<PathBuf> {
-        command
-            .inputs
-            .iter()
-            .map(|x| self.files[*x].out_path.clone())
+    fn collect_input_file_paths_for_sandbox(&self, command: &Command) -> Vec<PathBuf> {
+        let command_executables = command.executables.iter().filter(|&&x| {
+            if matches!(command.executor, Executor::Wasi(_)) {
+                false
+            } else if let Some(self_file_id) = self.self_file_id {
+                // razel never calls itself
+                x != self_file_id
+            } else {
+                true
+            }
+        });
+        chain(command_executables, command.inputs.iter())
+            .map(|x| self.files[*x].path.clone())
             .collect()
     }
 
@@ -536,7 +738,7 @@ impl Razel {
         command
             .outputs
             .iter()
-            .map(|x| self.files[*x].out_path.clone())
+            .map(|x| self.files[*x].path.clone())
             .collect()
     }
 
@@ -549,23 +751,24 @@ impl Razel {
         assert_eq!(command.unfinished_deps.len(), 0);
         let action = self.get_bzl_action_for_command(command);
         let action_digest = Digest::for_message(&action);
-        let cache = self.cache.clone();
-        let read_cache = self.read_cache;
+        let no_cache_tag = command.tags.contains(&Tag::NoCache);
+        let no_sandbox_tag = command.tags.contains(&Tag::NoSandbox);
+        let cache = (!no_cache_tag).then(|| self.cache.clone());
+        let read_cache = self.read_cache && !no_sandbox_tag;
         let executor = command.executor.clone();
-        let input_paths = self.collect_input_file_paths_for_command(command);
+        let sandbox_input_paths = self.collect_input_file_paths_for_sandbox(command);
         let output_paths = self.collect_output_file_paths_for_command(command);
-        let sandbox = executor
-            .use_sandbox()
-            .then(|| Sandbox::new(&command.id.to_string()));
+        let sandbox = (!no_sandbox_tag && executor.use_sandbox())
+            .then(|| Sandbox::new(&self.sandbox_dir, &command.id.to_string()));
         let cgroup = self.cgroup.clone();
         let out_dir = self.out_dir.clone();
         tokio::task::spawn(async move {
-            let (execution_result, action_result) = Self::exec_action_with_cache(
+            let (execution_result, output_files) = Self::exec_action(
                 &action_digest,
                 &cache,
                 read_cache,
                 &executor,
-                &input_paths,
+                &sandbox_input_paths,
                 &output_paths,
                 &sandbox,
                 cgroup,
@@ -579,189 +782,257 @@ impl Razel {
                         error: Some(e),
                         ..Default::default()
                     },
-                    None,
+                    Default::default(),
                 )
             });
             // ignore SendError - channel might be closed if a previous command failed
-            tx.send((id, execution_result, action_result)).await.ok();
+            tx.send((id, execution_result, output_files)).await.ok();
         });
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn exec_action_with_cache(
-        action_digest: &MessageDigest,
-        cache: &Cache,
-        read_cache: bool,
-        executor: &Executor,
-        input_paths: &Vec<PathBuf>,
-        output_paths: &Vec<PathBuf>,
-        sandbox: &Option<Sandbox>,
-        cgroup: Option<CGroup>,
-        out_dir: &PathBuf,
-    ) -> Result<(ExecutionResult, Option<ActionResult>), anyhow::Error> {
-        let (execution_result, action_result) =
-            if let Some(x) = Self::get_action_from_cache(action_digest, cache, read_cache).await {
-                x
-            } else {
-                Self::exec_action(
-                    action_digest,
-                    cache,
-                    executor,
-                    input_paths,
-                    output_paths,
-                    sandbox,
-                    cgroup,
-                    out_dir,
-                )
-                .await
-                .context("exec_action()")?
-            };
-        if let Some(action_result) = &action_result {
-            cache
-                .symlink_output_files_into_out_dir(action_result, out_dir)
-                .await
-                .context("symlink_output_files_into_out_dir()")?;
-        }
-        Ok((execution_result, action_result))
-    }
-
-    async fn get_action_from_cache(
-        action_digest: &MessageDigest,
-        cache: &Cache,
-        read_cache: bool,
-    ) -> Option<(ExecutionResult, Option<ActionResult>)> {
-        if read_cache {
-            if let Some(action_result) = cache.get_action_result(action_digest).await {
-                let exit_code = Some(action_result.exit_code);
-                let metadata = action_result.execution_metadata.as_ref();
-                let execution_result = ExecutionResult {
-                    status: ExecutionStatus::Success,
-                    exit_code,
-                    error: None,
-                    cache_hit: true,
-                    stdout: vec![], // TODO
-                    stderr: vec![], // TODO
-                    duration: metadata
-                        .and_then(|x| x.virtual_execution_duration.as_ref())
-                        .map(|x| Duration::new(x.seconds as u64, x.nanos as u32)),
-                };
-                return Some((execution_result, Some(action_result)));
-            }
-        }
-        None
     }
 
     #[allow(clippy::too_many_arguments)]
     async fn exec_action(
         action_digest: &MessageDigest,
-        cache: &Cache,
+        cache: &Option<Cache>,
+        read_cache: bool,
         executor: &Executor,
-        input_paths: &Vec<PathBuf>,
+        sandbox_input_paths: &Vec<PathBuf>,
         output_paths: &Vec<PathBuf>,
         sandbox: &Option<Sandbox>,
         cgroup: Option<CGroup>,
         out_dir: &PathBuf,
-    ) -> Result<(ExecutionResult, Option<ActionResult>), anyhow::Error> {
-        if let Some(sandbox) = &sandbox {
-            sandbox
-                .create(input_paths, output_paths)
+    ) -> Result<(ExecutionResult, Vec<OutputFile>), anyhow::Error> {
+        let (execution_result, output_files) =
+            if let Some(x) = Self::get_action_from_cache(action_digest, cache, read_cache).await {
+                x
+            } else if let Some(sandbox) = sandbox {
+                Self::exec_action_with_sandbox(
+                    action_digest,
+                    cache,
+                    executor,
+                    sandbox,
+                    sandbox_input_paths,
+                    output_paths,
+                    cgroup,
+                    out_dir,
+                )
                 .await
-                .context("Sandbox::create()")?;
-        } else {
-            // remove expected output files for tasks, because symlinks will not be overwritten
-            // maybe a proper sandbox would be better
-            for x in output_paths {
-                fs::remove_file(x).ok();
-            }
+                .context("exec_action_with_sandbox()")?
+            } else {
+                Self::exec_action_without_sandbox(
+                    action_digest,
+                    cache,
+                    executor,
+                    output_paths,
+                    cgroup,
+                    out_dir,
+                )
+                .await
+                .context("exec_action_without_sandbox()")?
+            };
+        if let Some(cache) = cache.as_ref().filter(|_| execution_result.success()) {
+            cache
+                .symlink_output_files_into_out_dir(&output_files, out_dir)
+                .await
+                .context("symlink_output_files_into_out_dir()")?;
         }
-        let execution_result = executor
-            .exec(sandbox.as_ref().map(|x| x.dir.clone()), cgroup)
-            .await;
-        let action_result = if execution_result.success() {
-            Some(
+        Ok((execution_result, output_files))
+    }
+
+    async fn get_action_from_cache(
+        action_digest: &MessageDigest,
+        cache: &Option<Cache>,
+        read_cache: bool,
+    ) -> Option<(ExecutionResult, Vec<OutputFile>)> {
+        if cache.is_none() || !read_cache {
+            return None;
+        }
+        if let Some(action_result) = cache
+            .as_ref()
+            .unwrap()
+            .get_action_result(action_digest)
+            .await
+        {
+            let exit_code = Some(action_result.exit_code);
+            let metadata = action_result.execution_metadata.as_ref();
+            let execution_result = ExecutionResult {
+                status: ExecutionStatus::Success,
+                exit_code,
+                error: None,
+                cache_hit: true,
+                stdout: action_result.stdout_raw,
+                stderr: action_result.stderr_raw,
+                duration: metadata
+                    .and_then(|x| x.virtual_execution_duration.as_ref())
+                    .map(|x| Duration::new(x.seconds as u64, x.nanos as u32)),
+            };
+            return Some((execution_result, action_result.output_files));
+        }
+        None
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn exec_action_with_sandbox(
+        action_digest: &MessageDigest,
+        cache: &Option<Cache>,
+        executor: &Executor,
+        sandbox: &Sandbox,
+        sandbox_input_paths: &Vec<PathBuf>,
+        output_paths: &Vec<PathBuf>,
+        cgroup: Option<CGroup>,
+        out_dir: &PathBuf,
+    ) -> Result<(ExecutionResult, Vec<OutputFile>), anyhow::Error> {
+        sandbox
+            .create(sandbox_input_paths, output_paths)
+            .await
+            .context("Sandbox::create()")?;
+        let execution_result = executor.exec(Some(sandbox.dir.clone()), cgroup).await;
+        let output_files = if execution_result.success() {
+            Self::new_output_files_with_digest(Some(&sandbox.dir), out_dir, output_paths).await?
+        } else {
+            Default::default()
+        };
+        if execution_result.success() {
+            if let Some(cache) = &cache {
                 Self::cache_action_result(
                     action_digest,
                     &execution_result,
-                    output_paths,
-                    sandbox.as_ref().map(|x| x.dir.clone()),
+                    output_files.clone(),
+                    Some(&sandbox.dir),
                     out_dir,
                     cache,
                 )
                 .await
-                .with_context(|| "cache_action_result()")?,
-            )
-        } else {
-            None
-        };
-        if let Some(sandbox) = &sandbox {
-            sandbox
-                .destroy()
-                .await
-                .with_context(|| "Sandbox::destroy()")?;
+                .with_context(|| "cache_action_result()")?;
+            } else {
+                sandbox.move_output_files_into_out_dir(output_paths).await?;
+            }
         }
-        Ok((execution_result, action_result))
+        sandbox
+            .destroy()
+            .await
+            .with_context(|| "Sandbox::destroy()")?;
+        Ok((execution_result, output_files))
+    }
+
+    async fn exec_action_without_sandbox(
+        action_digest: &MessageDigest,
+        cache: &Option<Cache>,
+        executor: &Executor,
+        output_paths: &Vec<PathBuf>,
+        cgroup: Option<CGroup>,
+        out_dir: &PathBuf,
+    ) -> Result<(ExecutionResult, Vec<OutputFile>), anyhow::Error> {
+        // remove expected output files, because symlinks will not be overwritten
+        for x in output_paths {
+            force_remove_file(x).await?;
+        }
+        let execution_result = executor.exec(None, cgroup).await;
+        let output_files = if execution_result.success() {
+            Self::new_output_files_with_digest(None, out_dir, output_paths).await?
+        } else {
+            Default::default()
+        };
+        if execution_result.success() {
+            if let Some(cache) = &cache {
+                Self::cache_action_result(
+                    action_digest,
+                    &execution_result,
+                    output_files.clone(),
+                    None,
+                    out_dir,
+                    cache,
+                )
+                .await
+                .with_context(|| "cache_action_result()")?;
+            }
+        }
+        Ok((execution_result, output_files))
+    }
+
+    async fn new_output_files_with_digest(
+        sandbox_dir: Option<&PathBuf>,
+        out_dir: &PathBuf,
+        output_paths: &Vec<PathBuf>,
+    ) -> Result<Vec<OutputFile>, anyhow::Error> {
+        let mut output_files: Vec<OutputFile> = Vec::with_capacity(output_paths.len());
+        for path in output_paths {
+            let output_file = Self::new_output_file_with_digest(sandbox_dir, out_dir, path)
+                .await
+                .context("new_output_file_with_digest()")?;
+            output_files.push(output_file);
+        }
+        Ok(output_files)
+    }
+
+    async fn new_output_file_with_digest(
+        sandbox_dir: Option<&PathBuf>,
+        out_dir: &PathBuf,
+        exec_path: &PathBuf,
+    ) -> Result<OutputFile, anyhow::Error> {
+        let src = sandbox_dir
+            .as_ref()
+            .map_or(exec_path.clone(), |x| x.join(exec_path));
+        if src.is_symlink() {
+            bail!("output file must not be a symlink: {:?}", src);
+        }
+        let digest = Digest::for_file(&src).await.context("Digest::for_file()")?;
+        let path = exec_path.strip_prefix(out_dir).unwrap_or(exec_path);
+        if !path.is_relative() {
+            bail!("path should be relative: {:?}", path);
+        }
+        Ok(OutputFile {
+            path: path.to_str().unwrap().into(),
+            digest: Some(digest),
+            is_executable: false,
+            contents: vec![],
+            node_properties: None,
+        })
     }
 
     async fn cache_action_result(
         action_digest: &MessageDigest,
         execution_result: &ExecutionResult,
-        output_paths: &Vec<PathBuf>,
-        sandbox_dir: Option<PathBuf>,
+        output_files: Vec<OutputFile>,
+        sandbox_dir: Option<&PathBuf>,
         out_dir: &PathBuf,
         cache: &Cache,
-    ) -> Result<ActionResult, anyhow::Error> {
+    ) -> Result<Vec<OutputFile>, anyhow::Error> {
         assert!(execution_result.success());
-        let mut output_files: Vec<OutputFile> = Vec::with_capacity(output_paths.len());
-        for path in output_paths {
-            output_files.push(
-                cache
-                    .move_output_file_into_cache(&sandbox_dir, out_dir, path)
-                    .await
-                    .context("move_output_file_into_cache()")?,
-            );
+        for file in &output_files {
+            cache
+                .move_output_file_into_cache(sandbox_dir, out_dir, file)
+                .await
+                .context("move_output_file_into_cache()")?;
         }
-        let action_result = ActionResult {
+        let mut action_result = ActionResult {
             output_files,
-            output_file_symlinks: vec![],
-            output_symlinks: vec![],
-            output_directories: vec![],
-            output_directory_symlinks: vec![],
             exit_code: execution_result.exit_code.unwrap(),
-            stdout_raw: vec![],
-            stdout_digest: None,
-            stderr_raw: vec![],
-            stderr_digest: None,
             execution_metadata: Some(ExecutedActionMetadata {
-                worker: "".to_string(),
-                queued_timestamp: None,
-                worker_start_timestamp: None,
-                worker_completed_timestamp: None,
-                input_fetch_start_timestamp: None,
-                input_fetch_completed_timestamp: None,
-                execution_start_timestamp: None,
-                execution_completed_timestamp: None,
                 virtual_execution_duration: execution_result.duration.map(|x| {
                     prost_types::Duration {
                         seconds: x.as_secs() as i64,
                         nanos: x.subsec_nanos() as i32,
                     }
                 }),
-                output_upload_start_timestamp: None,
-                output_upload_completed_timestamp: None,
-                auxiliary_metadata: vec![],
+                ..Default::default()
             }),
+            ..Default::default()
         };
+        // TODO add stdout/stderr files for non-small outputs
+        action_result.stdout_raw = execution_result.stdout.clone();
+        action_result.stderr_raw = execution_result.stderr.clone();
         cache
             .push_action_result(action_digest, &action_result)
             .await?;
-        Ok(action_result)
+        Ok(action_result.output_files)
     }
 
     fn on_command_finished(
         &mut self,
         id: CommandId,
         execution_result: &ExecutionResult,
-        action_result: Option<ActionResult>,
+        output_files: Vec<OutputFile>,
     ) {
         let retry = self.scheduler.set_finished_and_get_retry_flag(
             id,
@@ -770,11 +1041,17 @@ impl Razel {
         if retry {
             self.on_command_retry(id, execution_result);
         } else {
-            self.measurements
+            let measurements = self
+                .measurements
                 .collect(&self.commands[id].name, execution_result);
+            self.profile.collect(&self.commands[id], execution_result);
+            self.log_file
+                .push(&self.commands[id], execution_result, measurements);
             if execution_result.success() {
-                self.set_output_file_digests(action_result.unwrap().output_files);
+                self.set_output_file_digests(output_files);
                 self.on_command_succeeded(id, execution_result);
+            } else if self.commands[id].tags.contains(&Tag::Condition) {
+                self.on_condition_failed(id, execution_result);
             } else {
                 self.on_command_failed(id, execution_result);
             }
@@ -783,12 +1060,9 @@ impl Razel {
 
     fn set_output_file_digests(&mut self, output_files: Vec<OutputFile>) {
         for output_file in output_files {
-            let mut output_file_path = PathBuf::from(output_file.path);
-            if let Ok(x) = output_file_path.strip_prefix(&self.out_dir) {
-                output_file_path = x.into();
-            }
-            assert!(output_file_path.is_relative());
-            let file = &mut self.files[self.path_to_file_id[&output_file_path]];
+            assert!(output_file.digest.is_some());
+            let path = PathBuf::from(output_file.path);
+            let file = &mut self.files[self.path_to_file_id[&path]];
             assert!(file.digest.is_none());
             file.digest = output_file.digest;
         }
@@ -805,11 +1079,11 @@ impl Razel {
         self.tui.command_succeeded(command, execution_result);
         for rdep_id in command.reverse_deps.clone() {
             let rdep = &mut self.commands[rdep_id];
-            assert_eq!(rdep.schedule_state, ScheduleState::Waiting);
             assert!(!rdep.unfinished_deps.is_empty());
             rdep.unfinished_deps
                 .swap_remove(rdep.unfinished_deps.iter().position(|x| *x == id).unwrap());
             if rdep.unfinished_deps.is_empty() {
+                assert_eq!(rdep.schedule_state, ScheduleState::Waiting);
                 rdep.schedule_state = ScheduleState::Ready;
                 self.waiting.remove(&rdep_id);
                 self.scheduler.push_ready(rdep);
@@ -826,6 +1100,24 @@ impl Razel {
         self.failed.push(id);
         let command = &self.commands[id];
         self.tui.command_failed(command, execution_result);
+    }
+
+    fn on_condition_failed(&mut self, id: CommandId, execution_result: &ExecutionResult) {
+        let command = &self.commands[id];
+        self.tui.command_failed(command, execution_result);
+        let mut ids_to_skip = command.reverse_deps.clone();
+        while let Some(id_to_skip) = ids_to_skip.pop() {
+            let to_skip = &mut self.commands[id_to_skip];
+            if to_skip.schedule_state == ScheduleState::Skipped {
+                continue;
+            }
+            assert_eq!(to_skip.schedule_state, ScheduleState::Waiting);
+            assert!(!to_skip.unfinished_deps.is_empty());
+            to_skip.schedule_state = ScheduleState::Skipped;
+            self.waiting.remove(&id_to_skip);
+            self.skipped.push(id_to_skip);
+            ids_to_skip.extend(to_skip.reverse_deps.iter());
+        }
     }
 
     fn get_bzl_action_for_command(&self, command: &Command) -> bazel_remote_exec::Action {
@@ -845,7 +1137,7 @@ impl Razel {
             output_paths: command
                 .outputs
                 .iter()
-                .map(|x| self.files[*x].exec_path.to_str().unwrap())
+                .map(|x| self.files[*x].path.to_str().unwrap())
                 .sorted_unstable()
                 .dedup()
                 .map_into()
@@ -855,18 +1147,12 @@ impl Razel {
         };
         // TODO properly build bazel_remote_exec::Directory tree
         let bzl_input_root = bazel_remote_exec::Directory {
-            files: command
-                .inputs
-                .iter()
+            files: chain(command.executables.iter(), command.inputs.iter())
                 .map(|x| {
                     let file = &self.files[*x];
-                    assert!(
-                        file.digest.is_some(),
-                        "digest missing for {:?}",
-                        file.exec_path
-                    );
+                    assert!(file.digest.is_some(), "digest missing for {:?}", file.path);
                     bazel_remote_exec::FileNode {
-                        name: file.exec_path.to_str().unwrap().into(),
+                        name: file.path.to_str().unwrap().into(),
                         digest: file.digest.clone(),
                         is_executable: false, // TODO bazel_remote_exec::FileNode::is_executable
                         node_properties: None,
@@ -883,6 +1169,17 @@ impl Razel {
             input_root_digest: Some(Digest::for_message(&bzl_input_root)),
             ..Default::default()
         }
+    }
+
+    fn write_metadata(&self) -> Result<(), anyhow::Error> {
+        let dir = self.out_dir.join("razel-metadata");
+        fs::create_dir_all(&dir)
+            .with_context(|| format!("Failed to create metadata directory: {dir:?}"))?;
+        write_graphs_html(&self.commands, &self.files, &dir.join("graphs.html"))?;
+        self.measurements.write_csv(&dir.join("measurements.csv"))?;
+        self.profile.write_json(&dir.join("execution_times.json"))?;
+        self.log_file.write(&dir.join("log.json"))?;
+        Ok(())
     }
 }
 
@@ -911,17 +1208,21 @@ mod tests {
         for i in 0..n {
             razel
                 .push_custom_command(
-                    format!("{}", i),
+                    format!("{i}"),
                     "cmake".into(),
                     vec!["-E".into(), "sleep".into(), sleep_duration.to_string()],
                     Default::default(),
+                    vec![],
+                    vec![],
+                    None,
+                    None,
                     vec![],
                     vec![],
                 )
                 .unwrap();
         }
         assert_eq!(razel.len(), n);
-        let stats = razel.run().await.unwrap();
+        let stats = razel.run(false, true).await.unwrap();
         assert_eq!(
             stats.exec,
             SchedulerExecStats {

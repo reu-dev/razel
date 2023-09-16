@@ -3,9 +3,9 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 use anyhow::Context;
-use log::info;
+use log::debug;
 
-use crate::{config, parse_cli, Razel, Rules};
+use crate::{config, parse_cli_within_file, Razel, Rules};
 
 pub fn parse_command(razel: &mut Razel, command_line: Vec<String>) -> Result<(), anyhow::Error> {
     let rules = Rules::new();
@@ -32,7 +32,7 @@ pub fn parse_batch_file(razel: &mut Razel, file_name: &String) -> Result<(), any
                 .with_context(|| format!("Failed to add command: {name}"))?;
         }
     }
-    info!("Added {} commands from {}", razel.len(), file_name);
+    debug!("Added {} commands from {file_name}", razel.len());
     Ok(())
 }
 
@@ -43,8 +43,9 @@ fn create_command(
     command_line: Vec<String>,
 ) -> Result<(), anyhow::Error> {
     if command_line.first().unwrap() == config::EXECUTABLE {
-        parse_cli(command_line, razel, Some(name))?
+        parse_cli_within_file(razel, command_line, &name, vec![])?
     } else {
+        let (stdout, stderr) = (None, None); // TODO parse redirects
         let (inputs, outputs) = if let Some(files) = rules.parse_command(&command_line)? {
             (files.inputs, files.outputs)
         } else {
@@ -53,7 +54,18 @@ fn create_command(
         let mut i = command_line.into_iter();
         let program = i.next().unwrap();
         let args = i.collect();
-        razel.push_custom_command(name, program, args, Default::default(), inputs, outputs)?;
+        razel.push_custom_command(
+            name,
+            program,
+            args,
+            Default::default(),
+            inputs,
+            outputs,
+            stdout,
+            stderr,
+            vec![],
+            vec![],
+        )?;
     }
     Ok(())
 }

@@ -1,59 +1,86 @@
 # Razel
 
+![Rust](https://img.shields.io/badge/language-rust-blue.svg)
+[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/reu-dev/razel/blob/main/LICENSE.md)
+[![CI](https://github.com/reu-dev/razel/actions/workflows/ci.yml/badge.svg)](https://github.com/reu-dev/razel/actions/workflows/ci.yml)
+
+[![Deno module](https://shield.deno.dev/x/razel)](https://deno.land/x/razel)
+[![Python module](https://img.shields.io/pypi/v/razel.svg)](https://pypi.org/pypi/razel)
+[![Rust crate](https://img.shields.io/crates/v/razel.svg)](https://crates.io/crates/razel)
+
 A command executor with caching. It is:
 
 * Fast: caching avoids repeated execution of commands which haven't changed
 * Reliable: commands are executed in a sandbox to detect missing dependencies
-* Easy to use: commands are specified using a high-level TypeScript API and convenience functions/tasks are built-in
+* Easy to use: commands are specified using a high-level TypeScript or Python API and convenience functions/tasks are
+  built-in
 * Made for: data processing pipelines with executables working on files and many dependencies between those
 
 Razel is not the best choice for building software, especially there's no built-in support for compiler setup and header
 dependencies.
 
-[![CI](https://github.com/reu-dev/razel/actions/workflows/ci.yml/badge.svg)](https://github.com/reu-dev/razel/actions/workflows/ci.yml)
-
 ## Getting Started
 
-Use [rustup](https://rustup.rs/) to install Rust. Clone and build Razel:
+The native input format for Razel is a `razel.jsonl` file, see the example [test/razel.jsonl](test/razel.jsonl).
+It can be run with `razel exec -f test/razel.jsonl`.
+
+The preferred way is to use one of the high-level APIs. Both allow specifying the commands in an object-oriented style
+and provide a `run()` function which creates the `razel.jsonl` file, downloads the native `razel` binary
+and uses it to execute the commands.
+
+Paths of inputs files are relative to the workspace (directory of `razel.jsonl`). Output files are created in `<cwd>/razel-out`.
+
+### TypeScript API
+
+Install [Deno](https://deno.land/) to use the [TypeScript API](include/deno/razel.ts).
+Run the [example Deno script](test/deno.ts):
 
 ```bash
-git clone https://github.com/reu-dev/razel.git
-cd razel/
-cargo install --locked --path .
+deno run -A --check test/deno.ts -- -v
 ```
 
-### Example: TypeScript API
+### Python API
 
-Install [Deno](https://deno.land/) to use the TypeScript API. [TypeScript example file](test/deno.ts)
+The [Python API](include/python/razel.py) requires Python >= 3.8.
+Install the package and run the [example Python script](test/python.py):
 
 ```bash
-# create razel.jsonl from test/deno.ts 
-deno run --allow-write=. test/deno.ts
-
-# execute commands from razel.jsonl
-razel exec -f test/razel.jsonl
+pip install razel
+python test/python.py -v
 ```
 
-Instead of TypeScript, your favorite scripting language could be used to create a `razel.jsonl` file.
+### Batch file (experimental)
 
-### Example: Batch file
+In addition to `razel.jsonl`, Razel can directly execute a batch file containing commands.
+Input and output files need to be specified, which is WIP.
 
-Razel can directly execute a file containing commands. Input and output files need to be specified, which is WIP.
-[Batch example file](test/batch.sh)
+Execute the example [test/batch.sh](test/batch.sh) with Razel:
 
 ```bash
 razel exec -f test/batch.sh
 ```
 
+### Running in Docker/Podman container
+
+The workspace directory can be mounted into a container:
+```bash
+podman run -t -v $PWD:$PWD -w $PWD denoland/deno deno run -A test/deno.ts
+```
+
+### Building Razel from source
+
+Use [rustup](https://rustup.rs/) to install Rust. Install `protobuf-compiler`. Then run `cargo install razel`.
+
+
 ## Project Status
 
 Razel is in active development and **not** ready for production. CLI and format of `razel.jsonl` will likely change.
 
-| OS      | Status | Note                               |
-|---------|--------|------------------------------------|
-| Linux   | ✓      | stable, main development platform  |
-| Mac     | (✓)    | tested in CI                       |
-| Windows | ✘      | not yet tested, likely not working |
+| OS      | Status | Note                              |
+|---------|--------|-----------------------------------|
+| Linux   | ✓      | stable, main development platform |
+| Mac     | ✓      | used and tested in CI             |
+| Windows | (✓)    | tested in CI only                 |
 
 | Feature                                   | Status  | Note                                                       |
 |-------------------------------------------|---------|------------------------------------------------------------|
@@ -81,17 +108,11 @@ Razel is in active development and **not** ready for production. CLI and format 
   for testing,
   but it does not support caching and managing dependencies between tests is difficult.
 
-## Acknowledgements
-
-The idea to build fast and correct is based on [Bazel](https://bazel.build/). Razel uses data structures from
-the [Bazel Remote Execution API](https://github.com/bazelbuild/remote-apis/blob/main/build/bazel/remote/execution/v2/remote_execution.proto)
-for caching.
-
 ## Features
 
 ### Measurements
 
-Razel parses the stdout of executed commands to capture runtime measurements and writes them to `razel-out/measurements.csv`.
+Razel parses the stdout of executed commands to capture runtime measurements and writes them to `razel-out/razel-metadata/measurements.csv`.
 Currently, the `<CTestMeasurement>` and `<DartMeasurement>` tags as used by [CTest/CDash](https://cmake.org/cmake/help/latest/command/ctest_test.html#additional-test-measurements) are supported:
 ```
 <CTestMeasurement type="numeric/double" name="score">12.3</CTestMeasurement>
@@ -99,46 +120,31 @@ Currently, the `<CTestMeasurement>` and `<DartMeasurement>` tags as used by [CTe
 ```
 Supporting custom formats is planned.
 
-## Goals / Ideas
+### Tags
 
-* built-in convenience functions/tasks
-    * parse measurement from stdout of processes, aggregate them for reports
-    * optionally replace outputs on errors instead of bailing out
-    * concat output files, e.g. jsonl, csv
-    * summary grouped by custom process labels to provide better overview of errors
-    * JUnit test output, e.g. for GitLab CI
-    * simple query language to filter processes
-* process scheduling and caching depending on resources
-    * automatic disk cleanup locally and for cache
-    * measure/predict task execution time and output size
-    * consider disk usage, RAM, network speed
-    * schedule network bound tasks in addition to CPU bound ones
-    * allow limiting parallel instances of external tools
-* transparent remote execution
-* data/results down/upload to storage, e.g. Git LFS, MinIO
-    * local access to important outputs of remotely executed tasks
-* support wasi
-    * no need to compile tools for Linux, Windows, Apple x64, Apple M1, ...
-    * bit-exact output on all platforms?
-    * wasm provides sandbox
-    * integrate wasi executor to avoid dependency on additional tool
-* integrate building source code with CMake (low prio)
-    * specify source like `Bazel new_local_repository(), new_git_repository()`
-    * run CMake configure, parse commands to build targets and execute those
-        * CMake can create [JSON Compilation Database](https://clang.llvm.org/docs/JSONCompilationDatabase.html), but
-          that does not include link commands
-        * [CMake File API](https://cmake.org/cmake/help/latest/manual/cmake-file-api.7.html) contains raw data, but not
-          complete command lines
-        * `cmake -DCMAKE_RULE_MESSAGES:BOOL=OFF -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON . && make --no-print-directory` lists
-          all commands but is difficult to parse
-        * `ninja -t commands` looks ok
-* execute CTest files (low prio)
-    * CTest allows specifying input files, but not output files
-* ensure correctness
-    * UB check for modified executables: run first commands multiple times to verify that the outputs are consistent
-    * avoid cache poisoning when disk full: missing fwrite/fclose checks in an executable would break cache
-* tools for users to debug errors
-    * show command lines ready for c&p into debugger
-    * UB check of chain until first failing command
-    * if source code of executables available: rebuild with debug and sanitizers and run with those executables
-    * for command with long list of inputs: bisect inputs to create minimal reproducible example
+Tags can be set on commands. Any custom string can be used as tag, a colon should be used for grouping.
+The tags are added to `razel-out/razel-metadata/execution_times.json`.
+Using tags for filtering commands and creating reports is planned. 
+
+Tags with `razel:` prefix are reserved and have special meaning:
+- `razel:quiet`: don't be verbose if command succeeded
+- `razel:verbose`: always show verbose output
+- `razel:condition`: keep running and don't be verbose if command failed        
+- `razel:no-cache`: always execute a command without caching
+- `razel:no-sandbox`: disable sandbox and also cache - for commands with unspecified input/output files
+
+### Conditional execution / Skipping command
+
+Commands can be skipped based on the execution result of another command. Set the `razel:condition` tag on a command
+and use that one as dependency for other commands. 
+
+### Param/Response files
+
+Commands with huge number of arguments might result in command lines which are too long to be executed by the OS.
+Razel detects those cases and replaces the arguments with a response file. The filename starts with @.
+
+## Acknowledgements
+
+The idea to build fast and correct is based on [Bazel](https://bazel.build/). Razel uses data structures from
+the [Bazel Remote Execution API](https://github.com/bazelbuild/remote-apis/blob/main/build/bazel/remote/execution/v2/remote_execution.proto)
+for caching.

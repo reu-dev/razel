@@ -126,7 +126,9 @@ impl Scheduler {
         // could also use the command line with file arguments stripped
         match &command.executor {
             Executor::CustomCommand(c) => c.executable.clone(),
-            Executor::Task(_) => String::new(),
+            Executor::Wasi(x) => x.executable.clone(),
+            Executor::AsyncTask(_) => String::new(),
+            Executor::BlockingTask(_) => String::new(),
         }
     }
 }
@@ -145,12 +147,15 @@ mod tests {
             let id = commands.alloc_with_id(|id| Command {
                 id,
                 name: format!("cmd_{id}"),
+                executables: vec![],
                 inputs: vec![],
                 outputs: vec![],
+                deps: vec![],
                 executor: Executor::CustomCommand(CustomCommandExecutor {
                     executable: executable.to_string(),
                     ..Default::default()
                 }),
+                tags: vec![],
                 unfinished_deps: vec![],
                 reverse_deps: vec![],
                 schedule_state: ScheduleState::New,

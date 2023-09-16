@@ -1,4 +1,5 @@
 use crate::executors::ExecutionResult;
+use crate::metadata::Tag;
 use crate::{config, Command, SchedulerStats};
 use bstr::ByteSlice;
 use crossterm::cursor::{RestorePosition, SavePosition};
@@ -17,14 +18,19 @@ static C_RESET: SetForegroundColor = SetForegroundColor(Color::Reset);
 
 /// Terminal user interface
 pub struct TUI {
-    verbose: bool,
+    pub razel_executable: String,
+    pub verbose: bool,
     status_printed: bool,
     is_tty: bool,
 }
 
 impl TUI {
     pub fn new() -> Self {
+        let razel_executable = std::env::args()
+            .next()
+            .unwrap_or(config::EXECUTABLE.to_string());
         Self {
+            razel_executable,
             verbose: false,
             status_printed: false,
             is_tty: stdout().is_tty(),
@@ -32,6 +38,16 @@ impl TUI {
     }
 
     pub fn command_succeeded(&mut self, command: &Command, execution_result: &ExecutionResult) {
+        if (!self.verbose && !command.tags.contains(&Tag::Verbose))
+            || command.tags.contains(&Tag::Quiet)
+        {
+            return;
+        }
+        let stdout = execution_result.stdout.to_str_lossy();
+        let stderr = execution_result.stderr.to_str_lossy();
+        if !self.verbose && stdout.is_empty() && stderr.is_empty() {
+            return;
+        }
         self.clear_status();
         Self::field(
             format!("{:?} ", execution_result.status).as_str(),
@@ -45,21 +61,17 @@ impl TUI {
                 command.name.clone()
             },
         );
-        if self.verbose {
-            let stdout = execution_result.stdout.to_str_lossy();
-            let stderr = execution_result.stderr.to_str_lossy();
-            let print_stream_name = !stdout.is_empty() && !stderr.is_empty();
-            Self::field(
-                if print_stream_name { "stdout:\n" } else { "" },
-                Color::Blue,
-                &stdout,
-            );
-            Self::field(
-                if print_stream_name { "stderr:\n" } else { "" },
-                Color::Blue,
-                &stderr,
-            );
-        }
+        let print_stream_name = !stdout.is_empty() && !stderr.is_empty();
+        Self::field(
+            if print_stream_name { "stdout:\n" } else { "" },
+            Color::Blue,
+            &stdout,
+        );
+        Self::field(
+            if print_stream_name { "stderr:\n" } else { "" },
+            Color::Blue,
+            &stderr,
+        );
     }
 
     pub fn command_retry(&mut self, command: &Command, execution_result: &ExecutionResult) {
@@ -72,6 +84,12 @@ impl TUI {
     }
 
     pub fn command_failed(&mut self, command: &Command, execution_result: &ExecutionResult) {
+        if command.tags.contains(&Tag::Condition)
+            && !self.verbose
+            && !command.tags.contains(&Tag::Verbose)
+        {
+            return;
+        }
         self.clear_status();
         println!();
         Self::line();
@@ -81,14 +99,19 @@ impl TUI {
             command.name.as_str(),
         );
         if let Some(x) = &execution_result.error {
-            Self::field("error:     ", Color::Red, format!("{}", x).as_str());
+            Self::field("error:     ", Color::Red, format!("{x:?}").as_str());
         } else if let Some(x) = execution_result.exit_code {
             Self::field("exit code: ", Color::Red, x.to_string().as_str());
         }
         Self::field(
             "command:   ",
             Color::Blue,
-            Self::format_command_line(&command.executor.args_with_executable()).as_str(),
+            Self::format_command_line(
+                &command
+                    .executor
+                    .command_line_with_redirects(&self.razel_executable),
+            )
+            .as_str(),
         );
         if let Some(env) = command.executor.env() {
             Self::field(
@@ -104,12 +127,12 @@ impl TUI {
         Self::field(
             "stderr:\n",
             Color::Blue,
-            &execution_result.stderr.to_str_lossy(),
+            execution_result.stderr.to_str_lossy(),
         );
         Self::field(
             "stdout:\n",
             Color::Blue,
-            &execution_result.stdout.to_str_lossy(),
+            execution_result.stdout.to_str_lossy(),
         );
         Self::line();
         println!();
@@ -125,9 +148,9 @@ impl TUI {
     ) {
         if self.is_tty {
             if self.status_printed {
-                print!("{}", RestorePosition);
+                print!("{RestorePosition}");
             } else {
-                print!("{}", SavePosition);
+                print!("{SavePosition}");
             }
         }
         print!(
@@ -155,7 +178,7 @@ impl TUI {
     pub fn finished(&mut self, stats: &SchedulerStats) {
         self.clear_status();
         println!(
-            "{A_BOLD}{}{} {}{C_RESET}{A_RESET}: {A_BOLD}{}{}{C_RESET}{A_RESET} succeeded ({} cached), {A_BOLD}{}{}{C_RESET}{A_RESET} failed, {A_BOLD}{}{}{C_RESET}{A_RESET} not run.",
+            "{A_BOLD}{}{} {}{C_RESET}{A_RESET}: {A_BOLD}{}{}{C_RESET}{A_RESET} succeeded ({} cached), {A_BOLD}{}{}{C_RESET}{A_RESET} failed, {A_BOLD}{}{A_RESET} skipped, {A_BOLD}{}{}{C_RESET}{A_RESET} not run.",
             if stats.exec.finished_successfully() {
                 C_GREEN
             } else {
@@ -186,6 +209,7 @@ impl TUI {
                 C_RESET
             },
             stats.exec.failed,
+            stats.exec.skipped,
             if stats.exec.not_run > 0 {
                 C_RED
             } else {
@@ -222,7 +246,7 @@ impl TUI {
 
     fn clear_status(&mut self) {
         if self.is_tty && self.status_printed {
-            print!("{}{:>80}{}", RestorePosition, "", RestorePosition);
+            print!("{}{:>90}{}", RestorePosition, " ", RestorePosition);
             self.status_printed = false;
         }
     }
@@ -239,7 +263,7 @@ impl TUI {
     }
 
     fn line() {
-        let columns = terminal::size().map_or(80, |x| x.0 as usize);
+        let columns = terminal::size().map_or(90, |x| x.0 as usize);
         println!("{C_RED}{}{C_RESET}", "-".repeat(columns));
     }
 }
