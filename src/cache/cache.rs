@@ -1,10 +1,12 @@
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 
-use anyhow::Context;
+use anyhow::{bail, Context};
+use log::info;
 use sha2::Sha256;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, BufReader};
+use tonic::transport::Uri;
 
 use crate::bazel_remote_exec;
 use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
@@ -21,21 +23,69 @@ impl Cache {
         Ok(Self {
             local_cache: LocalCache::new(workspace_dir)
                 .with_context(|| "Failed to create local cache")?,
-            remote_cache: None, // TODO
+            remote_cache: None,
         })
     }
 
-    pub async fn get_action_result(&self, action_digest: &MessageDigest) -> Option<ActionResult> {
-        if let Some(action_result) = self.local_cache.get_action_result(action_digest).await {
-            if self
-                .local_cache
-                .is_action_completely_cached(&action_result)
-                .await
-            {
-                return Some(action_result);
+    pub async fn connect_remote_cache(&mut self, urls: &Vec<String>) -> Result<(), anyhow::Error> {
+        println!("connect_remote_cache: {urls:?}");
+        for url in urls {
+            let uri: Uri = url.parse().with_context(|| "remote cache: {url}")?;
+            match uri.scheme_str() {
+                Some("grpc") => match GrpcRemoteCache::new(uri, &self.local_cache.dir).await {
+                    Ok(x) => {
+                        self.remote_cache = Some(x);
+                        info!("connected to remote cache: {url}");
+                        break;
+                    }
+                    _ => {
+                        info!("failed to connect to remote cache: {url}");
+                    }
+                },
+                None => bail!("remote cache should be an URI (e.g. grpc://localhost:9092): {url}"),
+                _ => bail!("only grpc remote caches are supported: {url}"),
             }
         }
-        None
+        Ok(())
+    }
+
+    pub async fn get_action_result(&self, digest: &MessageDigest) -> Option<ActionResult> {
+        let action_result =
+            if let Some(action_result) = self.local_cache.get_action_result(digest).await {
+                action_result
+            } else if let Some(remote_cache) = &self.remote_cache {
+                let x = remote_cache.get_action_result(digest.clone()).await?;
+                self.local_cache.push_action_result(digest, &x).await.ok()?;
+                x
+            } else {
+                return None;
+            };
+        let missing_files = self
+            .local_cache
+            .get_digests_of_missing_files(&action_result)
+            .await;
+        match (missing_files.is_empty(), &self.remote_cache) {
+            (true, _) => Some(action_result),
+            (false, None) => None,
+            (false, Some(remote_cache)) => {
+                let downloaded = remote_cache
+                    .download_and_store_blobs(&missing_files)
+                    .await
+                    .ok()?;
+                // store all downloaded files even if incomplete, might be used by other action
+                for (digest, path) in &downloaded {
+                    self.local_cache
+                        .move_file_into_cache(path, digest)
+                        .await
+                        .ok()?;
+                }
+                if downloaded.len() == missing_files.len() {
+                    Some(action_result)
+                } else {
+                    None
+                }
+            }
+        }
     }
 
     pub async fn push_action_result(

@@ -333,6 +333,10 @@ impl Razel {
         }
     }
 
+    pub async fn connect_remote_cache(&mut self, urls: &Vec<String>) -> Result<(), anyhow::Error> {
+        self.cache.connect_remote_cache(urls).await
+    }
+
     pub fn list_commands(&mut self) {
         self.create_dependency_graph();
         while let Some(id) = self.scheduler.pop_ready_and_run() {

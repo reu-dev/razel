@@ -9,17 +9,17 @@ use crate::bazel_remote_exec::{
 use crate::cache::{BlobDigest, MessageDigest};
 use anyhow::{anyhow, bail, Context};
 use log::warn;
-use std::path::PathBuf;
-use tokio::fs;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tonic::transport::Channel;
+use tonic::transport::{Channel, Uri};
 use tonic::Code;
 
-// TODO don't upload ActionResult/blob if they were downloaded instead of executed
 // TODO add Zstd compression for blobs
 #[derive(Clone)]
 pub struct GrpcRemoteCache {
+    download_dir: PathBuf,
     ac_client: ActionCacheClient<Channel>,
     cas_client: ContentAddressableStorageClient<Channel>,
     max_batch_total_size_bytes: usize,
@@ -28,8 +28,10 @@ pub struct GrpcRemoteCache {
 }
 
 impl GrpcRemoteCache {
-    pub async fn new(url: String) -> anyhow::Result<Self> {
-        let channel = Channel::builder(url.parse()?).connect().await?;
+    pub async fn new(uri: Uri, dir: &Path) -> anyhow::Result<Self> {
+        let download_dir = dir.join("download").join(std::process::id().to_string());
+        std::fs::create_dir_all(&download_dir)?;
+        let channel = Channel::builder(uri).connect().await?;
         let ac_client = ActionCacheClient::new(channel.clone());
         let cas_client = ContentAddressableStorageClient::new(channel.clone());
         let (ac_upload_tx, ac_upload_rx) = mpsc::unbounded_channel();
@@ -37,6 +39,7 @@ impl GrpcRemoteCache {
         Self::spawn_ac_upload(ac_client.clone(), ac_upload_rx);
         Self::spawn_cas_upload(cas_client.clone(), cas_upload_rx);
         let mut client = Self {
+            download_dir,
             ac_client,
             cas_client,
             max_batch_total_size_bytes: 4 * 1024 * 1024, // see https://github.com/grpc/grpc-java/issues/1676#issuecomment-229809402
@@ -112,7 +115,7 @@ impl GrpcRemoteCache {
     ) {
         tokio::spawn(async move {
             while let Some((digest, path)) = rx.recv().await {
-                let data = fs::read(&path)
+                let data = tokio::fs::read(&path)
                     .await
                     .with_context(|| format!("Read file from local cache: {:?}", path))
                     .unwrap();
@@ -139,18 +142,14 @@ impl GrpcRemoteCache {
         });
     }
 
-    // TODO integrate properly
-    pub async fn get_action_result(
-        &mut self,
-        action_digest: MessageDigest,
-    ) -> Option<ActionResult> {
+    pub async fn get_action_result(&self, digest: MessageDigest) -> Option<ActionResult> {
         match self
             .ac_client
+            .clone()
             .get_action_result(tonic::Request::new(GetActionResultRequest {
-                action_digest: Some(action_digest.clone()),
+                action_digest: Some(digest),
                 inline_stdout: true,
                 inline_stderr: true,
-                //inline_output_files: vec![] // TODO usefull?
                 ..Default::default()
             }))
             .await
@@ -169,11 +168,10 @@ impl GrpcRemoteCache {
         self.ac_upload_tx.send((digest, result)).ok();
     }
 
-    // TODO integrate properly
-    // TODO download multiple files at once, until max_batch_total_size_bytes
-    pub async fn get_blob(&mut self, digest: BlobDigest) -> Option<Vec<u8>> {
+    pub async fn get_blob(&self, digest: BlobDigest) -> Option<Vec<u8>> {
         match self
             .cas_client
+            .clone()
             .batch_read_blobs(tonic::Request::new(BatchReadBlobsRequest {
                 digests: vec![digest],
                 ..Default::default()
@@ -188,9 +186,64 @@ impl GrpcRemoteCache {
         }
     }
 
+    /// TODO replace asserts with proper error handling
+    /// TODO limit to max_batch_total_size_bytes?
+    pub async fn download_and_store_blobs(
+        &self,
+        digests: &Vec<BlobDigest>,
+    ) -> anyhow::Result<Vec<(BlobDigest, PathBuf)>> {
+        let mut downloaded = Vec::with_capacity(digests.len());
+        match self
+            .cas_client
+            .clone()
+            .batch_read_blobs(tonic::Request::new(BatchReadBlobsRequest {
+                digests: digests.clone(),
+                ..Default::default()
+            }))
+            .await
+        {
+            Ok(blobs_response) => {
+                let responses = blobs_response.into_inner().responses;
+                assert_eq!(responses.len(), digests.len());
+                for (i, response) in responses.into_iter().enumerate() {
+                    if let (Some(digest), Some(status)) = (response.digest, response.status) {
+                        assert_eq!(digest, digests[i]);
+                        if status.code == Code::Ok as i32 {
+                            // TODO validate that hash is a proper basename, does not contain . or /
+                            let path = self.get_download_path(&digest);
+                            assert_eq!(response.data.len() as i64, digest.size_bytes);
+                            tokio::fs::write(&path, response.data).await?;
+                            downloaded.push((digest, path));
+                        } else if status.code != Code::NotFound as i32 {
+                            warn!("Remote cache error in batch_read_blobs(): {status:?}");
+                        }
+                    } else {
+                        warn!("Remote cache returned unexpected response in batch_read_blobs()");
+                    }
+                }
+            }
+            Err(x) => {
+                warn!("Remote cache error in batch_read_blobs(): {x:?}");
+            }
+        }
+        Ok(downloaded)
+    }
+
+    fn get_download_path(&self, digest: &BlobDigest) -> PathBuf {
+        static ID: AtomicUsize = AtomicUsize::new(0);
+        let id = ID.fetch_add(1, Ordering::Relaxed);
+        self.download_dir.join(format!("{}_{id}", digest.hash))
+    }
+
     /// Blob is read from local cache only at upload to avoid keeping too many big files in memory.
     pub fn push_blob(&self, digest: BlobDigest, path: PathBuf) {
         self.cas_upload_tx.send((digest, path)).ok();
+    }
+}
+
+impl Drop for GrpcRemoteCache {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.download_dir).ok();
     }
 }
 

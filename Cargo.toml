@@ -16,7 +16,7 @@ anyhow = "1.0"
 async-trait = "0.1"
 base16ct = { version = "0.1", features = ["alloc"] }
 bstr = "1.0"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 crossterm = "0.26"
 csv = "1.1"
 directories = "4.0"
@@ -24,16 +24,16 @@ futures-util = "0.3"
 itertools = "0.10"
 log = "0.4"
 num_cpus = "1.13"  # TODO replace with std::thread::available_parallelism() once it works in docker: https://github.com/rust-lang/rust/pull/97925
-prost = "0.11"
-prost-types = "0.11"
+prost = "0.12"
+prost-types = "0.12"
 regex = "1.7"
 reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "stream"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
 simplelog = "0.12"
-tokio = { version = "1.21", features = ["full"] }
-tonic = "0.9"
+tokio = { version = "1.32", features = ["full"] }
+tonic = "0.10"
 wasi-cap-std-sync = "8"
 wasi-common = { version = "8", default-features = false }
 wasmtime = { version = "8", default-features = false, features = ["async", "parallel-compilation", "cranelift", "pooling-allocator", "vtune"] }
@@ -44,8 +44,8 @@ which = "4"
 procfs = { version = "0.14", features = [] }
 
 [build-dependencies]
-prost-build = "0.11"
-tonic-build = "0.9"
+prost-build = "0.12"
+tonic-build = "0.10"
 
 [dev-dependencies]
 approx = "0.5"

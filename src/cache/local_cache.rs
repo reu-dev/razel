@@ -7,7 +7,7 @@ use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 
 use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
-use crate::cache::{message_to_pb_buf, MessageDigest};
+use crate::cache::{message_to_pb_buf, BlobDigest, MessageDigest};
 use crate::config::select_cache_dir;
 use crate::{force_remove_file, force_symlink, set_file_readonly, write_gitignore};
 
@@ -56,18 +56,19 @@ impl LocalCache {
             .with_context(|| format!("push_action_result(): {path:?}"))
     }
 
-    pub async fn is_action_completely_cached(&self, result: &ActionResult) -> bool {
+    pub async fn get_digests_of_missing_files(&self, result: &ActionResult) -> Vec<BlobDigest> {
+        let mut missing = Vec::with_capacity(result.output_files.len());
         for file in &result.output_files {
             if let Some(digest) = &file.digest {
                 if !self.is_blob_cached(digest).await {
-                    return false;
+                    missing.push(digest.clone());
                 }
             } else {
+                // TODO handle when reading ActionResult
                 warn!("OutputFile has no digest: {}", file.path);
-                return false;
             }
         }
-        true
+        missing
     }
 
     pub async fn is_blob_cached(&self, digest: &Digest) -> bool {
@@ -108,21 +109,29 @@ impl LocalCache {
         if src.is_symlink() {
             bail!("output file must not be a symlink: {:?}", src);
         }
-        let digest = file.digest.as_ref().unwrap();
+        self.move_file_into_cache(&src, file.digest.as_ref().unwrap())
+            .await
+    }
+
+    pub async fn move_file_into_cache(
+        &self,
+        src: &PathBuf,
+        digest: &Digest,
+    ) -> Result<PathBuf, anyhow::Error> {
         let dst = self.cas_dir.join(&digest.hash);
         /* call set_file_readonly() before renaming, because is_blob_cached()
          * might remove the file in between from another thread */
-        set_file_readonly(&src)
+        set_file_readonly(src)
             .await
             .with_context(|| format!("Error in set_readonly {src:?}"))?;
-        match tokio::fs::rename(&src, &dst).await {
+        match tokio::fs::rename(src, &dst).await {
             Ok(()) => {}
             Err(e) => {
                 if !self.is_blob_cached(digest).await {
                     return Err(e).with_context(|| format!("mv {src:?} -> {dst:?}"));
                 }
                 // behave like src was moved
-                force_remove_file(&src).await?;
+                force_remove_file(src).await?;
             }
         }
         Ok(dst)
