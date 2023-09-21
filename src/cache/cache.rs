@@ -1,16 +1,14 @@
-use std::fmt::Debug;
-use std::path::{Path, PathBuf};
-
-use anyhow::{bail, Context};
-use log::info;
-use sha2::Sha256;
-use tokio::fs::File;
-use tokio::io::{AsyncReadExt, BufReader};
-use tonic::transport::Uri;
-
 use crate::bazel_remote_exec;
 use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
 use crate::cache::{GrpcRemoteCache, LocalCache};
+use anyhow::{bail, Context};
+use log::info;
+use sha2::Sha256;
+use std::fmt::Debug;
+use std::path::{Path, PathBuf};
+use tokio::fs::File;
+use tokio::io::{AsyncReadExt, BufReader};
+use tonic::transport::Uri;
 
 #[derive(Clone)] // TODO is Cache::clone() a good idea?
 pub struct Cache {
@@ -28,9 +26,13 @@ impl Cache {
     }
 
     pub async fn connect_remote_cache(&mut self, urls: &Vec<String>) -> Result<(), anyhow::Error> {
-        println!("connect_remote_cache: {urls:?}");
         for url in urls {
-            let uri: Uri = url.parse().with_context(|| "remote cache: {url}")?;
+            let uri: Uri = url
+                .parse()
+                .with_context(|| format!("remote cache: {url}"))
+                .context(
+                    "remote cache should be an URI, e.g. grpc://localhost:9092[/instance_name]",
+                )?;
             match uri.scheme_str() {
                 Some("grpc") => match GrpcRemoteCache::new(uri, &self.local_cache.dir).await {
                     Ok(x) => {
@@ -42,7 +44,6 @@ impl Cache {
                         info!("failed to connect to remote cache: {url}");
                     }
                 },
-                None => bail!("remote cache should be an URI (e.g. grpc://localhost:9092): {url}"),
                 _ => bail!("only grpc remote caches are supported: {url}"),
             }
         }
