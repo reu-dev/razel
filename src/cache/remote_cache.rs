@@ -19,6 +19,7 @@ use tonic::Code;
 // TODO add Zstd compression for blobs
 #[derive(Clone)]
 pub struct GrpcRemoteCache {
+    instance_name: String,
     download_dir: PathBuf,
     ac_client: ActionCacheClient<Channel>,
     cas_client: ContentAddressableStorageClient<Channel>,
@@ -29,16 +30,28 @@ pub struct GrpcRemoteCache {
 
 impl GrpcRemoteCache {
     pub async fn new(uri: Uri, dir: &Path) -> anyhow::Result<Self> {
+        let instance_name = uri
+            .path()
+            .strip_prefix('/')
+            .unwrap_or(uri.path())
+            .to_string();
+        let uri_wo_instance_name = Uri::builder()
+            .scheme("grpc")
+            .authority(uri.authority().unwrap().clone())
+            .path_and_query("")
+            .build()
+            .unwrap();
         let download_dir = dir.join("download").join(std::process::id().to_string());
         std::fs::create_dir_all(&download_dir)?;
-        let channel = Channel::builder(uri).connect().await?;
+        let channel = Channel::builder(uri_wo_instance_name).connect().await?;
         let ac_client = ActionCacheClient::new(channel.clone());
         let cas_client = ContentAddressableStorageClient::new(channel.clone());
         let (ac_upload_tx, ac_upload_rx) = mpsc::unbounded_channel();
         let (cas_upload_tx, cas_upload_rx) = mpsc::unbounded_channel();
-        Self::spawn_ac_upload(ac_client.clone(), ac_upload_rx);
-        Self::spawn_cas_upload(cas_client.clone(), cas_upload_rx);
+        Self::spawn_ac_upload(instance_name.clone(), ac_client.clone(), ac_upload_rx);
+        Self::spawn_cas_upload(instance_name.clone(), cas_client.clone(), cas_upload_rx);
         let mut client = Self {
+            instance_name,
             download_dir,
             ac_client,
             cas_client,
@@ -82,6 +95,7 @@ impl GrpcRemoteCache {
     }
 
     fn spawn_ac_upload(
+        instance_name: String,
         mut client: ActionCacheClient<Channel>,
         mut rx: UnboundedReceiver<(MessageDigest, ActionResult)>,
     ) {
@@ -89,6 +103,7 @@ impl GrpcRemoteCache {
             while let Some((action_digest, action_result)) = rx.recv().await {
                 match client
                     .update_action_result(tonic::Request::new(UpdateActionResultRequest {
+                        instance_name: instance_name.clone(),
                         action_digest: Some(action_digest),
                         action_result: Some(action_result),
                         ..Default::default()
@@ -110,6 +125,7 @@ impl GrpcRemoteCache {
     /// TODO Use FindMissingBlobsRequest before uploading big files
     /// TODO upload multiple files at once, until max_batch_total_size_bytes
     fn spawn_cas_upload(
+        instance_name: String,
         mut client: ContentAddressableStorageClient<Channel>,
         mut rx: UnboundedReceiver<(BlobDigest, PathBuf)>,
     ) {
@@ -121,12 +137,12 @@ impl GrpcRemoteCache {
                     .unwrap();
                 match client
                     .batch_update_blobs(tonic::Request::new(BatchUpdateBlobsRequest {
+                        instance_name: instance_name.clone(),
                         requests: vec![batch_update_blobs_request::Request {
                             digest: Some(digest),
                             data,
                             compressor: 0,
                         }],
-                        ..Default::default()
                     }))
                     .await
                 {
@@ -147,6 +163,7 @@ impl GrpcRemoteCache {
             .ac_client
             .clone()
             .get_action_result(tonic::Request::new(GetActionResultRequest {
+                instance_name: self.instance_name.clone(),
                 action_digest: Some(digest),
                 inline_stdout: true,
                 inline_stderr: true,
@@ -173,6 +190,7 @@ impl GrpcRemoteCache {
             .cas_client
             .clone()
             .batch_read_blobs(tonic::Request::new(BatchReadBlobsRequest {
+                instance_name: self.instance_name.clone(),
                 digests: vec![digest],
                 ..Default::default()
             }))
@@ -197,6 +215,7 @@ impl GrpcRemoteCache {
             .cas_client
             .clone()
             .batch_read_blobs(tonic::Request::new(BatchReadBlobsRequest {
+                instance_name: self.instance_name.clone(),
                 digests: digests.clone(),
                 ..Default::default()
             }))
@@ -257,7 +276,7 @@ mod tests {
     };
     use tonic::Code;
 
-    const INSTANCE_NAME: &str = "";
+    const INSTANCE_NAME: &str = "main";
     const CACHE_URL: &str = "grpc://localhost:9092";
 
     #[tokio::test]

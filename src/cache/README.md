@@ -16,10 +16,9 @@ read cache for `Action`:
 
 ## Remote Cache implementations
 
-* https://github.com/buchgr/bazel-remote
-
-    ```shell
-    docker run -p 9092:9092 buchgr/bazel-remote-cache --max_size 1
-    ```
-
-* https://github.com/allada/turbo-cache
+* [bazel-remote-cache](https://github.com/buchgr/bazel-remote)
+  - run with `docker run -p 9092:9092 buchgr/bazel-remote-cache --max_size 1`
+  - call razel with `RAZEL_REMOTE_CACHE=grpc://localhost:9092`
+* [turbo-cache](https://github.com/TraceMachina/turbo-cache)
+  - configure with instance_name e.g. `main`
+  - call razel with `RAZEL_REMOTE_CACHE=grpc://localhost:50051/main`
