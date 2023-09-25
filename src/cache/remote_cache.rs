@@ -210,6 +210,7 @@ impl GrpcRemoteCache {
         &self,
         digests: &Vec<BlobDigest>,
     ) -> anyhow::Result<Vec<(BlobDigest, PathBuf)>> {
+        assert!(!digests.is_empty());
         let mut downloaded = Vec::with_capacity(digests.len());
         match self
             .cas_client
@@ -231,7 +232,10 @@ impl GrpcRemoteCache {
                             // TODO validate that hash is a proper basename, does not contain . or /
                             let path = self.get_download_path(&digest);
                             assert_eq!(response.data.len() as i64, digest.size_bytes);
-                            tokio::fs::write(&path, response.data).await?;
+                            if let Err(e) = tokio::fs::write(&path, response.data).await {
+                                warn!("Remote cache error in writing {path:?}: {e:?}");
+                                continue;
+                            }
                             downloaded.push((digest, path));
                         } else if status.code != Code::NotFound as i32 {
                             warn!("Remote cache error in batch_read_blobs(): {status:?}");
@@ -262,7 +266,8 @@ impl GrpcRemoteCache {
 
 impl Drop for GrpcRemoteCache {
     fn drop(&mut self) {
-        std::fs::remove_dir_all(&self.download_dir).ok();
+        // TODO only delete after dropping last instance, currently it's cloned
+        //std::fs::remove_dir_all(&self.download_dir).ok();
     }
 }
 
