@@ -12,7 +12,7 @@ use tonic::transport::Uri;
 
 #[derive(Clone)] // TODO is Cache::clone() a good idea?
 pub struct Cache {
-    pub local_cache: LocalCache,
+    local_cache: LocalCache,
     remote_cache: Option<GrpcRemoteCache>,
 }
 
@@ -23,6 +23,10 @@ impl Cache {
                 .with_context(|| "Failed to create local cache")?,
             remote_cache: None,
         })
+    }
+
+    pub fn dir(&self) -> &PathBuf {
+        &self.local_cache.dir
     }
 
     pub async fn connect_remote_cache(&mut self, urls: &Vec<String>) -> Result<(), anyhow::Error> {
