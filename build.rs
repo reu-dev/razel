@@ -8,9 +8,8 @@ fn main() {
     }
     let config = prost_build::Config::new();
     tonic_build::configure()
-        .build_client(false)
+        .build_client(true)
         .build_server(false)
-        .disable_package_emission()
         .compile_with_config(config, &files, &["src/bazel_remote_exec/proto"])
         .unwrap();
 }

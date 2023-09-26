@@ -1,18 +1,19 @@
-use std::fmt::Debug;
-use std::path::{Path, PathBuf};
-
-use anyhow::Context;
-use sha2::Sha256;
-use tokio::fs::File;
-use tokio::io::{AsyncReadExt, BufReader};
-
 use crate::bazel_remote_exec;
 use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
-use crate::cache::LocalCache;
+use crate::cache::{GrpcRemoteCache, LocalCache};
+use anyhow::{bail, Context};
+use log::info;
+use sha2::Sha256;
+use std::fmt::Debug;
+use std::path::{Path, PathBuf};
+use tokio::fs::File;
+use tokio::io::{AsyncReadExt, BufReader};
+use tonic::transport::Uri;
 
-#[derive(Clone)]
+#[derive(Clone)] // TODO is Cache::clone() a good idea?
 pub struct Cache {
-    pub local_cache: LocalCache,
+    local_cache: LocalCache,
+    remote_cache: Option<GrpcRemoteCache>,
 }
 
 impl Cache {
@@ -20,20 +21,76 @@ impl Cache {
         Ok(Self {
             local_cache: LocalCache::new(workspace_dir)
                 .with_context(|| "Failed to create local cache")?,
+            remote_cache: None,
         })
     }
 
-    pub async fn get_action_result(&self, action_digest: &MessageDigest) -> Option<ActionResult> {
-        if let Some(action_result) = self.local_cache.get_action_result(action_digest).await {
-            if self
-                .local_cache
-                .is_action_completely_cached(&action_result)
-                .await
-            {
-                return Some(action_result);
+    pub fn dir(&self) -> &PathBuf {
+        &self.local_cache.dir
+    }
+
+    pub async fn connect_remote_cache(&mut self, urls: &Vec<String>) -> Result<(), anyhow::Error> {
+        for url in urls {
+            let uri: Uri = url
+                .parse()
+                .with_context(|| format!("remote cache: {url}"))
+                .context(
+                    "remote cache should be an URI, e.g. grpc://localhost:9092[/instance_name]",
+                )?;
+            match uri.scheme_str() {
+                Some("grpc") => match GrpcRemoteCache::new(uri, &self.local_cache.dir).await {
+                    Ok(x) => {
+                        self.remote_cache = Some(x);
+                        info!("connected to remote cache: {url}");
+                        break;
+                    }
+                    _ => {
+                        info!("failed to connect to remote cache: {url}");
+                    }
+                },
+                _ => bail!("only grpc remote caches are supported: {url}"),
             }
         }
-        None
+        Ok(())
+    }
+
+    pub async fn get_action_result(&self, digest: &MessageDigest) -> Option<ActionResult> {
+        let action_result =
+            if let Some(action_result) = self.local_cache.get_action_result(digest).await {
+                action_result
+            } else if let Some(remote_cache) = &self.remote_cache {
+                let x = remote_cache.get_action_result(digest.clone()).await?;
+                self.local_cache.push_action_result(digest, &x).await.ok()?;
+                x
+            } else {
+                return None;
+            };
+        let missing_files = self
+            .local_cache
+            .get_digests_of_missing_files(&action_result)
+            .await;
+        match (missing_files.is_empty(), &self.remote_cache) {
+            (true, _) => Some(action_result),
+            (false, None) => None,
+            (false, Some(remote_cache)) => {
+                let downloaded = remote_cache
+                    .download_and_store_blobs(&missing_files)
+                    .await
+                    .ok()?;
+                // store all downloaded files even if incomplete, might be used by other action
+                for (digest, path) in &downloaded {
+                    self.local_cache
+                        .move_file_into_cache(path, digest)
+                        .await
+                        .ok()?;
+                }
+                if downloaded.len() == missing_files.len() {
+                    Some(action_result)
+                } else {
+                    None
+                }
+            }
+        }
     }
 
     pub async fn push_action_result(
@@ -41,6 +98,9 @@ impl Cache {
         digest: &MessageDigest,
         result: &ActionResult,
     ) -> Result<(), anyhow::Error> {
+        if let Some(remote_cache) = &self.remote_cache {
+            remote_cache.push_action_result(digest.clone(), result.clone());
+        }
         self.local_cache.push_action_result(digest, result).await
     }
 
@@ -50,9 +110,14 @@ impl Cache {
         out_dir: &PathBuf,
         file: &OutputFile,
     ) -> Result<(), anyhow::Error> {
-        self.local_cache
+        let cache_path = self
+            .local_cache
             .move_output_file_into_cache(sandbox_dir, out_dir, file)
-            .await
+            .await?;
+        if let Some(remote_cache) = &self.remote_cache {
+            remote_cache.push_blob(file.digest.clone().unwrap(), cache_path);
+        }
+        Ok(())
     }
 
     pub async fn symlink_output_files_into_out_dir(
@@ -64,22 +129,6 @@ impl Cache {
             .symlink_output_files_into_out_dir(output_files, out_dir)
             .await
     }
-}
-
-pub trait ActionCache {
-    /// like rpc GetActionResult(GetActionResultRequest) returns (ActionResult)
-    fn get_action_result(&self, digest: MessageDigest) -> Option<ActionResult>;
-
-    /// like rpc UpdateActionResult(UpdateActionResultRequest) returns (ActionResult)
-    fn push_action_result(&self, digest: MessageDigest, result: ActionResult);
-}
-
-pub trait ContentAddressableStorage {
-    // like rpc BatchReadBlobs(BatchReadBlobsRequest) returns (BatchReadBlobsResponse)
-    fn get_blob(&self, digest: BlobDigest) -> Option<Vec<u8>>;
-
-    /// like rpc BatchUpdateBlobs(BatchUpdateBlobsRequest) returns (BatchUpdateBlobsResponse)
-    fn push_blob(&self, digest: BlobDigest, blob: Vec<u8>);
 }
 
 pub type MessageDigest = Digest;
@@ -121,6 +170,14 @@ impl Digest {
         }
     }
 
+    pub fn for_string(text: &String) -> MessageDigest {
+        use sha2::Digest;
+        bazel_remote_exec::Digest {
+            hash: Self::hex(&Sha256::digest(text.as_bytes())),
+            size_bytes: text.len() as i64,
+        }
+    }
+
     fn hex(input: &[u8]) -> String {
         base16ct::lower::encode_string(input)
     }
@@ -148,7 +205,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn small_file() {
+    async fn digest_for_small_file() {
         let path = "test/data/a.csv";
         let act = super::Digest::for_file(&path).await.unwrap();
         let exp = digest_file_sha256_simple(path).unwrap();
@@ -176,10 +233,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bigger_file() {
+    async fn digest_for_bigger_file() {
         let path = "Cargo.lock";
         let act = super::Digest::for_file(&path).await.unwrap();
         let exp = digest_file_sha256_simple(path).unwrap();
         assert_eq!(act, exp);
+    }
+
+    #[test]
+    fn digest_for_string() {
+        assert_eq!(
+            super::Digest::for_string(&"Hello World!".into()),
+            super::Digest {
+                // echo -n "Hello World!" | sha256sum
+                hash: "7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069".into(),
+                size_bytes: 12,
+            }
+        );
     }
 }

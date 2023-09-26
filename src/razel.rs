@@ -104,8 +104,7 @@ impl Razel {
         let out_dir = PathBuf::from(config::OUT_DIR);
         let cache = Cache::new(&workspace_dir).unwrap();
         let sandbox_dir = cache
-            .local_cache
-            .dir
+            .dir()
             .join("sandbox")
             .join(std::process::id().to_string());
         debug!("workspace_dir: {:?}", workspace_dir);
@@ -189,8 +188,7 @@ impl Razel {
         self.cache = Cache::new(&self.workspace_dir)?;
         self.sandbox_dir = self
             .cache
-            .local_cache
-            .dir
+            .dir()
             .join("sandbox")
             .join(std::process::id().to_string());
         Ok(())
@@ -209,7 +207,7 @@ impl Razel {
             "output directory: {:?}",
             self.current_dir.join(&self.out_dir)
         );
-        println!("cache directory:  {:?}", self.cache.local_cache.dir);
+        println!("cache directory:  {:?}", self.cache.dir());
         println!("worker threads:   {}", self.worker_threads);
     }
 
@@ -331,6 +329,10 @@ impl Razel {
             }
             _ => bail!("Command not found: {name}"),
         }
+    }
+
+    pub async fn connect_remote_cache(&mut self, urls: &Vec<String>) -> Result<(), anyhow::Error> {
+        self.cache.connect_remote_cache(urls).await
     }
 
     pub fn list_commands(&mut self) {

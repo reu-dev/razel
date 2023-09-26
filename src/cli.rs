@@ -64,6 +64,9 @@ pub struct RunArgs {
     /// Show verbose output
     #[clap(short, long)]
     pub verbose: bool,
+    /// Comma seperated list of remote cache URLs
+    #[clap(long, env = "RAZEL_REMOTE_CACHE", value_delimiter = ',')]
+    pub remote_cache: Vec<String>,
 }
 
 impl Default for RunArgs {
@@ -72,6 +75,7 @@ impl Default for RunArgs {
             no_execution: false,
             keep_going: false,
             verbose: true,
+            remote_cache: vec![],
         }
     }
 }

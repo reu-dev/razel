@@ -32,6 +32,9 @@ async fn main() -> Result<(), anyhow::Error> {
         if run_args.no_execution {
             razel.list_commands();
         } else {
+            if !run_args.remote_cache.is_empty() {
+                razel.connect_remote_cache(&run_args.remote_cache).await?;
+            }
             let stats = razel.run(run_args.keep_going, run_args.verbose).await?;
             debug!(
                 "preparation: {:.3}s, execution: {:.3}s",

@@ -28,7 +28,7 @@ pub mod bazel_remote_exec {
             tonic::include_proto!("google.rpc");
         }
 
-        mod longrunning {
+        pub mod longrunning {
             tonic::include_proto!("google.longrunning");
         }
 
@@ -58,10 +58,12 @@ pub mod bazel_remote_exec {
 pub mod cache {
     pub use cache::*;
     pub use local_cache::*;
+    pub use remote_cache::*;
 
     #[allow(clippy::module_inception)]
     mod cache;
     mod local_cache;
+    mod remote_cache;
 }
 
 pub mod executors {

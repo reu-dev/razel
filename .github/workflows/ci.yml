@@ -62,7 +62,7 @@ jobs:
 
       - run: cargo run -- info
 
-      - run: cargo test -- --nocapture --skip real_time_test
+      - run: cargo test -- --nocapture --skip real_time_test --skip grpc_server
 
       # install binary, to be used by following API tests
       - run: cargo install --force --locked --path .
