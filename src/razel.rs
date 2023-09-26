@@ -90,6 +90,7 @@ pub struct Razel {
     skipped: Vec<CommandId>,
     cache_hits: usize,
     tui: TUI,
+    tui_dirty: bool,
     measurements: Measurements,
     profile: Profile,
     log_file: LogFile,
@@ -137,6 +138,7 @@ impl Razel {
             skipped: vec![],
             cache_hits: 0,
             tui: TUI::new(),
+            tui_dirty: false,
             measurements: Measurements::new(),
             profile: Profile::new(),
             log_file: Default::default(),
@@ -342,7 +344,7 @@ impl Razel {
             println!("# {}", command.name);
             println!(
                 "{}",
-                TUI::format_command_line(
+                self.tui.format_command_line(
                     &command
                         .executor
                         .command_line_with_redirects(&self.tui.razel_executable)
@@ -382,20 +384,25 @@ impl Razel {
         self.create_output_dirs()?;
         self.create_wasi_modules()?;
         let (tx, mut rx) = mpsc::channel(32);
+        let mut interval = tokio::time::interval(self.tui.get_update_interval());
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let execution_start = Instant::now();
         self.start_ready_commands(&tx);
         let mut start_more_commands = true;
         while self.scheduler.running() != 0 {
-            if let Some((id, execution_result, output_files)) = rx.recv().await {
-                self.on_command_finished(id, &execution_result, output_files);
-                if execution_result.status == ExecutionStatus::SystemError
-                    || (!self.failed.is_empty() && !keep_going)
-                {
-                    start_more_commands = false;
-                }
-                if start_more_commands {
-                    self.start_ready_commands(&tx);
-                }
+            tokio::select! {
+                Some((id, execution_result, output_files)) = rx.recv() => {
+                    self.on_command_finished(id, &execution_result, output_files);
+                    if execution_result.status == ExecutionStatus::SystemError
+                        || (!self.failed.is_empty() && !keep_going)
+                    {
+                        start_more_commands = false;
+                    }
+                    if start_more_commands {
+                        self.start_ready_commands(&tx);
+                    }
+                },
+                _ = interval.tick() => self.update_status(),
             }
         }
         self.remove_outputs_of_not_run_actions_from_out_dir();
@@ -706,11 +713,14 @@ impl Razel {
     fn start_ready_commands(&mut self, tx: &Sender<ExecutionResultChannel>) {
         while let Some(id) = self.scheduler.pop_ready_and_run() {
             self.start_next_command(id, tx.clone());
+            self.tui_dirty = true;
         }
-        self.update_status();
     }
 
     fn update_status(&mut self) {
+        if !self.tui_dirty {
+            return;
+        }
         self.tui.status(
             self.succeeded.len(),
             self.cache_hits,
@@ -718,6 +728,7 @@ impl Razel {
             self.scheduler.running(),
             self.waiting.len() + self.scheduler.ready(),
         );
+        self.tui_dirty = false;
     }
 
     fn collect_input_file_paths_for_sandbox(&self, command: &Command) -> Vec<PathBuf> {
@@ -1057,6 +1068,7 @@ impl Razel {
             } else {
                 self.on_command_failed(id, execution_result);
             }
+            self.tui_dirty = true;
         }
     }
 

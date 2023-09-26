@@ -37,6 +37,15 @@ impl TUI {
         }
     }
 
+    pub fn get_update_interval(&self) -> std::time::Duration {
+        let secs = if self.is_tty {
+            config::UI_UPDATE_INTERVAL_TTY
+        } else {
+            config::UI_UPDATE_INTERVAL_NON_TTY
+        };
+        std::time::Duration::from_secs_f32(secs)
+    }
+
     pub fn command_succeeded(&mut self, command: &Command, execution_result: &ExecutionResult) {
         if (!self.verbose && !command.tags.contains(&Tag::Verbose))
             || command.tags.contains(&Tag::Quiet)
@@ -106,7 +115,7 @@ impl TUI {
         Self::field(
             "command:   ",
             Color::Blue,
-            Self::format_command_line(
+            self.format_command_line(
                 &command
                     .executor
                     .command_line_with_redirects(&self.razel_executable),
@@ -219,7 +228,7 @@ impl TUI {
         );
     }
 
-    pub fn format_command_line(args_with_executable: &Vec<String>) -> String {
+    pub fn format_command_line(&self, args_with_executable: &Vec<String>) -> String {
         let mut iter = args_with_executable.iter().map(|x| {
             if x.is_empty() {
                 "\"\"".to_string()
