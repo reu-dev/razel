@@ -10,7 +10,7 @@ async fn main() -> Result<(), anyhow::Error> {
         ConfigBuilder::new()
             .add_filter_ignore_str("cranelift_codegen::context")
             .build(),
-        TerminalMode::Mixed,
+        TerminalMode::Stderr,
         ColorChoice::Auto,
     )
     .unwrap();
