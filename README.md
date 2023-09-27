@@ -45,7 +45,7 @@ The [Python API](include/python/razel.py) requires Python >= 3.8.
 Install the package and run the [example Python script](test/python.py):
 
 ```bash
-pip install razel
+pip install --upgrade razel
 python test/python.py -v
 ```
 

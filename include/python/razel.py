@@ -442,9 +442,9 @@ def download_razel_binary(version: Optional[str], path: str):
     import urllib.request
     download_tag = f"download/v{version}" if version else "latest/download"
     if platform.system() == "Darwin":
-        build_target = "x86_64-apple-Darwin"
+        build_target = "x86_64-apple-darwin"
     elif platform.system() == "Windows" or platform.system().startswith("CYGWIN"):
-        build_target = "x86_64-pc-Windows-msvc"
+        build_target = "x86_64-pc-windows-msvc"
     else:
         build_target = "x86_64-unknown-linux-gnu"
     url = f"https://github.com/reu-dev/razel/releases/{download_tag}/razel-{build_target}.gz"
