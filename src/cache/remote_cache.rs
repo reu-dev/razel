@@ -3,7 +3,7 @@ use crate::bazel_remote_exec::capabilities_client::CapabilitiesClient;
 use crate::bazel_remote_exec::content_addressable_storage_client::ContentAddressableStorageClient;
 use crate::bazel_remote_exec::{
     batch_update_blobs_request, digest_function, ActionResult, BatchReadBlobsRequest,
-    BatchUpdateBlobsRequest, GetActionResultRequest, GetCapabilitiesRequest, OutputFile,
+    BatchUpdateBlobsRequest, Digest, GetActionResultRequest, GetCapabilitiesRequest, OutputFile,
     ServerCapabilities, UpdateActionResultRequest,
 };
 use crate::cache::{BlobDigest, MessageDigest};
@@ -24,7 +24,7 @@ pub struct GrpcRemoteCache {
     download_dir: PathBuf,
     ac_client: ActionCacheClient<Channel>,
     cas_client: ContentAddressableStorageClient<Channel>,
-    max_batch_total_size_bytes: usize,
+    max_batch_blob_size: i64,
     ac_upload_tx: UnboundedSender<(MessageDigest, ActionResult)>,
     cas_upload_tx: UnboundedSender<(BlobDigest, PathBuf)>,
 }
@@ -56,7 +56,7 @@ impl GrpcRemoteCache {
             download_dir,
             ac_client,
             cas_client,
-            max_batch_total_size_bytes: 4 * 1024 * 1024, // see https://github.com/grpc/grpc-java/issues/1676#issuecomment-229809402
+            max_batch_blob_size: 0,
             ac_upload_tx,
             cas_upload_tx,
         };
@@ -88,11 +88,34 @@ impl GrpcRemoteCache {
         {
             bail!("ActionCacheUpdateCapabilities::update_enabled not set");
         }
-        if cache_capabilities.max_batch_total_size_bytes != 0 {
-            self.max_batch_total_size_bytes =
-                cache_capabilities.max_batch_total_size_bytes as usize;
-        }
+        let max_batch_total_size_bytes = if cache_capabilities.max_batch_total_size_bytes != 0 {
+            cache_capabilities.max_batch_total_size_bytes as usize
+        } else {
+            4 * 1024 * 1024 // see https://github.com/grpc/grpc-java/issues/1676#issuecomment-229809402
+        };
+        self.max_batch_blob_size =
+            Self::get_max_batch_blob_size(self.instance_name.clone(), max_batch_total_size_bytes)
+                as i64;
         Ok(())
+    }
+
+    /// Returns max_batch_total_size_bytes minus overhead for BatchUpdateBlobsRequest
+    fn get_max_batch_blob_size(instance_name: String, max_batch_total_size_bytes: usize) -> usize {
+        use prost::Message;
+        let mut data: Vec<u8> = Default::default();
+        data.resize(max_batch_total_size_bytes, 0);
+        let encoded_len = BatchUpdateBlobsRequest {
+            instance_name,
+            requests: vec![batch_update_blobs_request::Request {
+                digest: Some(Digest::for_bytes(&data)),
+                data,
+                compressor: 0,
+            }],
+        }
+        .encoded_len();
+        assert!(encoded_len > max_batch_total_size_bytes);
+        let overhead = encoded_len - max_batch_total_size_bytes;
+        max_batch_total_size_bytes - overhead
     }
 
     fn spawn_ac_upload(
@@ -206,12 +229,27 @@ impl GrpcRemoteCache {
     }
 
     /// TODO replace asserts with proper error handling
-    /// TODO limit to max_batch_total_size_bytes?
     pub async fn download_and_store_blobs(
         &self,
         files: &Vec<&OutputFile>,
     ) -> anyhow::Result<Vec<(BlobDigest, PathBuf)>> {
         assert!(!files.is_empty());
+        if files
+            .iter()
+            .any(|x| x.digest.as_ref().unwrap().size_bytes > self.max_batch_blob_size)
+        {
+            // command has to be executed locally, therefore no need to download any files
+            return Ok(vec![]);
+        }
+        if files
+            .iter()
+            .map(|x| x.digest.as_ref().unwrap().size_bytes)
+            .sum::<i64>()
+            > self.max_batch_blob_size
+        {
+            // TODO split into multiple requests
+            return Ok(vec![]);
+        }
         let mut downloaded = Vec::with_capacity(files.len());
         match self
             .cas_client
@@ -280,6 +318,9 @@ impl GrpcRemoteCache {
 
     /// Blob is read from local cache only at upload to avoid keeping too many big files in memory.
     pub fn push_blob(&self, digest: BlobDigest, path: PathBuf) {
+        if digest.size_bytes > self.max_batch_blob_size {
+            return;
+        }
         self.cas_upload_tx.send((digest, path)).ok();
     }
 }
