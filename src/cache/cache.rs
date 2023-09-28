@@ -67,7 +67,7 @@ impl Cache {
             };
         let missing_files = self
             .local_cache
-            .get_digests_of_missing_files(&action_result)
+            .get_list_of_missing_output_files(&action_result)
             .await;
         match (missing_files.is_empty(), &self.remote_cache) {
             (true, _) => Some(action_result),
@@ -135,20 +135,14 @@ pub type MessageDigest = Digest;
 pub type BlobDigest = Digest;
 
 impl Digest {
-    pub async fn for_file(path: impl AsRef<Path> + Debug) -> Result<BlobDigest, anyhow::Error> {
+    pub async fn for_file(file: File) -> Result<BlobDigest, anyhow::Error> {
         use sha2::Digest;
-        let file = File::open(&path)
-            .await
-            .with_context(|| format!("Failed to open {path:?}"))?;
         let mut reader = BufReader::new(file);
         let mut hasher = Sha256::new();
         let mut buffer = [0; 1024];
         let mut len = 0;
         loop {
-            let count = reader
-                .read(&mut buffer)
-                .await
-                .with_context(|| format!("Failed to read {path:?}"))?;
+            let count = reader.read(&mut buffer).await?;
             if count == 0 {
                 break;
             }
@@ -161,21 +155,29 @@ impl Digest {
         })
     }
 
-    pub fn for_message<T: prost::Message>(msg: &T) -> MessageDigest {
+    pub async fn for_path(path: impl AsRef<Path> + Debug) -> Result<BlobDigest, anyhow::Error> {
+        let file = File::open(&path)
+            .await
+            .with_context(|| format!("Digest::for_path() {path:?}"))?;
+        Self::for_file(file)
+            .await
+            .with_context(|| format!("Digest::for_file(): {path:?}"))
+    }
+
+    pub fn for_bytes(bytes: impl AsRef<[u8]>) -> MessageDigest {
         use sha2::Digest;
-        let buf = message_to_pb_buf(msg);
         bazel_remote_exec::Digest {
-            hash: Self::hex(&Sha256::digest(&buf)),
-            size_bytes: buf.len() as i64,
+            hash: Self::hex(&Sha256::digest(bytes.as_ref())),
+            size_bytes: bytes.as_ref().len() as i64,
         }
     }
 
+    pub fn for_message<T: prost::Message>(msg: &T) -> MessageDigest {
+        Self::for_bytes(message_to_pb_buf(msg))
+    }
+
     pub fn for_string(text: &String) -> MessageDigest {
-        use sha2::Digest;
-        bazel_remote_exec::Digest {
-            hash: Self::hex(&Sha256::digest(text.as_bytes())),
-            size_bytes: text.len() as i64,
-        }
+        Self::for_bytes(text.as_bytes())
     }
 
     fn hex(input: &[u8]) -> String {
@@ -207,7 +209,7 @@ mod tests {
     #[tokio::test]
     async fn digest_for_small_file() {
         let path = "test/data/a.csv";
-        let act = super::Digest::for_file(&path).await.unwrap();
+        let act = super::Digest::for_path(&path).await.unwrap();
         let exp = digest_file_sha256_simple(path).unwrap();
         assert_eq!(act, exp);
         // check vs: sha256sum test/data/a.csv line endings
@@ -235,7 +237,7 @@ mod tests {
     #[tokio::test]
     async fn digest_for_bigger_file() {
         let path = "Cargo.lock";
-        let act = super::Digest::for_file(&path).await.unwrap();
+        let act = super::Digest::for_path(&path).await.unwrap();
         let exp = digest_file_sha256_simple(path).unwrap();
         assert_eq!(act, exp);
     }
