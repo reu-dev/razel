@@ -7,7 +7,7 @@ use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 
 use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
-use crate::cache::{message_to_pb_buf, BlobDigest, MessageDigest};
+use crate::cache::{message_to_pb_buf, MessageDigest};
 use crate::config::select_cache_dir;
 use crate::{force_remove_file, force_symlink, set_file_readonly, write_gitignore};
 
@@ -56,12 +56,15 @@ impl LocalCache {
             .with_context(|| format!("push_action_result(): {path:?}"))
     }
 
-    pub async fn get_digests_of_missing_files(&self, result: &ActionResult) -> Vec<BlobDigest> {
+    pub async fn get_list_of_missing_output_files<'a>(
+        &self,
+        result: &'a ActionResult,
+    ) -> Vec<&'a OutputFile> {
         let mut missing = Vec::with_capacity(result.output_files.len());
         for file in &result.output_files {
             if let Some(digest) = &file.digest {
                 if !self.is_blob_cached(digest).await {
-                    missing.push(digest.clone());
+                    missing.push(file);
                 }
             } else {
                 // TODO handle when reading ActionResult

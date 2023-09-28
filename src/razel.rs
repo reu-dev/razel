@@ -16,8 +16,9 @@ use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor, WasiExecutor};
 use crate::metadata::{write_graphs_html, LogFile, Measurements, Profile, Tag};
 use crate::{
-    bazel_remote_exec, config, force_remove_file, write_gitignore, Arena, CGroup, Command,
-    CommandBuilder, CommandId, File, FileId, FileType, Sandbox, Scheduler, GITIGNORE_FILENAME, TUI,
+    bazel_remote_exec, config, force_remove_file, is_file_executable, write_gitignore, Arena,
+    CGroup, Command, CommandBuilder, CommandId, File, FileId, FileType, Sandbox, Scheduler,
+    GITIGNORE_FILENAME, TUI,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -661,7 +662,7 @@ impl Razel {
                 let path = file.path.clone();
                 let tx = tx_option.clone().unwrap();
                 tokio::spawn(async move {
-                    tx.send((id, Digest::for_file(path).await)).await.ok();
+                    tx.send((id, Digest::for_path(path).await)).await.ok();
                 });
                 return;
             }
@@ -989,7 +990,15 @@ impl Razel {
         if src.is_symlink() {
             bail!("output file must not be a symlink: {:?}", src);
         }
-        let digest = Digest::for_file(&src).await.context("Digest::for_file()")?;
+        let file = tokio::fs::File::open(&src)
+            .await
+            .with_context(|| format!("Failed to open: {src:?}"))?;
+        let is_executable = is_file_executable(&file)
+            .await
+            .with_context(|| format!("is_file_executable(): {src:?}"))?;
+        let digest = Digest::for_file(file)
+            .await
+            .with_context(|| format!("Digest::for_file(): {src:?}"))?;
         let path = exec_path.strip_prefix(out_dir).unwrap_or(exec_path);
         if !path.is_relative() {
             bail!("path should be relative: {:?}", path);
@@ -997,7 +1006,7 @@ impl Razel {
         Ok(OutputFile {
             path: path.to_str().unwrap().into(),
             digest: Some(digest),
-            is_executable: false,
+            is_executable,
             contents: vec![],
             node_properties: None,
         })

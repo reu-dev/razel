@@ -4,6 +4,18 @@ use std::path::Path;
 use tokio::fs::File;
 
 #[cfg(target_family = "unix")]
+pub async fn is_file_executable(file: &File) -> Result<bool, anyhow::Error> {
+    use std::os::unix::fs::PermissionsExt;
+    let permissions = file.metadata().await?.permissions();
+    Ok(permissions.mode() & 0o100 != 0)
+}
+
+#[cfg(not(target_family = "unix"))]
+pub async fn is_file_executable(file: &File) -> Result<bool, anyhow::Error> {
+    Ok(false)
+}
+
+#[cfg(target_family = "unix")]
 pub async fn make_file_executable(file: &File) -> Result<(), anyhow::Error> {
     use std::os::unix::fs::PermissionsExt;
     let mut permissions = file.metadata().await?.permissions();

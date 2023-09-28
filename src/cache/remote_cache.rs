@@ -3,10 +3,11 @@ use crate::bazel_remote_exec::capabilities_client::CapabilitiesClient;
 use crate::bazel_remote_exec::content_addressable_storage_client::ContentAddressableStorageClient;
 use crate::bazel_remote_exec::{
     batch_update_blobs_request, digest_function, ActionResult, BatchReadBlobsRequest,
-    BatchUpdateBlobsRequest, GetActionResultRequest, GetCapabilitiesRequest, ServerCapabilities,
-    UpdateActionResultRequest,
+    BatchUpdateBlobsRequest, GetActionResultRequest, GetCapabilitiesRequest, OutputFile,
+    ServerCapabilities, UpdateActionResultRequest,
 };
 use crate::cache::{BlobDigest, MessageDigest};
+use crate::make_file_executable;
 use anyhow::{anyhow, bail, Context};
 use log::warn;
 use std::path::{Path, PathBuf};
@@ -208,35 +209,41 @@ impl GrpcRemoteCache {
     /// TODO limit to max_batch_total_size_bytes?
     pub async fn download_and_store_blobs(
         &self,
-        digests: &Vec<BlobDigest>,
+        files: &Vec<&OutputFile>,
     ) -> anyhow::Result<Vec<(BlobDigest, PathBuf)>> {
-        assert!(!digests.is_empty());
-        let mut downloaded = Vec::with_capacity(digests.len());
+        assert!(!files.is_empty());
+        let mut downloaded = Vec::with_capacity(files.len());
         match self
             .cas_client
             .clone()
             .batch_read_blobs(tonic::Request::new(BatchReadBlobsRequest {
                 instance_name: self.instance_name.clone(),
-                digests: digests.clone(),
+                digests: files
+                    .iter()
+                    .map(|x| x.digest.as_ref().unwrap().clone())
+                    .collect(),
                 ..Default::default()
             }))
             .await
         {
             Ok(blobs_response) => {
                 let responses = blobs_response.into_inner().responses;
-                assert_eq!(responses.len(), digests.len());
+                assert_eq!(responses.len(), files.len());
                 for (i, response) in responses.into_iter().enumerate() {
+                    let file = files[i];
                     if let (Some(digest), Some(status)) = (response.digest, response.status) {
-                        assert_eq!(digest, digests[i]);
+                        assert_eq!(&digest, file.digest.as_ref().unwrap());
                         if status.code == Code::Ok as i32 {
+                            assert_eq!(response.data.len() as i64, digest.size_bytes);
                             // TODO validate that hash is a proper basename, does not contain . or /
                             let path = self.get_download_path(&digest);
-                            assert_eq!(response.data.len() as i64, digest.size_bytes);
-                            if let Err(e) = tokio::fs::write(&path, response.data).await {
-                                warn!("Remote cache error in writing {path:?}: {e:?}");
-                                continue;
+                            match Self::store_blob(&path, &response.data, file.is_executable).await
+                            {
+                                Ok(_) => downloaded.push((digest, path)),
+                                Err(e) => {
+                                    warn!("Remote cache error in store_blob({path:?}): {e:?}")
+                                }
                             }
-                            downloaded.push((digest, path));
                         } else if status.code != Code::NotFound as i32 {
                             warn!("Remote cache error in batch_read_blobs(): {status:?}");
                         }
@@ -250,6 +257,19 @@ impl GrpcRemoteCache {
             }
         }
         Ok(downloaded)
+    }
+
+    async fn store_blob(
+        path: &PathBuf,
+        contents: &Vec<u8>,
+        is_executable: bool,
+    ) -> anyhow::Result<()> {
+        tokio::fs::write(&path, contents).await?;
+        if is_executable {
+            let file = tokio::fs::File::open(path).await?;
+            make_file_executable(&file).await?;
+        }
+        Ok(())
     }
 
     fn get_download_path(&self, digest: &BlobDigest) -> PathBuf {
