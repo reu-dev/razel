@@ -12,6 +12,8 @@ pub enum Tag {
     Condition,
     #[serde(rename = "razel:no-cache")]
     NoCache,
+    #[serde(rename = "razel:no-remote-cache")]
+    NoRemoteCache,
     #[serde(rename = "razel:no-sandbox")]
     NoSandbox,
     Custom(String),
@@ -29,6 +31,7 @@ impl<'de> Deserialize<'de> for Tag {
                 "verbose" => Ok(Tag::Verbose),
                 "condition" => Ok(Tag::Condition),
                 "no-cache" => Ok(Tag::NoCache),
+                "no-remote-cache" => Ok(Tag::NoRemoteCache),
                 "no-sandbox" => Ok(Tag::NoSandbox),
                 _ => Err(Error::custom(format!(
                     "unknown tag (razel prefix is reserved): {tag}"

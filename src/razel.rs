@@ -769,6 +769,7 @@ impl Razel {
         let no_sandbox_tag = command.tags.contains(&Tag::NoSandbox);
         let cache = (!no_cache_tag).then(|| self.cache.clone());
         let read_cache = self.read_cache && !no_sandbox_tag;
+        let use_remote_cache = cache.is_some() && !command.tags.contains(&Tag::NoRemoteCache);
         let executor = command.executor.clone();
         let sandbox_input_paths = self.collect_input_file_paths_for_sandbox(command);
         let output_paths = self.collect_output_file_paths_for_command(command);
@@ -781,6 +782,7 @@ impl Razel {
                 &action_digest,
                 &cache,
                 read_cache,
+                use_remote_cache,
                 &executor,
                 &sandbox_input_paths,
                 &output_paths,
@@ -809,6 +811,7 @@ impl Razel {
         action_digest: &MessageDigest,
         cache: &Option<Cache>,
         read_cache: bool,
+        use_remote_cache: bool,
         executor: &Executor,
         sandbox_input_paths: &Vec<PathBuf>,
         output_paths: &Vec<PathBuf>,
@@ -816,34 +819,37 @@ impl Razel {
         cgroup: Option<CGroup>,
         out_dir: &PathBuf,
     ) -> Result<(ExecutionResult, Vec<OutputFile>), anyhow::Error> {
-        let (execution_result, output_files) =
-            if let Some(x) = Self::get_action_from_cache(action_digest, cache, read_cache).await {
-                x
-            } else if let Some(sandbox) = sandbox {
-                Self::exec_action_with_sandbox(
-                    action_digest,
-                    cache,
-                    executor,
-                    sandbox,
-                    sandbox_input_paths,
-                    output_paths,
-                    cgroup,
-                    out_dir,
-                )
-                .await
-                .context("exec_action_with_sandbox()")?
-            } else {
-                Self::exec_action_without_sandbox(
-                    action_digest,
-                    cache,
-                    executor,
-                    output_paths,
-                    cgroup,
-                    out_dir,
-                )
-                .await
-                .context("exec_action_without_sandbox()")?
-            };
+        let (execution_result, output_files) = if let Some(x) =
+            Self::get_action_from_cache(action_digest, cache, read_cache, use_remote_cache).await
+        {
+            x
+        } else if let Some(sandbox) = sandbox {
+            Self::exec_action_with_sandbox(
+                action_digest,
+                cache,
+                use_remote_cache,
+                executor,
+                sandbox,
+                sandbox_input_paths,
+                output_paths,
+                cgroup,
+                out_dir,
+            )
+            .await
+            .context("exec_action_with_sandbox()")?
+        } else {
+            Self::exec_action_without_sandbox(
+                action_digest,
+                cache,
+                use_remote_cache,
+                executor,
+                output_paths,
+                cgroup,
+                out_dir,
+            )
+            .await
+            .context("exec_action_without_sandbox()")?
+        };
         if let Some(cache) = cache.as_ref().filter(|_| execution_result.success()) {
             cache
                 .symlink_output_files_into_out_dir(&output_files, out_dir)
@@ -857,6 +863,7 @@ impl Razel {
         action_digest: &MessageDigest,
         cache: &Option<Cache>,
         read_cache: bool,
+        use_remote_cache: bool,
     ) -> Option<(ExecutionResult, Vec<OutputFile>)> {
         if cache.is_none() || !read_cache {
             return None;
@@ -864,7 +871,7 @@ impl Razel {
         if let Some(action_result) = cache
             .as_ref()
             .unwrap()
-            .get_action_result(action_digest)
+            .get_action_result(action_digest, use_remote_cache)
             .await
         {
             let exit_code = Some(action_result.exit_code);
@@ -889,6 +896,7 @@ impl Razel {
     async fn exec_action_with_sandbox(
         action_digest: &MessageDigest,
         cache: &Option<Cache>,
+        use_remote_cache: bool,
         executor: &Executor,
         sandbox: &Sandbox,
         sandbox_input_paths: &Vec<PathBuf>,
@@ -915,6 +923,7 @@ impl Razel {
                     Some(&sandbox.dir),
                     out_dir,
                     cache,
+                    use_remote_cache,
                 )
                 .await
                 .with_context(|| "cache_action_result()")?;
@@ -932,6 +941,7 @@ impl Razel {
     async fn exec_action_without_sandbox(
         action_digest: &MessageDigest,
         cache: &Option<Cache>,
+        use_remote_cache: bool,
         executor: &Executor,
         output_paths: &Vec<PathBuf>,
         cgroup: Option<CGroup>,
@@ -956,6 +966,7 @@ impl Razel {
                     None,
                     out_dir,
                     cache,
+                    use_remote_cache,
                 )
                 .await
                 .with_context(|| "cache_action_result()")?;
@@ -1019,11 +1030,12 @@ impl Razel {
         sandbox_dir: Option<&PathBuf>,
         out_dir: &PathBuf,
         cache: &Cache,
+        use_remote_cache: bool,
     ) -> Result<Vec<OutputFile>, anyhow::Error> {
         assert!(execution_result.success());
         for file in &output_files {
             cache
-                .move_output_file_into_cache(sandbox_dir, out_dir, file)
+                .move_output_file_into_cache(sandbox_dir, out_dir, file, use_remote_cache)
                 .await
                 .context("move_output_file_into_cache()")?;
         }
@@ -1045,7 +1057,7 @@ impl Razel {
         action_result.stdout_raw = execution_result.stdout.clone();
         action_result.stderr_raw = execution_result.stderr.clone();
         cache
-            .push_action_result(action_digest, &action_result)
+            .push_action_result(action_digest, &action_result, use_remote_cache)
             .await?;
         Ok(action_result.output_files)
     }

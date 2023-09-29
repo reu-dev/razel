@@ -54,22 +54,30 @@ impl Cache {
         Ok(())
     }
 
-    pub async fn get_action_result(&self, digest: &MessageDigest) -> Option<ActionResult> {
-        let action_result =
-            if let Some(action_result) = self.local_cache.get_action_result(digest).await {
-                action_result
-            } else if let Some(remote_cache) = &self.remote_cache {
-                let x = remote_cache.get_action_result(digest.clone()).await?;
-                self.local_cache.push_action_result(digest, &x).await.ok()?;
-                x
-            } else {
-                return None;
-            };
+    pub async fn get_action_result(
+        &self,
+        digest: &MessageDigest,
+        use_remote_cache: bool,
+    ) -> Option<ActionResult> {
+        let action_result = if let Some(action_result) =
+            self.local_cache.get_action_result(digest).await
+        {
+            action_result
+        } else if let Some(remote_cache) = self.remote_cache.as_ref().filter(|_| use_remote_cache) {
+            let x = remote_cache.get_action_result(digest.clone()).await?;
+            self.local_cache.push_action_result(digest, &x).await.ok()?;
+            x
+        } else {
+            return None;
+        };
         let missing_files = self
             .local_cache
             .get_list_of_missing_output_files(&action_result)
             .await;
-        match (missing_files.is_empty(), &self.remote_cache) {
+        match (
+            missing_files.is_empty(),
+            self.remote_cache.as_ref().filter(|_| use_remote_cache),
+        ) {
             (true, _) => Some(action_result),
             (false, None) => None,
             (false, Some(remote_cache)) => {
@@ -97,8 +105,9 @@ impl Cache {
         &self,
         digest: &MessageDigest,
         result: &ActionResult,
+        use_remote_cache: bool,
     ) -> Result<(), anyhow::Error> {
-        if let Some(remote_cache) = &self.remote_cache {
+        if let Some(remote_cache) = self.remote_cache.as_ref().filter(|_| use_remote_cache) {
             remote_cache.push_action_result(digest.clone(), result.clone());
         }
         self.local_cache.push_action_result(digest, result).await
@@ -109,12 +118,13 @@ impl Cache {
         sandbox_dir: Option<&PathBuf>,
         out_dir: &PathBuf,
         file: &OutputFile,
+        use_remote_cache: bool,
     ) -> Result<(), anyhow::Error> {
         let cache_path = self
             .local_cache
             .move_output_file_into_cache(sandbox_dir, out_dir, file)
             .await?;
-        if let Some(remote_cache) = &self.remote_cache {
+        if let Some(remote_cache) = self.remote_cache.as_ref().filter(|_| use_remote_cache) {
             remote_cache.push_blob(file.digest.clone().unwrap(), cache_path);
         }
         Ok(())
