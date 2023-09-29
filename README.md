@@ -131,6 +131,7 @@ Tags with `razel:` prefix are reserved and have special meaning:
 - `razel:verbose`: always show verbose output
 - `razel:condition`: keep running and don't be verbose if command failed        
 - `razel:no-cache`: always execute a command without caching
+- `razel:no-remote-cache`: don't use remote cache
 - `razel:no-sandbox`: disable sandbox and also cache - for commands with unspecified input/output files
 
 ### Conditional execution / Skipping command

@@ -139,6 +139,8 @@ export namespace Razel {
         Condition = 'razel:condition',
         // always execute a command without caching
         NoCache = 'razel:no-cache',
+        // don't use remote cache
+        NoRemoteCache = 'razel:no-remote-cache',
         // disable sandbox and also cache - for commands with unspecified input/output files
         NoSandbox = 'razel:no-sandbox',
     }

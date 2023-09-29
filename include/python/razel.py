@@ -25,6 +25,8 @@ class Razel:
         """keep running and don't be verbose if command failed"""
         NO_CACHE = 'razel:no-cache',
         """always execute a command without caching"""
+        NO_REMOTE_CACHE = 'razel:no-remote-cache',
+        """don't use remote cache"""
         NO_SANDBOX = 'razel:no-sandbox',
         """disable sandbox and also cache - for commands with unspecified input/output files"""
 
