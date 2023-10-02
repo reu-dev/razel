@@ -1,25 +1,25 @@
-use std::collections::{hash_map, HashMap, HashSet};
-use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
-use std::{env, fs};
-
-use anyhow::{anyhow, bail, Context};
-use itertools::{chain, Itertools};
-use log::{debug, warn};
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::Sender;
-use which::which;
-
 use crate::bazel_remote_exec::command::EnvironmentVariable;
 use crate::bazel_remote_exec::{ActionResult, Digest, ExecutedActionMetadata, OutputFile};
 use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor, WasiExecutor};
-use crate::metadata::{write_graphs_html, LogFile, Measurements, Profile, Tag};
+use crate::metadata::{write_graphs_html, LogFile, Measurements, Profile, Report, Tag};
+use crate::tui::TUI;
 use crate::{
     bazel_remote_exec, config, force_remove_file, is_file_executable, write_gitignore, Arena,
     CGroup, Command, CommandBuilder, CommandId, File, FileId, FileType, Sandbox, Scheduler,
-    GITIGNORE_FILENAME, TUI,
+    GITIGNORE_FILENAME,
 };
+use anyhow::{anyhow, bail, Context};
+use itertools::{chain, Itertools};
+use log::{debug, warn};
+use serde::{Deserialize, Serialize};
+use std::collections::{hash_map, HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+use std::{env, fs};
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::Sender;
+use which::which;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ScheduleState {
@@ -44,7 +44,7 @@ pub struct SchedulerStats {
     pub execution_duration: Duration,
 }
 
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub struct SchedulerExecStats {
     pub succeeded: usize,
     pub failed: usize,
@@ -372,6 +372,7 @@ impl Razel {
         &mut self,
         keep_going: bool,
         verbose: bool,
+        group_by_tag: &str,
     ) -> Result<SchedulerStats, anyhow::Error> {
         let preparation_start = Instant::now();
         if self.commands.is_empty() {
@@ -408,7 +409,9 @@ impl Razel {
         }
         self.remove_outputs_of_not_run_actions_from_out_dir();
         Sandbox::cleanup(&self.sandbox_dir);
-        self.write_metadata()?;
+        self.push_logs_for_not_started_commands();
+        self.write_metadata(group_by_tag)
+            .context("Failed to write metadata")?;
         let stats = SchedulerStats {
             exec: SchedulerExecStats {
                 succeeded: self.succeeded.len(),
@@ -1149,6 +1152,8 @@ impl Razel {
             assert_eq!(to_skip.schedule_state, ScheduleState::Waiting);
             assert!(!to_skip.unfinished_deps.is_empty());
             to_skip.schedule_state = ScheduleState::Skipped;
+            self.log_file
+                .push_not_run(to_skip, ExecutionStatus::Skipped);
             self.waiting.remove(&id_to_skip);
             self.skipped.push(id_to_skip);
             ids_to_skip.extend(to_skip.reverse_deps.iter());
@@ -1206,7 +1211,15 @@ impl Razel {
         }
     }
 
-    fn write_metadata(&self) -> Result<(), anyhow::Error> {
+    fn push_logs_for_not_started_commands(&mut self) {
+        assert_eq!(self.scheduler.running(), 0);
+        for id in self.waiting.iter().chain(self.scheduler.ready_ids().iter()) {
+            self.log_file
+                .push_not_run(&self.commands[*id], ExecutionStatus::NotStarted);
+        }
+    }
+
+    fn write_metadata(&self, group_by_tag: &str) -> Result<(), anyhow::Error> {
         let dir = self.out_dir.join("razel-metadata");
         fs::create_dir_all(&dir)
             .with_context(|| format!("Failed to create metadata directory: {dir:?}"))?;
@@ -1214,6 +1227,9 @@ impl Razel {
         self.measurements.write_csv(&dir.join("measurements.csv"))?;
         self.profile.write_json(&dir.join("execution_times.json"))?;
         self.log_file.write(&dir.join("log.json"))?;
+        let report = Report::new(group_by_tag, &self.log_file.items);
+        report.print();
+        report.write(&dir.join("report.json"))?;
         Ok(())
     }
 }
@@ -1257,7 +1273,7 @@ mod tests {
                 .unwrap();
         }
         assert_eq!(razel.len(), n);
-        let stats = razel.run(false, true).await.unwrap();
+        let stats = razel.run(false, true, "").await.unwrap();
         assert_eq!(
             stats.exec,
             SchedulerExecStats {
