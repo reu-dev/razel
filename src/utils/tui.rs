@@ -9,12 +9,13 @@ use crossterm::tty::IsTty;
 use itertools::Itertools;
 use std::io::{stdout, Write};
 
-static A_BOLD: Attribute = Attribute::Bold;
-static A_RESET: Attribute = Attribute::Reset;
-static C_BLUE: SetForegroundColor = SetForegroundColor(Color::Blue);
-static C_GREEN: SetForegroundColor = SetForegroundColor(Color::Green);
-static C_RED: SetForegroundColor = SetForegroundColor(Color::Red);
-static C_RESET: SetForegroundColor = SetForegroundColor(Color::Reset);
+pub static A_BOLD: Attribute = Attribute::Bold;
+pub static A_RESET: Attribute = Attribute::Reset;
+pub static C_BLUE: SetForegroundColor = SetForegroundColor(Color::Blue);
+pub static C_GREEN: SetForegroundColor = SetForegroundColor(Color::Green);
+pub static C_YELLOW: SetForegroundColor = SetForegroundColor(Color::Yellow);
+pub static C_RED: SetForegroundColor = SetForegroundColor(Color::Red);
+pub static C_RESET: SetForegroundColor = SetForegroundColor(Color::Reset);
 
 /// Terminal user interface
 pub struct TUI {

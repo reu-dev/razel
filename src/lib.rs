@@ -83,12 +83,14 @@ pub mod metadata {
     pub use log_file::*;
     pub use measurements::*;
     pub use profile::*;
+    pub use report::*;
     pub use tags::*;
 
     mod graphs;
     mod log_file;
     mod measurements;
     mod profile;
+    mod report;
     mod tags;
 }
 
@@ -101,7 +103,6 @@ pub mod utils {
     pub use helpers::*;
     pub use resources::*;
     pub use symlink::*;
-    pub use tui::*;
 
     mod arena;
     mod file_permissions;
@@ -111,7 +112,7 @@ pub mod utils {
     #[cfg_attr(not(target_os = "linux"), path = "resources_unimplemented.rs")]
     mod resources;
     mod symlink;
-    mod tui;
+    pub mod tui;
 }
 
 pub mod tasks {

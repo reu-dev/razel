@@ -64,6 +64,9 @@ pub struct RunArgs {
     /// Show verbose output
     #[clap(short, long)]
     pub verbose: bool,
+    /// Prefix of tags to group the report
+    #[clap(long, default_value = "group")]
+    pub group_by_tag: String,
     /// Comma seperated list of remote cache URLs
     #[clap(long, env = "RAZEL_REMOTE_CACHE", value_delimiter = ',')]
     pub remote_cache: Vec<String>,
@@ -75,6 +78,7 @@ impl Default for RunArgs {
             no_execution: false,
             keep_going: false,
             verbose: true,
+            group_by_tag: "group".to_string(),
             remote_cache: vec![],
         }
     }

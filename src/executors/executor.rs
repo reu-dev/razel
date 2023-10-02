@@ -1,6 +1,6 @@
 use crate::CGroup;
 use anyhow::Error;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
@@ -126,9 +126,11 @@ impl fmt::Debug for ExecutionResult {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum ExecutionStatus {
     NotStarted,
+    /// Command could not be started because it depends on a failed condition
+    Skipped,
     FailedToStart,
     FailedToCreateResponseFile,
     FailedToWriteStdoutFile,
