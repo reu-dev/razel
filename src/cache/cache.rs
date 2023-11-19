@@ -196,8 +196,7 @@ impl Digest {
 }
 
 pub fn message_to_pb_buf<T: prost::Message>(msg: &T) -> Vec<u8> {
-    let mut vec = Vec::new();
-    vec.reserve(msg.encoded_len());
+    let mut vec = Vec::with_capacity(msg.encoded_len());
     msg.encode(&mut vec).unwrap();
     vec
 }

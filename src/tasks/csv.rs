@@ -31,7 +31,8 @@ pub fn csv_filter(input: PathBuf, output: PathBuf, cols: Vec<String>) -> Result<
         headers
             .iter()
             .enumerate()
-            .filter_map(|(i, x)| cols.contains(&x.to_string()).then(|| i))
+            .filter(|&(_, x)| cols.contains(&x.to_string()))
+            .map(|(i, _)| i)
             .collect()
     } else {
         headers.iter().enumerate().map(|(i, _)| i).collect()
