@@ -104,7 +104,7 @@ impl Razel {
         let current_dir = env::current_dir().unwrap();
         let workspace_dir = current_dir.clone();
         let out_dir = PathBuf::from(config::OUT_DIR);
-        let cache = Cache::new(&workspace_dir).unwrap();
+        let cache = Cache::new(&workspace_dir, out_dir.clone()).unwrap();
         let sandbox_dir = cache
             .dir()
             .join("sandbox")
@@ -188,7 +188,7 @@ impl Razel {
             self.workspace_dir = self.current_dir.join(workspace);
         }
         debug!("workspace_dir: {:?}", self.workspace_dir);
-        self.cache = Cache::new(&self.workspace_dir)?;
+        self.cache = Cache::new(&self.workspace_dir, self.out_dir.clone())?;
         self.sandbox_dir = self
             .cache
             .dir()
@@ -783,7 +783,7 @@ impl Razel {
         tokio::task::spawn(async move {
             let (execution_result, output_files) = Self::exec_action(
                 &action_digest,
-                &cache,
+                cache,
                 read_cache,
                 use_remote_cache,
                 &executor,
@@ -812,7 +812,7 @@ impl Razel {
     #[allow(clippy::too_many_arguments)]
     async fn exec_action(
         action_digest: &MessageDigest,
-        cache: &Option<Cache>,
+        mut cache: Option<Cache>,
         read_cache: bool,
         use_remote_cache: bool,
         executor: &Executor,
@@ -823,13 +823,14 @@ impl Razel {
         out_dir: &PathBuf,
     ) -> Result<(ExecutionResult, Vec<OutputFile>), anyhow::Error> {
         let (execution_result, output_files) = if let Some(x) =
-            Self::get_action_from_cache(action_digest, cache, read_cache, use_remote_cache).await
+            Self::get_action_from_cache(action_digest, cache.as_mut(), read_cache, use_remote_cache)
+                .await
         {
             x
         } else if let Some(sandbox) = sandbox {
             Self::exec_action_with_sandbox(
                 action_digest,
-                cache,
+                cache.as_mut(),
                 use_remote_cache,
                 executor,
                 sandbox,
@@ -843,7 +844,7 @@ impl Razel {
         } else {
             Self::exec_action_without_sandbox(
                 action_digest,
-                cache,
+                cache.as_mut(),
                 use_remote_cache,
                 executor,
                 output_paths,
@@ -855,7 +856,7 @@ impl Razel {
         };
         if let Some(cache) = cache.as_ref().filter(|_| execution_result.success()) {
             cache
-                .symlink_output_files_into_out_dir(&output_files, out_dir)
+                .symlink_output_files_into_out_dir(&output_files)
                 .await
                 .context("symlink_output_files_into_out_dir()")?;
         }
@@ -864,16 +865,14 @@ impl Razel {
 
     async fn get_action_from_cache(
         action_digest: &MessageDigest,
-        cache: &Option<Cache>,
+        cache: Option<&mut Cache>,
         read_cache: bool,
         use_remote_cache: bool,
     ) -> Option<(ExecutionResult, Vec<OutputFile>)> {
-        if cache.is_none() || !read_cache {
+        let Some(cache) = cache.filter(|_| read_cache) else {
             return None;
-        }
+        };
         if let Some(action_result) = cache
-            .as_ref()
-            .unwrap()
             .get_action_result(action_digest, use_remote_cache)
             .await
         {
@@ -898,7 +897,7 @@ impl Razel {
     #[allow(clippy::too_many_arguments)]
     async fn exec_action_with_sandbox(
         action_digest: &MessageDigest,
-        cache: &Option<Cache>,
+        cache: Option<&mut Cache>,
         use_remote_cache: bool,
         executor: &Executor,
         sandbox: &Sandbox,
@@ -918,13 +917,12 @@ impl Razel {
             Default::default()
         };
         if execution_result.success() {
-            if let Some(cache) = &cache {
+            if let Some(cache) = cache {
                 Self::cache_action_result(
                     action_digest,
                     &execution_result,
                     output_files.clone(),
                     Some(&sandbox.dir),
-                    out_dir,
                     cache,
                     use_remote_cache,
                 )
@@ -943,7 +941,7 @@ impl Razel {
 
     async fn exec_action_without_sandbox(
         action_digest: &MessageDigest,
-        cache: &Option<Cache>,
+        cache: Option<&mut Cache>,
         use_remote_cache: bool,
         executor: &Executor,
         output_paths: &Vec<PathBuf>,
@@ -961,13 +959,12 @@ impl Razel {
             Default::default()
         };
         if execution_result.success() {
-            if let Some(cache) = &cache {
+            if let Some(cache) = cache {
                 Self::cache_action_result(
                     action_digest,
                     &execution_result,
                     output_files.clone(),
                     None,
-                    out_dir,
                     cache,
                     use_remote_cache,
                 )
@@ -1031,17 +1028,10 @@ impl Razel {
         execution_result: &ExecutionResult,
         output_files: Vec<OutputFile>,
         sandbox_dir: Option<&PathBuf>,
-        out_dir: &PathBuf,
-        cache: &Cache,
+        cache: &mut Cache,
         use_remote_cache: bool,
     ) -> Result<Vec<OutputFile>, anyhow::Error> {
         assert!(execution_result.success());
-        for file in &output_files {
-            cache
-                .move_output_file_into_cache(sandbox_dir, out_dir, file, use_remote_cache)
-                .await
-                .context("move_output_file_into_cache()")?;
-        }
         let mut action_result = ActionResult {
             output_files,
             exit_code: execution_result.exit_code.unwrap(),
@@ -1060,7 +1050,7 @@ impl Razel {
         action_result.stdout_raw = execution_result.stdout.clone();
         action_result.stderr_raw = execution_result.stderr.clone();
         cache
-            .push_action_result(action_digest, &action_result, use_remote_cache)
+            .push(action_digest, &action_result, sandbox_dir, use_remote_cache)
             .await?;
         Ok(action_result.output_files)
     }
