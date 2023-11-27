@@ -186,6 +186,7 @@ impl LocalCache {
 mod tests {
     use super::*;
     use crate::new_tmp_dir;
+    use std::time::Duration;
 
     #[tokio::test]
     async fn move_output_file_into_cache() {
@@ -194,11 +195,15 @@ mod tests {
         let dst_dir = new_tmp_dir!();
         let dst = dst_dir.join("file-in-cache");
         set_file_readonly(&src).await.unwrap();
+        let src_mtime = src.metadata().unwrap().modified().unwrap();
+        tokio::time::sleep(Duration::from_millis(1500)).await;
         tokio::fs::rename(&src, &dst).await.unwrap();
         assert!(tokio::fs::metadata(&dst)
             .await
             .unwrap()
             .permissions()
             .readonly());
+        let dst_mtime = dst.metadata().unwrap().modified().unwrap();
+        assert_eq!(dst_mtime, src_mtime);
     }
 }
