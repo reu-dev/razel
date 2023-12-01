@@ -551,7 +551,7 @@ dependencies = [
  "cranelift-codegen",
  "cranelift-entity",
  "cranelift-frontend",
- "itertools",
+ "itertools 0.10.5",
  "log",
  "smallvec",
  "wasmparser",
@@ -1253,6 +1253,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25db6b064527c5d482d0423354fcd07a89a2dfe07b67892e62411946db7f07b0"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1616,7 +1625,7 @@ checksum = "8bdf592881d821b83d471f8af290226c8d51402259e9bb5be7f9f8bdebbb11ac"
 dependencies = [
  "bytes",
  "heck",
- "itertools",
+ "itertools 0.10.5",
  "log",
  "multimap",
  "once_cell",
@@ -1637,7 +1646,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "265baba7fabd416cf5078179f7d2cbeca4ce7a9041111900675ea7c4cb8a4c32"
 dependencies = [
  "anyhow",
- "itertools",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.31",
@@ -1748,7 +1757,7 @@ dependencies = [
  "directories",
  "env_logger",
  "futures-util",
- "itertools",
+ "itertools 0.12.0",
  "log",
  "num_cpus",
  "procfs",
@@ -1770,6 +1779,13 @@ dependencies = [
  "wasmtime",
  "wasmtime-wasi",
  "which",
+]
+
+[[package]]
+name = "razel-self-test"
+version = "0.2.2"
+dependencies = [
+ "clap",
 ]
 
 [[package]]

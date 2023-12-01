@@ -10,8 +10,7 @@ use crate::tasks::DownloadFileTask;
 use crate::{parse_batch_file, parse_command, tasks, CommandBuilder, FileType, Razel};
 
 #[derive(Parser)]
-#[clap(name = "razel")]
-#[clap(author, version, about, long_about = None)]
+#[command(author, version, about, long_about = None)]
 #[clap(infer_subcommands = true)]
 struct Cli {
     #[clap(subcommand)]

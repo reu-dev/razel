@@ -4,8 +4,7 @@ use std::thread::sleep;
 use std::time::Duration;
 
 #[derive(Parser)]
-#[clap(name = "razel-test")]
-#[clap(author, version, about, long_about = None)]
+#[command(author, version, about, long_about = None)]
 struct Args {
     /// Allocate memory [bytes]
     #[clap(short, long)]
