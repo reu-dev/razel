@@ -62,7 +62,7 @@ impl TUI {
         Self::field(
             format!("{:?} ", execution_result.status).as_str(),
             Color::Green,
-            if let Some(duration) = execution_result.duration {
+            if let Some(duration) = execution_result.exec_duration {
                 format!(
                     "{} {A_BOLD}{C_BLUE}{:?}{C_RESET}{A_RESET}",
                     command.name, duration,

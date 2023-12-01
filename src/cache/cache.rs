@@ -1,6 +1,6 @@
-use crate::bazel_remote_exec;
 use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
 use crate::cache::{GrpcRemoteCache, LocalCache};
+use crate::{bazel_remote_exec, CacheHit};
 use anyhow::{bail, Context};
 use log::info;
 use sha2::Sha256;
@@ -58,15 +58,15 @@ impl Cache {
         &self,
         digest: &MessageDigest,
         use_remote_cache: bool,
-    ) -> Option<ActionResult> {
-        let action_result = if let Some(action_result) =
+    ) -> Option<(ActionResult, CacheHit)> {
+        let (action_result, mut cache_hit) = if let Some(action_result) =
             self.local_cache.get_action_result(digest).await
         {
-            action_result
+            (action_result, CacheHit::Local)
         } else if let Some(remote_cache) = self.remote_cache.as_ref().filter(|_| use_remote_cache) {
             let x = remote_cache.get_action_result(digest.clone()).await?;
             self.local_cache.push_action_result(digest, &x).await.ok()?;
-            x
+            (x, CacheHit::Remote)
         } else {
             return None;
         };
@@ -78,7 +78,7 @@ impl Cache {
             missing_files.is_empty(),
             self.remote_cache.as_ref().filter(|_| use_remote_cache),
         ) {
-            (true, _) => Some(action_result),
+            (true, _) => Some((action_result, cache_hit)),
             (false, None) => None,
             (false, Some(remote_cache)) => {
                 let downloaded = remote_cache
@@ -93,7 +93,10 @@ impl Cache {
                         .ok()?;
                 }
                 if downloaded.len() == missing_files.len() {
-                    Some(action_result)
+                    if cache_hit == CacheHit::Local {
+                        cache_hit = CacheHit::Mixed;
+                    }
+                    Some((action_result, cache_hit))
                 } else {
                     None
                 }
