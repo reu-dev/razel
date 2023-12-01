@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "razel-self-test"]
+members = [".", "razel-bench", "razel-self-test"]
 
 [workspace.package]
 version = "0.2.2"

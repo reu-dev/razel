@@ -4,5 +4,6 @@ __pycache__/
 
 .tmp
 razel-out/
+/benches/
 /target
 /tmp
