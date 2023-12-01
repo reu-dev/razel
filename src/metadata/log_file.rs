@@ -1,6 +1,6 @@
 use crate::executors::{ExecutionResult, ExecutionStatus};
 use crate::metadata::Tag;
-use crate::Command;
+use crate::{CacheHit, Command};
 use anyhow::Result;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,13 @@ pub struct LogFileItem {
     pub tags: Vec<String>,
     pub status: ExecutionStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub duration: Option<f32>,
+    pub cache: Option<CacheHit>,
+    /// original execution duration of the command/task - ignoring cache
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exec: Option<f32>,
+    /// actual duration of processing the command/task - including caching and overheads
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<f32>,
     #[serde(default, skip_serializing_if = "Map::is_empty")]
     pub measurements: Map<String, Value>,
 }
@@ -50,7 +56,9 @@ impl LogFile {
             name: command.name.clone(),
             tags: custom_tags,
             status: execution_result.status,
-            duration: execution_result.duration.map(|x| x.as_secs_f32()),
+            cache: execution_result.cache_hit,
+            exec: execution_result.exec_duration.map(|x| x.as_secs_f32()),
+            total: execution_result.total_duration.map(|x| x.as_secs_f32()),
             measurements,
         });
     }

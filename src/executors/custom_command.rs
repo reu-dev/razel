@@ -71,7 +71,7 @@ impl CustomCommandExecutor {
                 result.error = Some(e.into());
             }
         }
-        result.duration = Some(execution_start.elapsed());
+        result.exec_duration = Some(execution_start.elapsed());
         self.write_redirect_files(&cwd, &mut result).await;
         result
     }

@@ -26,7 +26,7 @@ impl Profile {
     }
 
     pub fn collect(&mut self, command: &Command, execution_result: &ExecutionResult) {
-        if let Some(duration) = &execution_result.duration {
+        if let Some(duration) = &execution_result.exec_duration {
             self.execution_times.push(ExecutionTimesItem {
                 name: command.name.clone(),
                 tags: command.tags.clone(),

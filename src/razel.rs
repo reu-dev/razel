@@ -763,6 +763,7 @@ impl Razel {
     ///
     /// If the executed command failed, action_result will be None and the action will not be cached.
     fn start_next_command(&mut self, id: CommandId, tx: Sender<ExecutionResultChannel>) {
+        let total_duration_start = Instant::now();
         let command = &self.commands[id];
         assert_eq!(command.schedule_state, ScheduleState::Ready);
         assert_eq!(command.unfinished_deps.len(), 0);
@@ -781,7 +782,7 @@ impl Razel {
         let cgroup = self.cgroup.clone();
         let out_dir = self.out_dir.clone();
         tokio::task::spawn(async move {
-            let (execution_result, output_files) = Self::exec_action(
+            let (mut execution_result, output_files) = Self::exec_action(
                 &action_digest,
                 cache,
                 read_cache,
@@ -804,6 +805,7 @@ impl Razel {
                     Default::default(),
                 )
             });
+            execution_result.total_duration = Some(total_duration_start.elapsed());
             // ignore SendError - channel might be closed if a previous command failed
             tx.send((id, execution_result, output_files)).await.ok();
         });
@@ -872,7 +874,7 @@ impl Razel {
         let Some(cache) = cache.filter(|_| read_cache) else {
             return None;
         };
-        if let Some(action_result) = cache
+        if let Some((action_result, cache_hit)) = cache
             .get_action_result(action_digest, use_remote_cache)
             .await
         {
@@ -882,12 +884,13 @@ impl Razel {
                 status: ExecutionStatus::Success,
                 exit_code,
                 error: None,
-                cache_hit: true,
+                cache_hit: Some(cache_hit),
                 stdout: action_result.stdout_raw,
                 stderr: action_result.stderr_raw,
-                duration: metadata
+                exec_duration: metadata
                     .and_then(|x| x.virtual_execution_duration.as_ref())
                     .map(|x| Duration::new(x.seconds as u64, x.nanos as u32)),
+                total_duration: None,
             };
             return Some((execution_result, action_result.output_files));
         }
@@ -1036,7 +1039,7 @@ impl Razel {
             output_files,
             exit_code: execution_result.exit_code.unwrap(),
             execution_metadata: Some(ExecutedActionMetadata {
-                virtual_execution_duration: execution_result.duration.map(|x| {
+                virtual_execution_duration: execution_result.exec_duration.map(|x| {
                     prost_types::Duration {
                         seconds: x.as_secs() as i64,
                         nanos: x.subsec_nanos() as i32,
@@ -1099,7 +1102,7 @@ impl Razel {
     /// Track state and check if reverse dependencies are ready
     fn on_command_succeeded(&mut self, id: CommandId, execution_result: &ExecutionResult) {
         self.succeeded.push(id);
-        if execution_result.cache_hit {
+        if execution_result.cache_hit.is_some() {
             self.cache_hits += 1;
         }
         let command = &mut self.commands[id];

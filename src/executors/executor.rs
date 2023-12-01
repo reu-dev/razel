@@ -1,4 +1,4 @@
-use crate::CGroup;
+use crate::{CGroup, CacheHit};
 use anyhow::Error;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -79,26 +79,29 @@ pub struct ExecutionResult {
     pub status: ExecutionStatus,
     pub exit_code: Option<i32>,
     pub error: Option<anyhow::Error>,
-    pub cache_hit: bool,
+    pub cache_hit: Option<CacheHit>,
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
-    pub duration: Option<Duration>,
+    /// original execution duration of the command/task - ignoring cache
+    pub exec_duration: Option<Duration>,
+    /// actual duration of processing the command/task - including caching and overheads
+    pub total_duration: Option<Duration>,
 }
 
 impl ExecutionResult {
     pub fn for_task(result: Result<(), Error>, execution_start: Instant) -> Self {
-        let duration = Some(execution_start.elapsed());
+        let exec_duration = Some(execution_start.elapsed());
         match result {
             Ok(()) => Self {
                 status: ExecutionStatus::Success,
                 exit_code: Some(0),
-                duration,
+                exec_duration,
                 ..Default::default()
             },
             Err(e) => Self {
                 status: ExecutionStatus::Failed,
                 error: Some(e),
-                duration,
+                exec_duration,
                 ..Default::default()
             },
         }

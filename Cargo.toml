@@ -1,37 +1,56 @@
-[package]
-name = "razel"
+[workspace]
+members = [".", "razel-bench", "razel-self-test"]
+
+[workspace.package]
 version = "0.2.2"
-authors = ["Stefan Reuschl <stefan@reu-dev.de>"]
 edition = "2021"
 rust-version = "1.59"
-description = "chained commands/tasks executor with caching"
 homepage = "https://github.com/reu-dev/razel"
 repository = "https://github.com/reu-dev/razel"
 license = "MIT"
+
+[workspace.dependencies]
+anyhow = "1.0"
+clap = { version = "4", features = ["derive", "env"] }
+itertools = "0.12"
+log = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+simplelog = "0.12"
+
+[package]
+name = "razel"
+authors = ["Stefan Reuschl <stefan@reu-dev.de>"]
+description = "a command executor with caching for data processing pipelines"
 categories = ["caching", "concurrency", "command-line-utilities", "development-tools::testing", "filesystem"]
-default-run = "razel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
 
 [dependencies]
-anyhow = "1.0"
+anyhow = { workspace = true }
 async-trait = "0.1"
 base16ct = { version = "0.1", features = ["alloc"] }
 bstr = "1.0"
-clap = { version = "4", features = ["derive", "env"] }
+clap = { workspace = true }
 crossterm = "0.26"
 csv = "1.1"
 directories = "4.0"
 futures-util = "0.3"
-itertools = "0.10"
-log = "0.4"
+itertools = { workspace = true }
+log = { workspace = true }
 num_cpus = "1.13"  # TODO replace with std::thread::available_parallelism() once it works in docker: https://github.com/rust-lang/rust/pull/97925
 prost = "0.12"
 prost-types = "0.12"
 regex = "1.7"
 reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "stream"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde = { workspace = true }
+serde_json = { workspace = true }
 sha2 = "0.10"
-simplelog = "0.12"
+simplelog = { workspace = true }
 tokio = { version = "1.32", features = ["full"] }
 tonic = "0.10"
 wasi-cap-std-sync = "8"

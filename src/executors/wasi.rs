@@ -86,7 +86,7 @@ impl WasiExecutor {
                 }
             }
         }
-        execution_result.duration = Some(execution_start.elapsed());
+        execution_result.exec_duration = Some(execution_start.elapsed());
 
         drop(store);
         execution_result.stdout = stdout_pipe

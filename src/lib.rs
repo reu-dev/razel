@@ -6,6 +6,7 @@ pub use parse_batch::*;
 pub use rules::*;
 pub use sandbox::*;
 pub use scheduler::*;
+pub use types::*;
 pub use utils::*;
 
 mod cli;
@@ -18,6 +19,7 @@ mod razel;
 mod rules;
 mod sandbox;
 mod scheduler;
+mod types;
 
 #[allow(clippy::all)]
 pub mod bazel_remote_exec {

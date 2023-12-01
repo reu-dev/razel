@@ -1,5 +1,6 @@
 use crate::bazel_remote_exec::{ActionResult, OutputFile};
 use crate::cache::{BlobDigest, GrpcRemoteCache, LocalCache, MessageDigest};
+use crate::CacheHit;
 use anyhow::{bail, Context, Error};
 use itertools::Itertools;
 use log::info;
@@ -65,23 +66,24 @@ impl Cache {
         &mut self,
         digest: &MessageDigest,
         use_remote_cache: bool,
-    ) -> Option<ActionResult> {
+    ) -> Option<(ActionResult, CacheHit)> {
         let remote_cache = self.remote_cache.as_ref().filter(|_| use_remote_cache);
-        let action_result = if let Some(x) = self.local_cache.get_action_result(digest).await {
-            x
-        } else if let Some(remote_cache) = remote_cache {
-            let x = remote_cache.get_action_result(digest.clone()).await?;
-            self.local_cache.push_action_result(digest, &x).await.ok()?;
-            x
-        } else {
-            return None;
-        };
+        let (action_result, mut cache_hit) =
+            if let Some(x) = self.local_cache.get_action_result(digest).await {
+                (x, CacheHit::Local)
+            } else if let Some(remote_cache) = remote_cache {
+                let x = remote_cache.get_action_result(digest.clone()).await?;
+                self.local_cache.push_action_result(digest, &x).await.ok()?;
+                (x, CacheHit::Remote)
+            } else {
+                return None;
+            };
         if action_result.output_files.is_empty() {
-            return Some(action_result);
+            return Some((action_result, cache_hit));
         }
         let to_download = self.get_files_to_download(&action_result).await;
         if to_download.is_empty() {
-            return Some(action_result);
+            return Some((action_result, cache_hit));
         }
         let Some(remote_cache) = self.remote_cache.as_ref().filter(|_| use_remote_cache) else {
             return None;
@@ -94,7 +96,10 @@ impl Cache {
             return None;
         }
         self.move_downloaded_files_to_cas(&downloaded).await.ok()?;
-        (downloaded.len() == to_download.len()).then_some(action_result)
+        if cache_hit == CacheHit::Local {
+            cache_hit = CacheHit::Mixed;
+        }
+        (downloaded.len() == to_download.len()).then_some((action_result, cache_hit))
     }
 
     async fn move_downloaded_files_to_cas(
