@@ -7,7 +7,7 @@ use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 
 use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
-use crate::cache::{message_to_pb_buf, MessageDigest};
+use crate::cache::{message_to_pb_buf, BlobDigest, MessageDigest};
 use crate::config::select_cache_dir;
 use crate::{force_remove_file, force_symlink, set_file_readonly, write_gitignore};
 
@@ -33,6 +33,10 @@ impl LocalCache {
         })
     }
 
+    pub fn cas_path(&self, digest: &BlobDigest) -> PathBuf {
+        self.cas_dir.join(&digest.hash)
+    }
+
     pub async fn get_action_result(&self, digest: &MessageDigest) -> Option<ActionResult> {
         let path = self.ac_dir.join(&digest.hash);
         match Self::try_read_pb_file(&path).await {
@@ -56,26 +60,8 @@ impl LocalCache {
             .with_context(|| format!("push_action_result(): {path:?}"))
     }
 
-    pub async fn get_list_of_missing_output_files<'a>(
-        &self,
-        result: &'a ActionResult,
-    ) -> Vec<&'a OutputFile> {
-        let mut missing = Vec::with_capacity(result.output_files.len());
-        for file in &result.output_files {
-            if let Some(digest) = &file.digest {
-                if !self.is_blob_cached(digest).await {
-                    missing.push(file);
-                }
-            } else {
-                // TODO handle when reading ActionResult
-                warn!("OutputFile has no digest: {}", file.path);
-            }
-        }
-        missing
-    }
-
     pub async fn is_blob_cached(&self, digest: &Digest) -> bool {
-        let path = self.cas_dir.join(&digest.hash);
+        let path = self.cas_path(digest);
         if let Ok(metadata) = tokio::fs::metadata(&path).await {
             if !metadata.permissions().readonly() {
                 // readonly flag was removed - assume file was modified
@@ -98,35 +84,20 @@ impl LocalCache {
         }
     }
 
-    pub async fn move_output_file_into_cache(
-        &self,
-        sandbox_dir: Option<&PathBuf>,
-        out_dir: &PathBuf,
-        file: &OutputFile,
-    ) -> Result<PathBuf, anyhow::Error> {
-        let src = if let Some(sandbox_dir) = sandbox_dir {
-            sandbox_dir.join(out_dir).join(&file.path)
-        } else {
-            out_dir.join(&file.path)
-        };
-        if src.is_symlink() {
-            bail!("output file must not be a symlink: {:?}", src);
-        }
-        self.move_file_into_cache(&src, file.digest.as_ref().unwrap())
+    /// To be called before Self::move_file_into_cache() without mutex lock
+    pub async fn prepare_file_to_move(&self, src: &PathBuf) -> Result<(), anyhow::Error> {
+        set_file_readonly(src)
             .await
+            .with_context(|| format!("Error in set_readonly {src:?}"))
     }
 
+    /// Self::prepare_file_for_moving_to_cache() must have been called before
     pub async fn move_file_into_cache(
         &self,
         src: &PathBuf,
         digest: &Digest,
     ) -> Result<PathBuf, anyhow::Error> {
-        let dst = self.cas_dir.join(&digest.hash);
-        /* call set_file_readonly() before renaming, because is_blob_cached()
-         * might remove the file in between from another thread */
-        set_file_readonly(src)
-            .await
-            .with_context(|| format!("Error in set_readonly {src:?}"))?;
+        let dst = self.cas_path(digest);
         match tokio::fs::rename(src, &dst).await {
             Ok(()) => {}
             Err(e) => {
@@ -145,11 +116,8 @@ impl LocalCache {
         output_files: &Vec<OutputFile>,
         out_dir: &Path,
     ) -> Result<(), anyhow::Error> {
-        if out_dir.starts_with(&self.cas_dir) {
-            bail!("out_dir should not be within cas dir: {:?}", out_dir);
-        }
         for file in output_files {
-            let cas_path = self.cas_dir.join(&file.digest.as_ref().unwrap().hash);
+            let cas_path = self.cas_path(file.digest.as_ref().unwrap());
             let out_path = out_dir.join(&file.path);
             force_symlink(&cas_path, &out_path).await?;
         }
@@ -186,6 +154,7 @@ impl LocalCache {
 mod tests {
     use super::*;
     use crate::new_tmp_dir;
+    use std::time::Duration;
 
     #[tokio::test]
     async fn move_output_file_into_cache() {
@@ -194,11 +163,15 @@ mod tests {
         let dst_dir = new_tmp_dir!();
         let dst = dst_dir.join("file-in-cache");
         set_file_readonly(&src).await.unwrap();
+        let src_mtime = src.metadata().unwrap().modified().unwrap();
+        tokio::time::sleep(Duration::from_millis(1500)).await;
         tokio::fs::rename(&src, &dst).await.unwrap();
         assert!(tokio::fs::metadata(&dst)
             .await
             .unwrap()
             .permissions()
             .readonly());
+        let dst_mtime = dst.metadata().unwrap().modified().unwrap();
+        assert_eq!(dst_mtime, src_mtime);
     }
 }

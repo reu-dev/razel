@@ -1,27 +1,35 @@
-use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
-use crate::cache::{GrpcRemoteCache, LocalCache};
-use crate::{bazel_remote_exec, CacheHit};
-use anyhow::{bail, Context};
+use crate::bazel_remote_exec::{ActionResult, OutputFile};
+use crate::cache::{BlobDigest, GrpcRemoteCache, LocalCache, MessageDigest};
+use crate::CacheHit;
+use anyhow::{bail, Context, Error};
+use itertools::Itertools;
 use log::info;
-use sha2::Sha256;
-use std::fmt::Debug;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use tokio::fs::File;
-use tokio::io::{AsyncReadExt, BufReader};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tonic::transport::Uri;
 
 #[derive(Clone)] // TODO is Cache::clone() a good idea?
 pub struct Cache {
+    out_dir: PathBuf,
     local_cache: LocalCache,
     remote_cache: Option<GrpcRemoteCache>,
+    cas_states: Arc<Mutex<HashMap<String, CacheState>>>,
 }
 
 impl Cache {
-    pub fn new(workspace_dir: &Path) -> Result<Self, anyhow::Error> {
+    pub fn new(workspace_dir: &Path, out_dir: PathBuf) -> Result<Self, anyhow::Error> {
+        let local_cache =
+            LocalCache::new(workspace_dir).with_context(|| "Failed to create local cache")?;
+        if out_dir.starts_with(&local_cache.dir) {
+            bail!("out_dir should not be within cache dir: {:?}", out_dir);
+        }
         Ok(Self {
-            local_cache: LocalCache::new(workspace_dir)
-                .with_context(|| "Failed to create local cache")?,
+            out_dir: out_dir.clone(),
+            local_cache,
             remote_cache: None,
+            cas_states: Arc::new(Mutex::new(Default::default())),
         })
     }
 
@@ -55,214 +63,199 @@ impl Cache {
     }
 
     pub async fn get_action_result(
-        &self,
+        &mut self,
         digest: &MessageDigest,
         use_remote_cache: bool,
     ) -> Option<(ActionResult, CacheHit)> {
-        let (action_result, mut cache_hit) = if let Some(action_result) =
-            self.local_cache.get_action_result(digest).await
-        {
-            (action_result, CacheHit::Local)
-        } else if let Some(remote_cache) = self.remote_cache.as_ref().filter(|_| use_remote_cache) {
-            let x = remote_cache.get_action_result(digest.clone()).await?;
-            self.local_cache.push_action_result(digest, &x).await.ok()?;
-            (x, CacheHit::Remote)
-        } else {
+        let remote_cache = self.remote_cache.as_ref().filter(|_| use_remote_cache);
+        let (action_result, mut cache_hit) =
+            if let Some(x) = self.local_cache.get_action_result(digest).await {
+                (x, CacheHit::Local)
+            } else if let Some(remote_cache) = remote_cache {
+                let x = remote_cache.get_action_result(digest.clone()).await?;
+                self.local_cache.push_action_result(digest, &x).await.ok()?;
+                (x, CacheHit::Remote)
+            } else {
+                return None;
+            };
+        if action_result.output_files.is_empty() {
+            return Some((action_result, cache_hit));
+        }
+        let to_download = self.get_files_to_download(&action_result).await;
+        if to_download.is_empty() {
+            return Some((action_result, cache_hit));
+        }
+        let Some(remote_cache) = self.remote_cache.as_ref().filter(|_| use_remote_cache) else {
             return None;
         };
-        let missing_files = self
-            .local_cache
-            .get_list_of_missing_output_files(&action_result)
-            .await;
-        match (
-            missing_files.is_empty(),
-            self.remote_cache.as_ref().filter(|_| use_remote_cache),
-        ) {
-            (true, _) => Some((action_result, cache_hit)),
-            (false, None) => None,
-            (false, Some(remote_cache)) => {
-                let downloaded = remote_cache
-                    .download_and_store_blobs(&missing_files)
-                    .await
-                    .ok()?;
-                // store all downloaded files even if incomplete, might be used by other action
-                for (digest, path) in &downloaded {
-                    self.local_cache
-                        .move_file_into_cache(path, digest)
-                        .await
-                        .ok()?;
-                }
-                if downloaded.len() == missing_files.len() {
-                    if cache_hit == CacheHit::Local {
-                        cache_hit = CacheHit::Mixed;
-                    }
-                    Some((action_result, cache_hit))
-                } else {
-                    None
-                }
+        let downloaded = remote_cache
+            .download_and_store_blobs(&to_download)
+            .await
+            .ok()?;
+        if downloaded.is_empty() {
+            return None;
+        }
+        self.move_downloaded_files_to_cas(&downloaded).await.ok()?;
+        if cache_hit == CacheHit::Local {
+            cache_hit = CacheHit::Mixed;
+        }
+        (downloaded.len() == to_download.len()).then_some((action_result, cache_hit))
+    }
+
+    async fn move_downloaded_files_to_cas(
+        &mut self,
+        files: &Vec<(BlobDigest, PathBuf)>,
+    ) -> Result<(), Error> {
+        // store all downloaded files even if incomplete, might be used by other action
+        for (_, path) in files {
+            self.local_cache.prepare_file_to_move(path).await?;
+        }
+        let mut cas_states = self.cas_states.lock().await;
+        for (digest, path) in files {
+            let cas_state = cas_states
+                .entry(digest.hash.clone())
+                .or_insert(CacheState::New);
+            if *cas_state != CacheState::New {
+                continue;
             }
-        }
-    }
-
-    pub async fn push_action_result(
-        &self,
-        digest: &MessageDigest,
-        result: &ActionResult,
-        use_remote_cache: bool,
-    ) -> Result<(), anyhow::Error> {
-        if let Some(remote_cache) = self.remote_cache.as_ref().filter(|_| use_remote_cache) {
-            remote_cache.push_action_result(digest.clone(), result.clone());
-        }
-        self.local_cache.push_action_result(digest, result).await
-    }
-
-    pub async fn move_output_file_into_cache(
-        &self,
-        sandbox_dir: Option<&PathBuf>,
-        out_dir: &PathBuf,
-        file: &OutputFile,
-        use_remote_cache: bool,
-    ) -> Result<(), anyhow::Error> {
-        let cache_path = self
-            .local_cache
-            .move_output_file_into_cache(sandbox_dir, out_dir, file)
-            .await?;
-        if let Some(remote_cache) = self.remote_cache.as_ref().filter(|_| use_remote_cache) {
-            remote_cache.push_blob(file.digest.clone().unwrap(), cache_path);
+            self.local_cache.move_file_into_cache(path, digest).await?;
+            *cas_state = CacheState::DownloadedFromRemoteCache;
         }
         Ok(())
     }
 
+    async fn get_files_to_download<'a>(&mut self, result: &'a ActionResult) -> Vec<&'a OutputFile> {
+        let mut missing = Vec::with_capacity(result.output_files.len());
+        let mut cas_states = self.cas_states.lock().await;
+        for file in &result.output_files {
+            let Some(digest) = &file.digest else {
+                // TODO handle when reading ActionResult
+                panic!("OutputFile has no digest: {}", file.path);
+            };
+            if cas_states.contains_key(&digest.hash) {
+                continue;
+            }
+            if self.local_cache.is_blob_cached(digest).await {
+                cas_states.insert(digest.hash.clone(), CacheState::LocallyCached);
+            } else {
+                missing.push(file);
+            }
+        }
+        missing
+    }
+
+    pub async fn push(
+        &mut self,
+        message_digest: &MessageDigest,
+        action_result: &ActionResult,
+        sandbox_dir: Option<&PathBuf>,
+        use_remote_cache: bool,
+    ) -> Result<(), anyhow::Error> {
+        let files = self
+            .prepare_files_to_push(action_result, sandbox_dir)
+            .await?;
+        let remote_cache = self.remote_cache.as_ref().filter(|_| use_remote_cache);
+        self.local_cache
+            .push_action_result(message_digest, action_result)
+            .await?;
+        if let Some(remote_cache) = remote_cache {
+            remote_cache.push_action_result(message_digest.clone(), action_result.clone());
+        }
+        let mut cas_states = self.cas_states.lock().await;
+        for file in files {
+            let cas_state = cas_states
+                .entry(file.digest.hash.clone())
+                .or_insert(CacheState::New);
+            Self::push_file(&self.local_cache, remote_cache, file, cas_state).await?;
+        }
+        Ok(())
+    }
+
+    /// To be called before Self::push_file() without mutex lock
+    async fn prepare_files_to_push(
+        &self,
+        action_result: &ActionResult,
+        sandbox_dir: Option<&PathBuf>,
+    ) -> Result<Vec<PushFileData>, anyhow::Error> {
+        let files = action_result
+            .output_files
+            .iter()
+            .map(|file| PushFileData {
+                digest: file.digest.as_ref().unwrap().clone(),
+                out_path: sandbox_dir
+                    .map(|x| x.join(&self.out_dir).join(&file.path))
+                    .unwrap_or_else(|| self.out_dir.join(&file.path)),
+                cas_path: self.local_cache.cas_path(file.digest.as_ref().unwrap()),
+            })
+            .collect_vec();
+        for file in &files {
+            if file.out_path.is_symlink() {
+                bail!("output file must not be a symlink: {:?}", file.out_path);
+            }
+            self.local_cache
+                .prepare_file_to_move(&file.out_path)
+                .await?;
+        }
+        Ok(files)
+    }
+
+    async fn push_file(
+        local_cache: &LocalCache,
+        remote_cache: Option<&GrpcRemoteCache>,
+        file: PushFileData,
+        cas_state: &mut CacheState,
+    ) -> Result<(), Error> {
+        if *cas_state == CacheState::New {
+            local_cache
+                .move_file_into_cache(&file.out_path, &file.digest)
+                .await
+                .context("move_output_file_into_cache()")?;
+            *cas_state = CacheState::LocallyCreatedButNotUploaded;
+        }
+        if cas_state.is_upload_needed() {
+            if let Some(remote_cache) = remote_cache {
+                remote_cache.push_blob(file.digest, file.cas_path);
+                *cas_state = CacheState::LocallyCreatedAndUploaded;
+            }
+        }
+        Ok(())
+    }
+
+    // TODO integrate in other functions?
     pub async fn symlink_output_files_into_out_dir(
         &self,
         output_files: &Vec<OutputFile>,
-        out_dir: &Path,
     ) -> Result<(), anyhow::Error> {
         self.local_cache
-            .symlink_output_files_into_out_dir(output_files, out_dir)
+            .symlink_output_files_into_out_dir(output_files, &self.out_dir)
             .await
     }
 }
 
-pub type MessageDigest = Digest;
-pub type BlobDigest = Digest;
+#[derive(Debug, PartialEq, Eq)]
+enum CacheState {
+    New,
+    /// created or downloaded by another process
+    LocallyCached,
+    DownloadedFromRemoteCache,
+    LocallyCreatedButNotUploaded,
+    LocallyCreatedAndUploaded,
+}
 
-impl Digest {
-    pub async fn for_file(file: File) -> Result<BlobDigest, anyhow::Error> {
-        use sha2::Digest;
-        let mut reader = BufReader::new(file);
-        let mut hasher = Sha256::new();
-        let mut buffer = [0; 1024];
-        let mut len = 0;
-        loop {
-            let count = reader.read(&mut buffer).await?;
-            if count == 0 {
-                break;
-            }
-            hasher.update(&buffer[..count]);
-            len += count;
+impl CacheState {
+    fn is_upload_needed(&self) -> bool {
+        match *self {
+            CacheState::New => true,
+            CacheState::LocallyCached => false,
+            CacheState::DownloadedFromRemoteCache => false,
+            CacheState::LocallyCreatedButNotUploaded => true,
+            CacheState::LocallyCreatedAndUploaded => false,
         }
-        Ok(bazel_remote_exec::Digest {
-            hash: Self::hex(&hasher.finalize()),
-            size_bytes: len as i64,
-        })
-    }
-
-    pub async fn for_path(path: impl AsRef<Path> + Debug) -> Result<BlobDigest, anyhow::Error> {
-        let file = File::open(&path)
-            .await
-            .with_context(|| format!("Digest::for_path() {path:?}"))?;
-        Self::for_file(file)
-            .await
-            .with_context(|| format!("Digest::for_file(): {path:?}"))
-    }
-
-    pub fn for_bytes(bytes: impl AsRef<[u8]>) -> MessageDigest {
-        use sha2::Digest;
-        bazel_remote_exec::Digest {
-            hash: Self::hex(&Sha256::digest(bytes.as_ref())),
-            size_bytes: bytes.as_ref().len() as i64,
-        }
-    }
-
-    pub fn for_message<T: prost::Message>(msg: &T) -> MessageDigest {
-        Self::for_bytes(message_to_pb_buf(msg))
-    }
-
-    pub fn for_string(text: &String) -> MessageDigest {
-        Self::for_bytes(text.as_bytes())
-    }
-
-    fn hex(input: &[u8]) -> String {
-        base16ct::lower::encode_string(input)
     }
 }
 
-pub fn message_to_pb_buf<T: prost::Message>(msg: &T) -> Vec<u8> {
-    let mut vec = Vec::with_capacity(msg.encoded_len());
-    msg.encode(&mut vec).unwrap();
-    vec
-}
-
-#[cfg(test)]
-mod tests {
-    use sha2::Digest;
-
-    use super::*;
-
-    fn digest_file_sha256_simple(path: impl AsRef<Path>) -> Result<super::Digest, anyhow::Error> {
-        let bytes = std::fs::read(path)?;
-        Ok(super::Digest {
-            hash: super::Digest::hex(&Sha256::digest(&bytes)),
-            size_bytes: bytes.len() as i64,
-        })
-    }
-
-    #[tokio::test]
-    async fn digest_for_small_file() {
-        let path = "test/data/a.csv";
-        let act = super::Digest::for_path(&path).await.unwrap();
-        let exp = digest_file_sha256_simple(path).unwrap();
-        assert_eq!(act, exp);
-        // check vs: sha256sum test/data/a.csv line endings
-        if act.size_bytes == 18 {
-            // test/data/a.csv has CRLF
-            assert_eq!(
-                act,
-                super::Digest {
-                    hash: "11f5756d3300e967b28969ee86532fe891b0ea42e5ba843bc212fe444cf0f37d".into(),
-                    size_bytes: 18,
-                }
-            );
-        } else {
-            // test/data/a.csv has LF line endings
-            assert_eq!(
-                act,
-                super::Digest {
-                    hash: "e0f702d446912234e5767af1db3f8b23b04beade5cdd1ea72d78c4f88c869b80".into(),
-                    size_bytes: 16,
-                }
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn digest_for_bigger_file() {
-        let path = "Cargo.lock";
-        let act = super::Digest::for_path(&path).await.unwrap();
-        let exp = digest_file_sha256_simple(path).unwrap();
-        assert_eq!(act, exp);
-    }
-
-    #[test]
-    fn digest_for_string() {
-        assert_eq!(
-            super::Digest::for_string(&"Hello World!".into()),
-            super::Digest {
-                // echo -n "Hello World!" | sha256sum
-                hash: "7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069".into(),
-                size_bytes: 12,
-            }
-        );
-    }
+struct PushFileData {
+    digest: BlobDigest,
+    out_path: PathBuf,
+    cas_path: PathBuf,
 }

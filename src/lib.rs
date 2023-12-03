@@ -59,11 +59,13 @@ pub mod bazel_remote_exec {
 
 pub mod cache {
     pub use cache::*;
+    pub use digest::*;
     pub use local_cache::*;
     pub use remote_cache::*;
 
     #[allow(clippy::module_inception)]
     mod cache;
+    mod digest;
     mod local_cache;
     mod remote_cache;
 }
