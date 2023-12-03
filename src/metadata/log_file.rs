@@ -23,6 +23,8 @@ pub struct LogFileItem {
     /// actual duration of processing the command/task - including caching and overheads
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total: Option<f32>,
+    /// total size of all output files and stdout/stderr [bytes]
+    pub output_size: Option<u64>,
     #[serde(default, skip_serializing_if = "Map::is_empty")]
     pub measurements: Map<String, Value>,
 }
@@ -52,6 +54,7 @@ impl LogFile {
         &mut self,
         command: &Command,
         execution_result: &ExecutionResult,
+        output_size: Option<u64>,
         measurements: Map<String, Value>,
     ) {
         let custom_tags = command
@@ -69,6 +72,7 @@ impl LogFile {
             cache: execution_result.cache_hit,
             exec: execution_result.exec_duration.map(|x| x.as_secs_f32()),
             total: execution_result.total_duration.map(|x| x.as_secs_f32()),
+            output_size,
             measurements,
         });
     }
@@ -81,6 +85,7 @@ impl LogFile {
                 status,
                 ..Default::default()
             },
+            None,
             Default::default(),
         );
     }

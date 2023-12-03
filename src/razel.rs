@@ -1075,8 +1075,18 @@ impl Razel {
                 .measurements
                 .collect(&self.commands[id].name, execution_result);
             self.profile.collect(&self.commands[id], execution_result);
-            self.log_file
-                .push(&self.commands[id], execution_result, measurements);
+            let output_size = output_files
+                .iter()
+                .map(|x| x.digest.as_ref().unwrap().size_bytes as u64)
+                .sum::<u64>()
+                + execution_result.stdout.len() as u64
+                + execution_result.stderr.len() as u64;
+            self.log_file.push(
+                &self.commands[id],
+                execution_result,
+                Some(output_size),
+                measurements,
+            );
             if execution_result.success() {
                 self.set_output_file_digests(output_files);
                 self.on_command_succeeded(id, execution_result);
