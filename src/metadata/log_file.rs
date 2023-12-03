@@ -1,14 +1,15 @@
 use crate::executors::{ExecutionResult, ExecutionStatus};
 use crate::metadata::Tag;
 use crate::{CacheHit, Command};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::fmt::Debug;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct LogFileItem {
     pub name: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -26,14 +27,23 @@ pub struct LogFileItem {
     pub measurements: Map<String, Value>,
 }
 
+impl LogFileItem {
+    pub fn time_saved_by_cache(&self) -> Option<f32> {
+        match (self.cache, self.exec, self.total) {
+            (Some(_), Some(exec), Some(total)) => Some(exec - total),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Default, Deserialize, Serialize)]
 pub struct LogFile {
     pub items: Vec<LogFileItem>,
 }
 
 impl LogFile {
-    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let contents = fs::read(path)?;
+    pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<Self> {
+        let contents = fs::read(&path).with_context(|| format!("{path:?}"))?;
         let items = serde_json::from_slice(&contents)?;
         Ok(Self { items })
     }

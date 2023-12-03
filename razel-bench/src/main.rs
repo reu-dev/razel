@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use razel::cache::LocalCache;
-use serde::{Deserialize, Serialize};
+use razel_bench::types::{Bench, CacheState, BENCHES_OUT_DIR};
 use serde_json::Value;
 use std::fs;
 use std::fs::File;
@@ -12,7 +12,6 @@ use std::thread::sleep;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tracing::info;
 
-const BENCHES_OUT_DIR: &str = "benches";
 const REMOTE_CACHE_CONTAINER_NAME: &str = "razel-bench-remote-cache";
 const REMOTE_CACHE_GRPC_PORT: u16 = 9093;
 const REMOTE_CACHE_STATUS_PORT: u16 = 8081;
@@ -37,28 +36,6 @@ struct Cli {
     runs: usize,
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
-#[allow(clippy::enum_variant_names)]
-enum CacheState {
-    /// Local execution from scratch
-    LocalCold,
-    /// Local execution zero-check
-    LocalWarm,
-    /// CI execution from scratch
-    LocalColdRemoteCold,
-    /// CI execution on new node
-    LocalColdRemoteWarm,
-}
-
-impl CacheState {
-    fn is_remote_cache_used(&self) -> bool {
-        match self {
-            CacheState::LocalCold | CacheState::LocalWarm => false,
-            CacheState::LocalColdRemoteCold | CacheState::LocalColdRemoteWarm => true,
-        }
-    }
-}
-
 #[derive(Clone)]
 struct Config {
     title: String,
@@ -68,19 +45,10 @@ struct Config {
     remote_cache_host: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct Bench {
-    id: String,
-    title: String,
-    cache_state: CacheState,
-    timestamp: u128,
-    duration: f32,
-    remote_cache_stats_before: Option<Value>,
-    remote_cache_stats_after: Option<Value>,
-}
+struct Bencher {}
 
-impl Bench {
-    fn new(config: &Config, cache_state: CacheState) -> Result<Self> {
+impl Bencher {
+    pub fn bench(config: &Config, cache_state: CacheState) -> Result<Bench> {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -90,7 +58,7 @@ impl Bench {
         let duration = Self::run(config, cache_state)?.as_secs_f32();
         Self::move_log_file(&config.cwd, &id)?;
         let remote_cache_stats_after = Self::get_remote_cache_stats(config, &cache_state)?;
-        Ok(Self {
+        Ok(Bench {
             id,
             title: config.title.clone(),
             cache_state,
@@ -100,6 +68,7 @@ impl Bench {
             remote_cache_stats_after,
         })
     }
+
     fn run(config: &Config, cache_state: CacheState) -> Result<Duration> {
         let mut args = config.args.clone();
         if let Some(host) = config
@@ -205,17 +174,17 @@ fn main() -> Result<()> {
     for _ in 0..cli.runs {
         fs::remove_dir_all(&cache_dir).unwrap();
         fs::remove_dir_all(&out_dir).ok();
-        benches.push(Bench::new(&config, CacheState::LocalCold)?);
-        benches.push(Bench::new(&config, CacheState::LocalWarm)?);
+        benches.push(Bencher::bench(&config, CacheState::LocalCold)?);
+        benches.push(Bencher::bench(&config, CacheState::LocalWarm)?);
         if let Some(host) = &config.remote_cache_host {
             fs::remove_dir_all(&cache_dir).unwrap();
             fs::remove_dir_all(&out_dir).unwrap();
             stop_remote_cache(host);
             start_remote_cache(host);
-            benches.push(Bench::new(&config, CacheState::LocalColdRemoteCold)?);
+            benches.push(Bencher::bench(&config, CacheState::LocalColdRemoteCold)?);
             fs::remove_dir_all(&cache_dir).unwrap();
             fs::remove_dir_all(&out_dir).unwrap();
-            benches.push(Bench::new(&config, CacheState::LocalColdRemoteWarm)?);
+            benches.push(Bencher::bench(&config, CacheState::LocalColdRemoteWarm)?);
             stop_remote_cache(host);
         }
     }
