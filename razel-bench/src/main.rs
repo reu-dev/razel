@@ -4,8 +4,6 @@ use razel::cache::LocalCache;
 use razel_bench::types::{Bench, CacheState, BENCHES_OUT_DIR};
 use serde_json::Value;
 use std::fs;
-use std::fs::File;
-use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread::sleep;
@@ -54,19 +52,23 @@ impl Bencher {
             .unwrap()
             .as_millis();
         let id = format!("{}.{:?}.{timestamp}", config.title, cache_state);
+        let path = Path::new(BENCHES_OUT_DIR).join(format!("bench.{id}.summary.json"));
         let remote_cache_stats_before = Self::get_remote_cache_stats(config, &cache_state)?;
         let duration = Self::run(config, cache_state)?.as_secs_f32();
-        Self::move_log_file(&config.cwd, &id)?;
         let remote_cache_stats_after = Self::get_remote_cache_stats(config, &cache_state)?;
-        Ok(Bench {
+        let bench = Bench {
             id,
+            path,
             title: config.title.clone(),
             cache_state,
             timestamp,
             duration,
             remote_cache_stats_before,
             remote_cache_stats_after,
-        })
+        };
+        Self::move_log_file(&config.cwd, &bench.log_file_path())?;
+        bench.write()?;
+        Ok(bench)
     }
 
     fn run(config: &Config, cache_state: CacheState) -> Result<Duration> {
@@ -80,6 +82,7 @@ impl Bencher {
                 "--remote-cache=grpc://{host}:{REMOTE_CACHE_GRPC_PORT}"
             ));
         }
+        println!();
         info!(
             bin = config.bin.to_str().unwrap(),
             args = args.join(" "),
@@ -98,16 +101,17 @@ impl Bencher {
             "finished: {}s",
             duration.as_secs_f32()
         );
+        println!();
         assert!(status.success());
         Ok(duration)
     }
 
-    fn move_log_file(cwd: &Path, id: &str) -> Result<()> {
+    fn move_log_file(cwd: &Path, target: &Path) -> Result<()> {
         fs::rename(
             cwd.join("razel-out")
                 .join("razel-metadata")
                 .join("log.json"),
-            Path::new(BENCHES_OUT_DIR).join(format!("log.{id}.json")),
+            target,
         )?;
         Ok(())
     }
@@ -165,32 +169,22 @@ fn main() -> Result<()> {
             .collect(),
         remote_cache_host: cli.remote_cache_host,
     };
-    let benches_path = Path::new(BENCHES_OUT_DIR).join("benches.json");
-    let mut benches: Vec<Bench> = if benches_path.is_file() {
-        serde_json::from_reader(BufReader::new(File::open(&benches_path)?))?
-    } else {
-        vec![]
-    };
     for _ in 0..cli.runs {
         fs::remove_dir_all(&cache_dir).unwrap();
         fs::remove_dir_all(&out_dir).ok();
-        benches.push(Bencher::bench(&config, CacheState::LocalCold)?);
-        benches.push(Bencher::bench(&config, CacheState::LocalWarm)?);
+        Bencher::bench(&config, CacheState::LocalCold)?;
+        Bencher::bench(&config, CacheState::LocalWarm)?;
         if let Some(host) = &config.remote_cache_host {
             fs::remove_dir_all(&cache_dir).unwrap();
             fs::remove_dir_all(&out_dir).unwrap();
             stop_remote_cache(host);
             start_remote_cache(host);
-            benches.push(Bencher::bench(&config, CacheState::LocalColdRemoteCold)?);
+            Bencher::bench(&config, CacheState::LocalColdRemoteCold)?;
             fs::remove_dir_all(&cache_dir).unwrap();
             fs::remove_dir_all(&out_dir).unwrap();
-            benches.push(Bencher::bench(&config, CacheState::LocalColdRemoteWarm)?);
+            Bencher::bench(&config, CacheState::LocalColdRemoteWarm)?;
             stop_remote_cache(host);
         }
     }
-    fs::write(
-        benches_path,
-        serde_json::to_string_pretty(&benches).unwrap(),
-    )?;
     Ok(())
 }
