@@ -1766,7 +1766,7 @@ dependencies = [
 
 [[package]]
 name = "razel"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "approx",
@@ -1805,7 +1805,7 @@ dependencies = [
 
 [[package]]
 name = "razel-bench"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -1821,7 +1821,7 @@ dependencies = [
 
 [[package]]
 name = "razel-self-test"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "clap",
 ]
