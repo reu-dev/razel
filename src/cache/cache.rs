@@ -7,6 +7,7 @@ use log::info;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
 use tonic::transport::Uri;
 
@@ -15,6 +16,8 @@ pub struct Cache {
     out_dir: PathBuf,
     local_cache: LocalCache,
     remote_cache: Option<GrpcRemoteCache>,
+    /// Only cache commands with: output size / exec time < threshold [kilobyte / s]
+    remote_cache_threshold: Option<u32>,
     cas_states: Arc<Mutex<HashMap<String, CacheState>>>,
 }
 
@@ -29,6 +32,7 @@ impl Cache {
             out_dir: out_dir.clone(),
             local_cache,
             remote_cache: None,
+            remote_cache_threshold: None,
             cas_states: Arc::new(Mutex::new(Default::default())),
         })
     }
@@ -37,7 +41,11 @@ impl Cache {
         &self.local_cache.dir
     }
 
-    pub async fn connect_remote_cache(&mut self, urls: &Vec<String>) -> Result<(), anyhow::Error> {
+    pub async fn connect_remote_cache(
+        &mut self,
+        urls: &Vec<String>,
+        remote_cache_threshold: Option<u32>,
+    ) -> Result<(), anyhow::Error> {
         for url in urls {
             let uri: Uri = url
                 .parse()
@@ -49,6 +57,7 @@ impl Cache {
                 Some("grpc") => match GrpcRemoteCache::new(uri, &self.local_cache.dir).await {
                     Ok(x) => {
                         self.remote_cache = Some(x);
+                        self.remote_cache_threshold = remote_cache_threshold;
                         info!("connected to remote cache: {url}");
                         break;
                     }
@@ -88,6 +97,9 @@ impl Cache {
         let Some(remote_cache) = self.remote_cache.as_ref().filter(|_| use_remote_cache) else {
             return None;
         };
+        if self.is_output_size_above_remote_cache_threshold(&action_result) {
+            return None;
+        }
         let downloaded = remote_cache
             .download_and_store_blobs(&to_download)
             .await
@@ -154,12 +166,16 @@ impl Cache {
         let files = self
             .prepare_files_to_push(action_result, sandbox_dir)
             .await?;
-        let remote_cache = self.remote_cache.as_ref().filter(|_| use_remote_cache);
+        let mut remote_cache = self.remote_cache.as_ref().filter(|_| use_remote_cache);
         self.local_cache
             .push_action_result(message_digest, action_result)
             .await?;
         if let Some(remote_cache) = remote_cache {
             remote_cache.push_action_result(message_digest.clone(), action_result.clone());
+        }
+        if self.is_output_size_above_remote_cache_threshold(action_result) {
+            // just skip uploading to cas, ac upload is still useful, e.g. files might already be cached
+            remote_cache.take();
         }
         let mut cas_states = self.cas_states.lock().await;
         for file in files {
@@ -229,6 +245,41 @@ impl Cache {
         self.local_cache
             .symlink_output_files_into_out_dir(output_files, &self.out_dir)
             .await
+    }
+
+    fn is_output_size_above_remote_cache_threshold(&self, action_result: &ActionResult) -> bool {
+        let Some(threshold) = self.remote_cache_threshold else {
+            return false;
+        };
+        let Some(exec_duration) = action_result
+            .execution_metadata
+            .as_ref()
+            .and_then(|x| x.virtual_execution_duration.as_ref())
+            .map(|x| Duration::new(x.seconds as u64, x.nanos as u32).as_secs_f32())
+        else {
+            return false;
+        };
+        Self::get_output_size(action_result) as f32 / exec_duration > threshold as f32 * 1000.0
+    }
+
+    fn get_output_size(action_result: &ActionResult) -> u64 {
+        action_result
+            .output_files
+            .iter()
+            .map(|x| x.digest.as_ref().unwrap().size_bytes as u64)
+            .sum::<u64>()
+            + action_result
+                .stdout_digest
+                .as_ref()
+                .map_or(action_result.stdout_raw.len() as u64, |x| {
+                    x.size_bytes as u64
+                })
+            + action_result
+                .stderr_digest
+                .as_ref()
+                .map_or(action_result.stderr_raw.len() as u64, |x| {
+                    x.size_bytes as u64
+                })
     }
 }
 

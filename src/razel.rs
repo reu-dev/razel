@@ -334,8 +334,14 @@ impl Razel {
         }
     }
 
-    pub async fn connect_remote_cache(&mut self, urls: &Vec<String>) -> Result<(), anyhow::Error> {
-        self.cache.connect_remote_cache(urls).await
+    pub async fn connect_remote_cache(
+        &mut self,
+        urls: &Vec<String>,
+        remote_cache_threshold: Option<u32>,
+    ) -> Result<(), anyhow::Error> {
+        self.cache
+            .connect_remote_cache(urls, remote_cache_threshold)
+            .await
     }
 
     pub fn list_commands(&mut self) {

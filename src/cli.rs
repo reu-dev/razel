@@ -69,6 +69,9 @@ pub struct RunArgs {
     /// Comma seperated list of remote cache URLs
     #[clap(long, env = "RAZEL_REMOTE_CACHE", value_delimiter = ',')]
     pub remote_cache: Vec<String>,
+    /// Only cache commands with: output size / exec time < threshold [kilobyte / s]
+    #[clap(long, env = "RAZEL_REMOTE_CACHE_THRESHOLD", value_delimiter = ',')]
+    pub remote_cache_threshold: Option<u32>,
 }
 
 impl Default for RunArgs {
@@ -79,6 +82,7 @@ impl Default for RunArgs {
             verbose: true,
             group_by_tag: "group".to_string(),
             remote_cache: vec![],
+            remote_cache_threshold: None,
         }
     }
 }

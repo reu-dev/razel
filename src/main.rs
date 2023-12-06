@@ -33,7 +33,9 @@ async fn main() -> Result<(), anyhow::Error> {
             razel.list_commands();
         } else {
             if !run_args.remote_cache.is_empty() {
-                razel.connect_remote_cache(&run_args.remote_cache).await?;
+                razel
+                    .connect_remote_cache(&run_args.remote_cache, run_args.remote_cache_threshold)
+                    .await?;
             }
             let stats = razel
                 .run(
