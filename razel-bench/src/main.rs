@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use razel::cache::LocalCache;
 use razel_bench::types::{Bench, CacheState, BENCHES_OUT_DIR};
@@ -122,7 +122,9 @@ impl Bencher {
             .as_ref()
             .filter(|_| cache_state.is_remote_cache_used())
         {
-            Ok(Some(get_remote_cache_stats(host)?))
+            Ok(Some(get_remote_cache_stats(host).with_context(|| {
+                format!("get_remote_cache_stats({host})")
+            })?))
         } else {
             Ok(None)
         }
@@ -131,24 +133,32 @@ impl Bencher {
 
 fn start_remote_cache(host: &str) {
     let cmd = format!(
-        "podman run -d  -p {REMOTE_CACHE_STATUS_PORT}:8080 -p {REMOTE_CACHE_GRPC_PORT}:9092 --name {REMOTE_CACHE_CONTAINER_NAME} buchgr/bazel-remote-cache --max_size 10"
+        "podman run -d  -p {REMOTE_CACHE_STATUS_PORT}:8080 -p {REMOTE_CACHE_GRPC_PORT}:9092 --name {REMOTE_CACHE_CONTAINER_NAME} docker.io/buchgr/bazel-remote-cache --max_size 100"
     );
-    let status = Command::new("ssh").args([host, &cmd]).status().unwrap();
-    assert!(status.success());
-    sleep(Duration::from_secs(1));
+    exec("ssh", &vec![host.to_owned(), cmd]);
+    sleep(Duration::from_secs(2));
 }
 
 fn stop_remote_cache(host: &str) {
     let cmd = format!("podman rm --force --ignore {REMOTE_CACHE_CONTAINER_NAME}");
-    let status = Command::new("ssh").args([host, &cmd]).status().unwrap();
-    assert!(status.success());
+    exec("ssh", &vec![host.to_owned(), cmd]);
+    sleep(Duration::from_secs(1));
 }
 
 fn get_remote_cache_stats(host: &str) -> Result<Value> {
     let url = format!("http://{host}:{REMOTE_CACHE_STATUS_PORT}/status");
+    println!();
+    info!("get_remote_cache_stats: {url}");
     let body = reqwest::blocking::get(url)?.text()?;
     let data = serde_json::from_str(&body)?;
     Ok(data)
+}
+
+fn exec(program: &str, args: &Vec<String>) {
+    println!();
+    info!("exec: {program} {}", args.join(" "));
+    let status = Command::new(program).args(args).status().unwrap();
+    assert!(status.success(), "{status:?}");
 }
 
 fn main() -> Result<()> {
@@ -170,13 +180,13 @@ fn main() -> Result<()> {
         remote_cache_host: cli.remote_cache_host,
     };
     for _ in 0..cli.runs {
-        fs::remove_dir_all(&cache_dir).unwrap();
+        fs::remove_dir_all(&cache_dir).ok();
         fs::remove_dir_all(&out_dir).ok();
         Bencher::bench(&config, CacheState::LocalCold)?;
         Bencher::bench(&config, CacheState::LocalWarm)?;
         if let Some(host) = &config.remote_cache_host {
-            fs::remove_dir_all(&cache_dir).unwrap();
-            fs::remove_dir_all(&out_dir).unwrap();
+            fs::remove_dir_all(&cache_dir).ok();
+            fs::remove_dir_all(&out_dir).ok();
             stop_remote_cache(host);
             start_remote_cache(host);
             Bencher::bench(&config, CacheState::LocalColdRemoteCold)?;
