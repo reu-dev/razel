@@ -72,11 +72,13 @@ pub mod cache {
 
 pub mod executors {
     pub use custom_command::*;
+    pub use execution_result::*;
     pub use executor::*;
     pub use task::*;
     pub use wasi::*;
 
     mod custom_command;
+    mod execution_result;
     mod executor;
     mod task;
     mod wasi;

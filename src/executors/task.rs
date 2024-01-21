@@ -1,9 +1,8 @@
+use crate::executors::ExecutionResult;
 use async_trait::async_trait;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
-
-use crate::executors::ExecutionResult;
 
 pub type TaskFn = Arc<dyn Fn() -> Result<(), anyhow::Error> + Send + Sync>;
 
