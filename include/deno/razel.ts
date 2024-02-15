@@ -97,9 +97,28 @@ export class Razel {
         }
     }
 
+    async tryRun(args: string[] = ["exec"]): Promise<boolean> {
+        await this.writeRazelFile();
+        const razelBinaryPath = await findOrDownloadRazelBinary(Razel.version);
+        const cmd = [razelBinaryPath];
+        if (args.length > 0 && args[0] === 'exec') {
+            const razelFileRel = path.relative(Deno.cwd(), this.razelFile);
+            cmd.push(args[0], '-f', razelFileRel, ...args.slice(1));
+        } else {
+            cmd.push(...args);
+        }
+        console.log(cmd.join(" "));
+        const status = await Deno.run({cmd}).status();
+        return status.success;
+    }
+
     async writeRazelFile() {
         const json = this.commands.map(x => JSON.stringify(x.json()));
         await Deno.writeTextFile(this.razelFile, json.join('\n') + '\n');
+    }
+
+    clear() {
+        this.commands = [];
     }
 
     private add(command: Command): Command {
