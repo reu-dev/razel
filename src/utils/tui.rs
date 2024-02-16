@@ -229,7 +229,7 @@ impl TUI {
         );
     }
 
-    pub fn format_command_line(&self, args_with_executable: &Vec<String>) -> String {
+    pub fn format_command_line(&self, args_with_executable: &[String]) -> String {
         let mut iter = args_with_executable.iter().map(|x| {
             if x.is_empty() {
                 "\"\"".to_string()

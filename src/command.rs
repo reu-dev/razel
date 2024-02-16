@@ -90,7 +90,7 @@ impl CommandBuilder {
 
     pub fn inputs(
         &mut self,
-        paths: &Vec<String>,
+        paths: &[String],
         razel: &mut Razel,
     ) -> Result<Vec<PathBuf>, anyhow::Error> {
         self.inputs.reserve(paths.len());
@@ -122,7 +122,7 @@ impl CommandBuilder {
 
     pub fn outputs(
         &mut self,
-        paths: &Vec<String>,
+        paths: &[String],
         razel: &mut Razel,
     ) -> Result<Vec<PathBuf>, anyhow::Error> {
         self.outputs.reserve(paths.len());

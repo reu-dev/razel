@@ -231,7 +231,7 @@ impl GrpcRemoteCache {
     /// TODO replace asserts with proper error handling
     pub async fn download_and_store_blobs(
         &self,
-        files: &Vec<&OutputFile>,
+        files: &[&OutputFile],
     ) -> anyhow::Result<Vec<(BlobDigest, PathBuf)>> {
         assert!(!files.is_empty());
         if files

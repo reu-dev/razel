@@ -37,7 +37,7 @@ impl Rules {
 
     pub fn parse_command(
         &self,
-        command: &Vec<String>,
+        command: &[String],
     ) -> Result<Option<CommandFileArgIndices>, anyhow::Error> {
         let executable_stem: String = Path::new(command.first().unwrap())
             .file_stem()
@@ -146,7 +146,7 @@ impl Rule {
 
     pub fn parse_command(
         &self,
-        command: &Vec<String>,
+        command: &[String],
     ) -> Result<CommandFileArgIndices, anyhow::Error> {
         let mut command_files: CommandFileArgIndices = Default::default();
         let mut prev_option: Option<&Arg> = None;
