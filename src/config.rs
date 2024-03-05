@@ -15,7 +15,7 @@ pub static EXECUTABLE: &str = "razel";
 pub static OUT_DIR: &str = "razel-out";
 /// The prefix for using a param/response file as command args
 pub static RESPONSE_FILE_PREFIX: &str = "@";
-pub static SANDBOX_LINK_TYPE: LinkType = LinkType::Symlink;
+pub static SANDBOX_LINK_TYPE: LinkType = LinkType::Hardlink;
 pub static OUT_DIR_LINK_TYPE: LinkType = LinkType::Symlink;
 
 pub fn select_cache_dir(workspace_dir: &Path) -> Result<PathBuf, anyhow::Error> {
