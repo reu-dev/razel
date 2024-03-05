@@ -864,7 +864,7 @@ impl Razel {
         };
         if let Some(cache) = cache.as_ref().filter(|_| execution_result.success()) {
             cache
-                .symlink_output_files_into_out_dir(&output_files)
+                .link_output_files_into_out_dir(&output_files)
                 .await
                 .context("symlink_output_files_into_out_dir()")?;
         }

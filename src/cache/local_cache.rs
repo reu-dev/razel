@@ -8,8 +8,8 @@ use tokio::io::AsyncReadExt;
 
 use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
 use crate::cache::{message_to_pb_buf, BlobDigest, MessageDigest};
-use crate::config::select_cache_dir;
-use crate::{force_remove_file, force_symlink, set_file_readonly, write_gitignore};
+use crate::config::{select_cache_dir, LinkType};
+use crate::{force_remove_file, set_file_readonly, write_gitignore};
 
 #[derive(Clone)]
 pub struct LocalCache {
@@ -111,7 +111,7 @@ impl LocalCache {
         Ok(dst)
     }
 
-    pub async fn symlink_output_files_into_out_dir(
+    pub async fn link_output_files_into_out_dir(
         &self,
         output_files: &Vec<OutputFile>,
         out_dir: &Path,
@@ -119,7 +119,10 @@ impl LocalCache {
         for file in output_files {
             let cas_path = self.cas_path(file.digest.as_ref().unwrap());
             let out_path = out_dir.join(&file.path);
-            force_symlink(&cas_path, &out_path).await?;
+            match crate::config::OUT_DIR_LINK_TYPE {
+                LinkType::Hardlink => crate::force_hardlink(&cas_path, &out_path).await?,
+                LinkType::Symlink => crate::force_symlink(&cas_path, &out_path).await?,
+            }
         }
         Ok(())
     }

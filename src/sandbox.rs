@@ -1,4 +1,4 @@
-use crate::force_symlink;
+use crate::config::LinkType;
 use anyhow::Context;
 use std::path::{Path, PathBuf};
 use tokio::fs;
@@ -36,7 +36,10 @@ impl Sandbox {
             }
             let src = input;
             let dst = self.dir.join(input);
-            force_symlink(src, &dst).await?;
+            match crate::config::SANDBOX_LINK_TYPE {
+                LinkType::Hardlink => crate::force_hardlink(src, &dst).await?,
+                LinkType::Symlink => crate::force_symlink(src, &dst).await?,
+            }
         }
         for output in outputs {
             let output_abs = self.dir.join(output);

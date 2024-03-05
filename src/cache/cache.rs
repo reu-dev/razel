@@ -238,12 +238,12 @@ impl Cache {
     }
 
     // TODO integrate in other functions?
-    pub async fn symlink_output_files_into_out_dir(
+    pub async fn link_output_files_into_out_dir(
         &self,
         output_files: &Vec<OutputFile>,
     ) -> Result<(), anyhow::Error> {
         self.local_cache
-            .symlink_output_files_into_out_dir(output_files, &self.out_dir)
+            .link_output_files_into_out_dir(output_files, &self.out_dir)
             .await
     }
 
