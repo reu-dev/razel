@@ -19,6 +19,11 @@ const d = razel.addCommand('d.csv', 'cp', [a, razel.addOutputFile('d.csv')])
     .addTag('copy');
 d.ensureEqual(a);
 
+// add command to copy a file using a WASM module with WASI
+razel.addCommand('e.csv', 'bin/wasm32-wasi/cp.wasm', [d, razel.addOutputFile('e.csv')])
+    .addTag('copy')
+    .ensureEqual(a);
+
 // add command that will always be executed without caching
 razel.addCommand('cmake-sleep', 'cmake', ['-E', 'sleep', '0.010'])
     .addTag(Razel.Tag.NoCache);

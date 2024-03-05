@@ -193,17 +193,17 @@ mod main {
         test_main(
             vec![config::EXECUTABLE, "exec", "-f", "test/batch.sh"],
             SchedulerExecStats {
-                succeeded: 7,
+                succeeded: 9,
                 ..Default::default()
             },
-            7,
+            9,
             None,
         )
         .await;
     }
 
-    const RAZEL_JSONL_EXP_SUCCEEDED: usize = 9;
-    const RAZEL_JSONL_EXP_CACHED: usize = 7;
+    const RAZEL_JSONL_EXP_SUCCEEDED: usize = 11;
+    const RAZEL_JSONL_EXP_CACHED: usize = 9;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
     #[serial]

@@ -22,6 +22,11 @@ d = razel.add_command('d.csv', 'cp', [a, razel.add_output_file('d.csv')]) \
     .add_tag('copy')
 d.ensure_equal(a)
 
+# add command to copy a file using a WASM module with WASI
+razel.add_command('e.csv', 'bin/wasm32-wasi/cp.wasm', [d, razel.add_output_file('e.csv')]) \
+    .add_tag('copy') \
+    .ensure_equal(a)
+
 # add command that will always be executed without caching
 razel.add_command('cmake-sleep', 'cmake', ['-E', 'sleep', '0.010']) \
     .add_tag(Razel.Tag.NO_CACHE)
