@@ -11,7 +11,7 @@ pub async fn is_file_executable(file: &File) -> Result<bool, anyhow::Error> {
 }
 
 #[cfg(not(target_family = "unix"))]
-pub async fn is_file_executable(file: &File) -> Result<bool, anyhow::Error> {
+pub async fn is_file_executable(_file: &File) -> Result<bool, anyhow::Error> {
     Ok(false)
 }
 
