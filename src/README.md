@@ -2,28 +2,11 @@
 
 ### Terminology
 
-TODO: sync with bazel?
-
-* workspace
-* build file
+* build file: `razel.jsonl`
+* workspace: parent of `razel.jsonl`, used to resolve relative paths
 * command/task (bazel: rule)
-* input: (bazel: source/data file)
-* output: (bazel: generated file)
-
-### Paths
-
-* `razel-out`: create in cwd
-* workspace dir: used to resolve relative paths
-    * cwd?
-    * or commands file dir? could be multiple?
-
-* paths used to execute commands: should equal original command?
-* paths shown to user for debugging, should be easy to reproduce
-
-| Executor      | cwd                      | executable | data              | non-data inputs                 | outputs                   |
-|---------------|--------------------------|------------|-------------------|---------------------------------|---------------------------|
-| CustomCommand | command specific tmp dir | symlink    | rel path, symlink | `razel-out/`, rel path, symlink | `razel-out/`, copied back |
-| Task          | -                        | -          | rel path          | `razel-out/`, rel path          | `razel-out/`              |
+* input (bazel: source/data file)
+* output (bazel: generated file)
 
 ### Dependency graph
 
@@ -40,25 +23,19 @@ dependencies:
     * check that output files are within workspace (all outputs should be put in `razel-out` dir)
     * check that a file is not used as output of multiple commands
 2. create dependency graph
-    * check for circular dependencies
+    * check for circular dependencies (TODO)
 3. check inputs
     * data files must be readable
     * executables must be readable and executable
 4. cleanup `razel-out`
     * remove all files which are no outputs, e.g. created by previous build with different build file
 5. execute commands/tasks
-
-### Cache
-
-cache key:
-
-* command: executable
-* task: razel version
-* command/task: command line and input files
-
-### Thread pool
-
-options:
-
-* [rayon](https://github.com/rayon-rs/rayon)
-    * work stealing won't work for blocking I/O: https://github.com/rayon-rs/rayon/issues/779
+    1. create `ActionDigest` on `Action` serialized to pb
+    2. get `ActionResult` from local ac cache (read pb file)
+        * if exists and all `ActionResult::output_files` exist in local cas cache => cache hit
+    3. request `ActionResult` from remote ac cache
+        * if received, query missing blobs from `ActionResult::output_files`
+        * store `ActionResult` and received blobs in local cache
+        * if blobs are all received => cache hit
+    4. if cache miss: execute action and push to cache
+    5. link output files from local cache to `razel-out`

@@ -10,7 +10,9 @@
 
 A command executor with caching. It is:
 
-* Fast: caching avoids repeated execution of commands which haven't changed
+* Fast: commands are executed multithreaded and local caching speeds up trial and error development (avoids repeated
+  execution of commands which have been processed before)
+* Scalable: optional remote caching allows sharing results between CI jobs
 * Reliable: commands are executed in a sandbox to detect missing dependencies
 * Easy to use: commands are specified using a high-level TypeScript or Python API and convenience functions/tasks are
   built-in
@@ -29,7 +31,7 @@ and provide a `run()` function which creates the `razel.jsonl` file, downloads t
 and uses it to execute the commands.
 
 Paths of inputs files are relative to the workspace (directory of `razel.jsonl`). Output files are created
-in `<cwd>/razel-out`.
+in `<cwd>/razel-out`. Additional metadata is written to `<cwd>/razel-out/razel-metadata`.
 
 ### TypeScript API
 
@@ -71,50 +73,21 @@ podman run -t -v $PWD:$PWD -w $PWD denoland/deno deno run -A examples/deno.ts
 
 ### Building Razel from source
 
-Use [rustup](https://rustup.rs/) to install Rust. Install `protobuf-compiler`. Then run `cargo install razel`.
+Use [rustup](https://rustup.rs/) to install Rust. Install `protobuf-compiler`. Then run `cargo install --locked razel`.
 
 ## Project Status
 
-Razel is in active development and **not** ready for production. CLI and format of `razel.jsonl` will likely change.
+Razel is in active development and used in production.
 
-| OS      | Status | Note                              |
-|---------|--------|-----------------------------------|
-| Linux   | ✓      | stable, main development platform |
-| Mac     | ✓      | used and tested in CI             |
-| Windows | (✓)    | tested in CI only                 |
-
-| Feature                                   | Status  | Note                                                       |
-|-------------------------------------------|---------|------------------------------------------------------------|
-| command execution in sandbox              | ✓       |                                                            |
-| multithreaded execution                   | ✓       |                                                            |
-| local caching                             | ✓       |                                                            |
-| remote caching                            | ✘       | WIP                                                        |
-| remote execution                          | ✘       | TODO                                                       |
-| OOM handling: retry with less concurrency | ✓ Linux | requires `sudo cgcreate -a $USER -t $USER -g memory:razel` |
-
-## Why not ...?
-
-* [Bazel](https://bazel.build/) is a multi-language build tool. However, for the use case Razel targets, there are some
-  issues:
-    * additional launcher script required for some simple tasks
-        * using stdout of action as input for another action
-        * parsing measurements from stdout of action
-        * CTest features like FAIL_REGULAR_EXPRESSION, WILL_FAIL
-    * difficult to get command lines for debugging
-    * no automatic disk usage limit/cleanup for local cache - all temp output needs to fit on disk
-    * no native support for response files
-    * resources cannot be reserved to run real-time critical tests
-    * content of bazel-bin/out directories is not defined (contains mixture of current build and cache)
-* [CTest](https://cmake.org/cmake/help/latest/manual/ctest.1.html) is nice for building C/C++ code and CTest can be used
-  for testing,
-  but it does not support caching and managing dependencies between tests is difficult.
+CLI and format of `razel.jsonl` will likely change, same for output in `razel-out/razel-metadata`.
+While Linux is the main development platform, Razel is also tested on Mac and Windows.
 
 ## Features
 
 ### Measurements
 
 Razel parses the stdout of executed commands to capture runtime measurements and writes them
-to `razel-out/razel-metadata/measurements.csv`.
+to `razel-out/razel-metadata/log.json` and `razel-out/razel-metadata/measurements.csv`.
 Currently, the `<CTestMeasurement>` and `<DartMeasurement>` tags as used
 by [CTest/CDash](https://cmake.org/cmake/help/latest/command/ctest_test.html#additional-test-measurements) are
 supported:
@@ -141,18 +114,57 @@ Tags with `razel:` prefix are reserved and have special meaning:
 - `razel:no-remote-cache`: don't use remote cache
 - `razel:no-sandbox`: disable sandbox and also cache - for commands with unspecified input/output files
 
-### Conditional execution / Skipping command
+### Conditional execution / Skipping commands
 
 Commands can be skipped based on the execution result of another command. Set the `razel:condition` tag on a command
 and use that one as dependency for other commands.
+
+### WebAssembly
+
+Razel has a WebAssembly runtime integrated and can directly execute WASM modules
+using [WebAssembly System Interface (WASI)](https://wasi.dev/).
+
+WebAssembly is a perfect fit to create portable data processing pipelines with Razel.
+Just a single WebAssembly module is needed to run - and create bit-exact output - on all platforms.
+WebAssembly execution is slower than native binaries, but startup time might be faster (no process overhead).
 
 ### Param/Response files
 
 Commands with huge number of arguments might result in command lines which are too long to be executed by the OS.
 Razel detects those cases and replaces the arguments with a response file. The filename starts with @.
 
+### Out of memory (OOM) handling
+
+If a process is killed by the OS, the command and similar ones will be retried with less concurrency to reduce the
+total memory usage. (Doesn't work in K8s because the whole pod is killed.)
+
+### Remote Caching
+
+Razel supports remote caching compatible to
+[Bazel Remote Execution API](https://github.com/bazelbuild/remote-apis/blob/main/build/bazel/remote/execution/v2/remote_execution.proto).
+Remote execution is not yet implemented.
+
+Use `--remote-cache` (`RAZEL_REMOTE_CACHE`) to specify a comma seperated list of remote cache URLs.
+The first available one will be used.
+Optionally `--remote-cache-threshold` (`REMOTE_CACHE_THRESHOLD`) can be set to only cache commands with
+`outputSize / execTime < threshold [kilobyte / s]`. If your remote cache doesn't have unlimited storage capacity,
+this can drastically speed up execution because quick commands with large output files will no longer be cached,
+providing more storage for expensive commands.
+
+The following remote cache implementations are tested with Razel:
+
+* [bazel-remote-cache](https://github.com/buchgr/bazel-remote)
+    - run with `podman run -p 9092:9092 buchgr/bazel-remote-cache --max_size 10`
+    - call razel with `RAZEL_REMOTE_CACHE=grpc://localhost:9092`
+* [nativelink](https://github.com/TraceMachina/nativelink)
+    - run with instance_name `main` on port 50051:
+        ```
+        mkdir -p nativelink-config
+        curl https://raw.githubusercontent.com/TraceMachina/nativelink/main/nativelink-config/examples/basic_cas.json --output nativelink-config/basic_cas.json
+        podman run -p 50051:50051 -v $PWD/nativelink-config:/nativelink-config:ro ghcr.io/tracemachina/nativelink:v0.2.0 /nativelink-config/basic_cas.json
+        ```
+    - call razel with `RAZEL_REMOTE_CACHE=grpc://localhost:50051/main`
+
 ## Acknowledgements
 
-The idea to build fast and correct is based on [Bazel](https://bazel.build/). Razel uses data structures from
-the [Bazel Remote Execution API](https://github.com/bazelbuild/remote-apis/blob/main/build/bazel/remote/execution/v2/remote_execution.proto)
-for caching.
+The idea to build fast and correct is based on [Bazel](https://bazel.build/). 
