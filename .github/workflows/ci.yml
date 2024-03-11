@@ -22,7 +22,7 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --bins --tests
       - run: pip install mypy
-      - run: mypy include/python/razel.py
+      - run: mypy apis/python/razel.py
 
   tests:
     name: Test ${{ matrix.os }}
@@ -49,7 +49,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: .deno-cache/deps
-          key: ${{ runner.os }}-deno-${{ hashFiles('include/deno/razel.ts', 'examples/deno.ts') }}
+          key: ${{ runner.os }}-deno-${{ hashFiles('apis/deno/razel.ts', 'examples/deno.ts') }}
 
       - uses: Swatinem/rust-cache@v2
 
@@ -78,5 +78,5 @@ jobs:
           python-version: 3.8
       - run: python3 examples/python.py
         env:
-          PYTHONPATH: include/python
+          PYTHONPATH: apis/python
       - run: git diff --exit-code examples/razel.jsonl

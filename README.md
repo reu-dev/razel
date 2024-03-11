@@ -33,7 +33,7 @@ in `<cwd>/razel-out`.
 
 ### TypeScript API
 
-Install [Deno](https://deno.land/) to use the [TypeScript API](include/deno/razel.ts).
+Install [Deno](https://deno.land/) to use the [TypeScript API](apis/deno/razel.ts).
 Run the [example Deno script](examples/deno.ts):
 
 ```bash
@@ -42,7 +42,7 @@ deno run -A --check examples/deno.ts -- -v
 
 ### Python API
 
-The [Python API](include/python/razel.py) requires Python >= 3.8.
+The [Python API](apis/python/razel.py) requires Python >= 3.8.
 Install the package and run the [example Python script](examples/python.py):
 
 ```bash

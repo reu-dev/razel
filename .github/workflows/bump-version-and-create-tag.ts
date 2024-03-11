@@ -23,8 +23,8 @@ async function updateVersionInApis(oldVersion: string, newVersion: string) {
     assert(!oldVersion.startsWith('v'));
     assert(!newVersion.startsWith('v'));
     for (const [file, matcher] of [
-        ["include/deno/razel.ts", `version = "${oldVersion}"`],
-        ["include/python/razel.py", `version: ClassVar.str. = "${oldVersion}"`],
+        ["apis/deno/razel.ts", `version = "${oldVersion}"`],
+        ["apis/python/razel.py", `version: ClassVar.str. = "${oldVersion}"`],
         ["examples/deno.ts", `razel@v${oldVersion}`],
         ["deno.json", `razel@v${oldVersion}`],
     ]) {
