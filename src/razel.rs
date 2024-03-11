@@ -774,8 +774,7 @@ impl Razel {
         let command = &self.commands[id];
         assert_eq!(command.schedule_state, ScheduleState::Ready);
         assert_eq!(command.unfinished_deps.len(), 0);
-        let action = self.get_bzl_action_for_command(command);
-        let action_digest = Digest::for_message(&action);
+        let (bzl_command, bzl_input_root) = self.get_bzl_action_for_command(command);
         let no_cache_tag = command.tags.contains(&Tag::NoCache);
         let no_sandbox_tag = command.tags.contains(&Tag::NoSandbox);
         let cache = (!no_cache_tag).then(|| self.cache.clone());
@@ -789,6 +788,12 @@ impl Razel {
         let cgroup = self.cgroup.clone();
         let out_dir = self.out_dir.clone();
         tokio::task::spawn(async move {
+            let action = bazel_remote_exec::Action {
+                command_digest: Some(Digest::for_message(&bzl_command)),
+                input_root_digest: Some(Digest::for_message(&bzl_input_root)),
+                ..Default::default()
+            };
+            let action_digest = Digest::for_message(&action);
             let (mut execution_result, output_files) = Self::exec_action(
                 &action_digest,
                 cache,
@@ -1170,7 +1175,10 @@ impl Razel {
         }
     }
 
-    fn get_bzl_action_for_command(&self, command: &Command) -> bazel_remote_exec::Action {
+    fn get_bzl_action_for_command(
+        &self,
+        command: &Command,
+    ) -> (bazel_remote_exec::Command, bazel_remote_exec::Directory) {
         let bzl_command = bazel_remote_exec::Command {
             arguments: command.executor.args_with_executable(),
             environment_variables: command
@@ -1214,11 +1222,7 @@ impl Razel {
             symlinks: vec![],
             node_properties: None,
         };
-        bazel_remote_exec::Action {
-            command_digest: Some(Digest::for_message(&bzl_command)),
-            input_root_digest: Some(Digest::for_message(&bzl_input_root)),
-            ..Default::default()
-        }
+        (bzl_command, bzl_input_root)
     }
 
     fn push_logs_for_not_started_commands(&mut self) {
