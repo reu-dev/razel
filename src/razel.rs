@@ -207,11 +207,12 @@ impl Razel {
 
     pub fn show_info(&self) {
         println!(
-            "output directory: {:?}",
+            "output directory:  {:?}",
             self.current_dir.join(&self.out_dir)
         );
-        println!("cache directory:  {:?}", self.cache.dir());
-        println!("worker threads:   {}", self.worker_threads);
+        println!("cache directory:   {:?}", self.cache.dir());
+        println!("sandbox directory: {:?}", self.sandbox_dir);
+        println!("worker threads:    {}", self.worker_threads);
     }
 
     #[allow(clippy::too_many_arguments)]
