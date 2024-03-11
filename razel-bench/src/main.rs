@@ -166,7 +166,8 @@ fn main() -> Result<()> {
 
     let cli = Cli::parse();
     fs::create_dir_all(BENCHES_OUT_DIR)?;
-    let workspace_dir = cli.file.parent().unwrap();
+    let file_abs = cli.file.canonicalize().unwrap();
+    let workspace_dir = file_abs.parent().unwrap();
     let out_dir = workspace_dir.join("razel-out");
     let cache_dir = LocalCache::new(workspace_dir).unwrap().dir;
     let config = Config {
