@@ -383,7 +383,7 @@ impl Razel {
     ) -> Result<SchedulerStats, anyhow::Error> {
         let preparation_start = Instant::now();
         if self.commands.is_empty() {
-            bail!("no commands added");
+            bail!("No commands added");
         }
         self.tui.verbose = verbose;
         Sandbox::cleanup(&self.sandbox_dir);
@@ -999,7 +999,7 @@ impl Razel {
         for path in output_paths {
             let output_file = Self::new_output_file_with_digest(sandbox_dir, out_dir, path)
                 .await
-                .context("new_output_file_with_digest()")?;
+                .context("Failed to read output file")?;
             output_files.push(output_file);
         }
         Ok(output_files)
@@ -1014,7 +1014,7 @@ impl Razel {
             .as_ref()
             .map_or(exec_path.clone(), |x| x.join(exec_path));
         if src.is_symlink() {
-            bail!("output file must not be a symlink: {:?}", src);
+            bail!("Output file must not be a symlink: {:?}", src);
         }
         let file = tokio::fs::File::open(&src)
             .await
@@ -1027,7 +1027,7 @@ impl Razel {
             .with_context(|| format!("Digest::for_file(): {src:?}"))?;
         let path = exec_path.strip_prefix(out_dir).unwrap_or(exec_path);
         if !path.is_relative() {
-            bail!("path should be relative: {:?}", path);
+            bail!("Path should be relative: {:?}", path);
         }
         Ok(OutputFile {
             path: path.to_str().unwrap().into(),
