@@ -182,7 +182,7 @@ mod tests {
     use crate::tasks::ensure_equal;
     use std::fs;
 
-    static CP_MODULE_PATH: &str = "test/bin/wasm32-wasi/cp.wasm";
+    static CP_MODULE_PATH: &str = "examples/bin/wasm32-wasi/cp.wasm";
     static SRC_PATH: &str = "src-file";
     static DST_PATH: &str = "dst-file";
     const SOURCE_CONTENTS: &str = "SOURCE_CONTENTS";

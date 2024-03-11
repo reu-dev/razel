@@ -25,7 +25,7 @@ async function updateVersionInApis(oldVersion: string, newVersion: string) {
     for (const [file, matcher] of [
         ["include/deno/razel.ts", `version = "${oldVersion}"`],
         ["include/python/razel.py", `version: ClassVar.str. = "${oldVersion}"`],
-        ["test/deno.ts", `razel@v${oldVersion}`],
+        ["examples/deno.ts", `razel@v${oldVersion}`],
         ["deno.json", `razel@v${oldVersion}`],
     ]) {
         const content = Deno.readTextFileSync(file);

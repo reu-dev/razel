@@ -83,13 +83,13 @@ mod tests {
 
     #[tokio::test]
     async fn digest_for_small_file() {
-        let path = "test/data/a.csv";
+        let path = "examples/data/a.csv";
         let act = super::Digest::for_path(&path).await.unwrap();
         let exp = digest_file_sha256_simple(path).unwrap();
         assert_eq!(act, exp);
-        // check vs: sha256sum test/data/a.csv line endings
+        // check vs: sha256sum examples/data/a.csv line endings
         if act.size_bytes == 18 {
-            // test/data/a.csv has CRLF
+            // examples/data/a.csv has CRLF
             assert_eq!(
                 act,
                 super::Digest {
@@ -98,7 +98,7 @@ mod tests {
                 }
             );
         } else {
-            // test/data/a.csv has LF line endings
+            // examples/data/a.csv has LF line endings
             assert_eq!(
                 act,
                 super::Digest {

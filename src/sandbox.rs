@@ -93,8 +93,8 @@ mod tests {
         let base_dir = new_tmp_dir!();
         test_sandbox(
             base_dir.dir(),
-            "test/data/a.csv".into(),
-            "test/data/output-file.txt".into(),
+            "examples/data/a.csv".into(),
+            "examples/data/output-file.txt".into(),
         )
         .await;
     }

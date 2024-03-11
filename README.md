@@ -21,32 +21,33 @@ dependencies.
 
 ## Getting Started
 
-The native input format for Razel is a `razel.jsonl` file, see the example [test/razel.jsonl](test/razel.jsonl).
-It can be run with `razel exec -f test/razel.jsonl`.
+The native input format for Razel is a `razel.jsonl` file, see the example [examples/razel.jsonl](examples/razel.jsonl).
+It can be run with `razel exec -f examples/razel.jsonl`.
 
 The preferred way is to use one of the high-level APIs. Both allow specifying the commands in an object-oriented style
 and provide a `run()` function which creates the `razel.jsonl` file, downloads the native `razel` binary
 and uses it to execute the commands.
 
-Paths of inputs files are relative to the workspace (directory of `razel.jsonl`). Output files are created in `<cwd>/razel-out`.
+Paths of inputs files are relative to the workspace (directory of `razel.jsonl`). Output files are created
+in `<cwd>/razel-out`.
 
 ### TypeScript API
 
 Install [Deno](https://deno.land/) to use the [TypeScript API](include/deno/razel.ts).
-Run the [example Deno script](test/deno.ts):
+Run the [example Deno script](examples/deno.ts):
 
 ```bash
-deno run -A --check test/deno.ts -- -v
+deno run -A --check examples/deno.ts -- -v
 ```
 
 ### Python API
 
 The [Python API](include/python/razel.py) requires Python >= 3.8.
-Install the package and run the [example Python script](test/python.py):
+Install the package and run the [example Python script](examples/python.py):
 
 ```bash
 pip install --upgrade razel
-python test/python.py -v
+python examples/python.py -v
 ```
 
 ### Batch file (experimental)
@@ -54,23 +55,23 @@ python test/python.py -v
 In addition to `razel.jsonl`, Razel can directly execute a batch file containing commands.
 Input and output files need to be specified, which is WIP.
 
-Execute the example [test/batch.sh](test/batch.sh) with Razel:
+Execute the example [examples/batch.sh](examples/batch.sh) with Razel:
 
 ```bash
-razel exec -f test/batch.sh
+razel exec -f examples/batch.sh
 ```
 
 ### Running in Docker/Podman container
 
 The workspace directory can be mounted into a container:
+
 ```bash
-podman run -t -v $PWD:$PWD -w $PWD denoland/deno deno run -A test/deno.ts
+podman run -t -v $PWD:$PWD -w $PWD denoland/deno deno run -A examples/deno.ts
 ```
 
 ### Building Razel from source
 
 Use [rustup](https://rustup.rs/) to install Rust. Install `protobuf-compiler`. Then run `cargo install razel`.
-
 
 ## Project Status
 
@@ -112,24 +113,30 @@ Razel is in active development and **not** ready for production. CLI and format 
 
 ### Measurements
 
-Razel parses the stdout of executed commands to capture runtime measurements and writes them to `razel-out/razel-metadata/measurements.csv`.
-Currently, the `<CTestMeasurement>` and `<DartMeasurement>` tags as used by [CTest/CDash](https://cmake.org/cmake/help/latest/command/ctest_test.html#additional-test-measurements) are supported:
+Razel parses the stdout of executed commands to capture runtime measurements and writes them
+to `razel-out/razel-metadata/measurements.csv`.
+Currently, the `<CTestMeasurement>` and `<DartMeasurement>` tags as used
+by [CTest/CDash](https://cmake.org/cmake/help/latest/command/ctest_test.html#additional-test-measurements) are
+supported:
+
 ```
 <CTestMeasurement type="numeric/double" name="score">12.3</CTestMeasurement>
 <CTestMeasurement type="text/string" name="result">ok</CTestMeasurement>
 ```
+
 Supporting custom formats is planned.
 
 ### Tags
 
 Tags can be set on commands. Any custom string can be used as tag, a colon should be used for grouping.
 The tags are added to `razel-out/razel-metadata/execution_times.json`.
-Using tags for filtering commands and creating reports is planned. 
+Using tags for filtering commands and creating reports is planned.
 
 Tags with `razel:` prefix are reserved and have special meaning:
+
 - `razel:quiet`: don't be verbose if command succeeded
 - `razel:verbose`: always show verbose output
-- `razel:condition`: keep running and don't be verbose if command failed        
+- `razel:condition`: keep running and don't be verbose if command failed
 - `razel:no-cache`: always execute a command without caching
 - `razel:no-remote-cache`: don't use remote cache
 - `razel:no-sandbox`: disable sandbox and also cache - for commands with unspecified input/output files
@@ -137,7 +144,7 @@ Tags with `razel:` prefix are reserved and have special meaning:
 ### Conditional execution / Skipping command
 
 Commands can be skipped based on the execution result of another command. Set the `razel:condition` tag on a command
-and use that one as dependency for other commands. 
+and use that one as dependency for other commands.
 
 ### Param/Response files
 

@@ -153,8 +153,8 @@ mod main {
                 config::EXECUTABLE,
                 "task",
                 "ensure-not-equal",
-                "test/data/a.csv",
-                "test/data/f.csv",
+                "examples/data/a.csv",
+                "examples/data/f.csv",
             ],
             SchedulerExecStats {
                 succeeded: 1,
@@ -174,8 +174,8 @@ mod main {
                 config::EXECUTABLE,
                 "task",
                 "ensure-equal",
-                "test/data/a.csv",
-                "test/data/f.csv",
+                "examples/data/a.csv",
+                "examples/data/f.csv",
             ],
             SchedulerExecStats {
                 failed: 1,
@@ -191,7 +191,7 @@ mod main {
     #[serial]
     async fn exec_batch_sh() {
         test_main(
-            vec![config::EXECUTABLE, "exec", "-f", "test/batch.sh"],
+            vec![config::EXECUTABLE, "exec", "-f", "examples/batch.sh"],
             SchedulerExecStats {
                 succeeded: 9,
                 ..Default::default()
@@ -209,7 +209,7 @@ mod main {
     #[serial]
     async fn exec_razel_jsonl() {
         test_main(
-            vec![config::EXECUTABLE, "exec", "-f", "test/razel.jsonl"],
+            vec![config::EXECUTABLE, "exec", "-f", "examples/razel.jsonl"],
             SchedulerExecStats {
                 succeeded: RAZEL_JSONL_EXP_SUCCEEDED,
                 ..Default::default()
@@ -224,7 +224,7 @@ mod main {
     #[serial]
     async fn exec_razel_jsonl_with_no_cache_tag() {
         test_main(
-            vec![config::EXECUTABLE, "exec", "-f", "test/razel.jsonl"],
+            vec![config::EXECUTABLE, "exec", "-f", "examples/razel.jsonl"],
             SchedulerExecStats {
                 succeeded: RAZEL_JSONL_EXP_SUCCEEDED,
                 ..Default::default()
@@ -239,7 +239,7 @@ mod main {
     #[serial]
     async fn exec_razel_jsonl_with_no_sandbox_tag() {
         test_main(
-            vec![config::EXECUTABLE, "exec", "-f", "test/razel.jsonl"],
+            vec![config::EXECUTABLE, "exec", "-f", "examples/razel.jsonl"],
             SchedulerExecStats {
                 succeeded: RAZEL_JSONL_EXP_SUCCEEDED,
                 ..Default::default()
