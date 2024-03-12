@@ -1,6 +1,6 @@
 {
   "imports": {
-    "https://deno.land/x/razel@v0.3.0/": "./apis/deno/"
+    "https://deno.land/x/razel@v0.3.1/": "./apis/deno/"
   },
   "lock": false
 }
