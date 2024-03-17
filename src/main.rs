@@ -1,3 +1,4 @@
+use anyhow::Context;
 use log::{debug, LevelFilter};
 use simplelog::*;
 
@@ -25,6 +26,7 @@ async fn main() -> Result<(), anyhow::Error> {
     }));
 
     let mut razel = Razel::new();
+    dotenv_flow::dotenv_flow().context("Failed to read .env file")?;
     if let Some(run_args) = parse_cli(
         std::env::args_os()
             .map(|x| x.into_string().unwrap())
