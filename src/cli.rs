@@ -9,7 +9,7 @@ use crate::parse_jsonl::parse_jsonl_file;
 use crate::tasks::DownloadFileTask;
 use crate::{parse_batch_file, parse_command, tasks, CommandBuilder, FileType, Razel};
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 #[clap(infer_subcommands = true)]
 struct Cli {
@@ -17,7 +17,7 @@ struct Cli {
     command: CliCommands,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 enum CliCommands {
     /// Execute a custom command
     Command {
@@ -70,7 +70,7 @@ pub struct RunArgs {
     #[clap(long, env = "RAZEL_REMOTE_CACHE", value_delimiter = ',')]
     pub remote_cache: Vec<String>,
     /// Only cache commands with: output size / exec time < threshold [kilobyte / s]
-    #[clap(long, env = "RAZEL_REMOTE_CACHE_THRESHOLD", value_delimiter = ',')]
+    #[clap(long, env = "RAZEL_REMOTE_CACHE_THRESHOLD")]
     pub remote_cache_threshold: Option<u32>,
 }
 
@@ -87,7 +87,7 @@ impl Default for RunArgs {
     }
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 enum CliTasks {
     /// Write a value captured with a regex to a file
     CaptureRegex(CaptureRegexTask),

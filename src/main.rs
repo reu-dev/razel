@@ -8,7 +8,9 @@ async fn main() -> Result<(), anyhow::Error> {
     TermLogger::init(
         LevelFilter::Info,
         ConfigBuilder::new()
-            .add_filter_ignore_str("cranelift_codegen::context")
+            .add_filter_ignore_str("cranelift_codegen")
+            .add_filter_ignore_str("wasmtime_cranelift")
+            .add_filter_ignore_str("wasmtime_jit")
             .build(),
         TerminalMode::Stderr,
         ColorChoice::Auto,
