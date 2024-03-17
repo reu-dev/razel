@@ -1,14 +1,37 @@
+use crate::config;
 use anyhow::{bail, Context};
+use log::debug;
 use std::fs;
 use std::fs::{read_to_string, File};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::str::FromStr;
 
-/** Reproduces what the K8s kubelet does to calculate memory.available relative to root cgroup.
+pub fn create_cgroup() -> Result<Option<CGroup>, anyhow::Error> {
+    let available = get_available_memory()?;
+    let mut limit = available;
+    let existing_limit = CGroup::new("".into()).read::<u64>("memory", "memory.limit_in_bytes");
+    if let Ok(x) = existing_limit {
+        limit = limit.min(x); // memory.limit_in_bytes will be infinite if not set
+    }
+    limit = (limit as f64 * 0.95) as u64;
+    let cgroup = CGroup::new(config::EXECUTABLE.into());
+    cgroup.create("memory")?;
+    cgroup.write("memory", "memory.limit_in_bytes", limit)?;
+    cgroup.write("memory", "memory.swappiness", 0)?;
+    debug!(
+        "create_cgroup(): available: {}MiB, limit: {:?}MiB -> set limit {}MiB",
+        available / 1024 / 1024,
+        existing_limit.ok().map(|x| x / 1024 / 1024),
+        limit / 1024 / 1024
+    );
+    Ok(Some(cgroup))
+}
 
-see https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/ */
-pub fn get_available_memory() -> Result<u64, anyhow::Error> {
+/// Reproduces what the K8s kubelet does to calculate memory.available relative to root cgroup.
+///
+/// see https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/
+fn get_available_memory() -> Result<u64, anyhow::Error> {
     let memory_capacity = procfs::Meminfo::new()?.mem_total;
     let cgroup = CGroup::new("".into());
     let memory_usage = cgroup.read::<u64>("memory", "memory.usage_in_bytes")?;

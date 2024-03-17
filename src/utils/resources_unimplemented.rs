@@ -1,3 +1,8 @@
+pub fn create_cgroup() -> Result<Option<CGroup>, anyhow::Error> {
+    // no error, just not supported
+    Ok(None)
+}
+
 #[derive(Clone)]
 pub struct CGroup {}
 
