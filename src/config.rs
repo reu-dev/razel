@@ -31,9 +31,11 @@ pub fn select_cache_dir(workspace_dir: &Path) -> Result<PathBuf, anyhow::Error> 
     })
 }
 
+/// The returned directory contains hostname and process id to avoid conflicts with concurrent razel processes
 pub fn select_sandbox_dir(cache_dir: &Path) -> Result<PathBuf, anyhow::Error> {
     Ok(cache_dir
         .join("sandbox")
+        .join(gethostname::gethostname())
         .join(std::process::id().to_string()))
 }
 
