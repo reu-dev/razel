@@ -60,7 +60,7 @@ jobs:
 
       - run: cargo build
 
-      - run: cargo run -- info
+      - run: cargo run -- exec --info -f examples/razel.jsonl
 
       - run: cargo test -- --nocapture --skip real_time_test --skip grpc_server
 
