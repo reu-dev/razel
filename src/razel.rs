@@ -1,6 +1,7 @@
 use crate::bazel_remote_exec::command::EnvironmentVariable;
 use crate::bazel_remote_exec::{ActionResult, Digest, ExecutedActionMetadata, OutputFile};
 use crate::cache::{BlobDigest, Cache, MessageDigest};
+use crate::config::{select_cache_dir, select_sandbox_dir};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor, WasiExecutor};
 use crate::metadata::{write_graphs_html, LogFile, Measurements, Profile, Report, Tag};
 use crate::tui::TUI;
@@ -69,12 +70,12 @@ pub struct Razel {
     current_dir: PathBuf,
     /// directory of output files - relative to current_dir
     out_dir: PathBuf,
-    cache: Cache,
+    cache: Option<Cache>,
     /// directory to use as PWD for executing commands
     ///
     /// Should be but on same device as local cache dir to quickly move outfile file to cache.
     /// Ideally outside the workspace dir to help IDE indexer.
-    sandbox_dir: PathBuf,
+    sandbox_dir: Option<PathBuf>,
     files: Arena<File>,
     /// maps paths relative to current_dir (without out_dir prefix) to <File>s
     path_to_file_id: HashMap<PathBuf, FileId>,
@@ -104,34 +105,20 @@ impl Razel {
         let current_dir = env::current_dir().unwrap();
         let workspace_dir = current_dir.clone();
         let out_dir = PathBuf::from(config::OUT_DIR);
-        let cache = Cache::new(&workspace_dir, out_dir.clone()).unwrap();
-        let sandbox_dir = cache
-            .dir()
-            .join("sandbox")
-            .join(std::process::id().to_string());
-        debug!("workspace_dir: {:?}", workspace_dir);
-        debug!("out_dir:       {:?}", current_dir.join(&out_dir));
-        let cgroup = match create_cgroup() {
-            Ok(x) => x,
-            Err(e) => {
-                debug!("create_cgroup(): {:?}", e);
-                None
-            }
-        };
         Razel {
             read_cache: true,
             worker_threads,
             workspace_dir,
             current_dir,
             out_dir,
-            cache,
-            sandbox_dir,
+            cache: None,
+            sandbox_dir: None,
             files: Default::default(),
             path_to_file_id: Default::default(),
             which_to_file_id: Default::default(),
             self_file_id: None,
             commands: Default::default(),
-            cgroup,
+            cgroup: None,
             waiting: Default::default(),
             scheduler: Scheduler::new(worker_threads),
             succeeded: vec![],
@@ -158,13 +145,6 @@ impl Razel {
         } else {
             self.workspace_dir = self.current_dir.join(workspace);
         }
-        debug!("workspace_dir: {:?}", self.workspace_dir);
-        self.cache = Cache::new(&self.workspace_dir, self.out_dir.clone())?;
-        self.sandbox_dir = self
-            .cache
-            .dir()
-            .join("sandbox")
-            .join(std::process::id().to_string());
         Ok(())
     }
 
@@ -174,16 +154,6 @@ impl Razel {
 
     pub fn is_empty(&self) -> bool {
         self.commands.is_empty()
-    }
-
-    pub fn show_info(&self) {
-        println!(
-            "output directory:  {:?}",
-            self.current_dir.join(&self.out_dir)
-        );
-        println!("cache directory:   {:?}", self.cache.dir());
-        println!("sandbox directory: {:?}", self.sandbox_dir);
-        println!("worker threads:    {}", self.worker_threads);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -306,16 +276,6 @@ impl Razel {
         }
     }
 
-    pub async fn connect_remote_cache(
-        &mut self,
-        urls: &Vec<String>,
-        remote_cache_threshold: Option<u32>,
-    ) -> Result<(), anyhow::Error> {
-        self.cache
-            .connect_remote_cache(urls, remote_cache_threshold)
-            .await
-    }
-
     pub fn list_commands(&mut self) {
         self.create_dependency_graph();
         while let Some(id) = self.scheduler.pop_ready_and_run() {
@@ -346,23 +306,74 @@ impl Razel {
         }
     }
 
+    pub fn show_info(&self, cache_dir: Option<PathBuf>) -> Result<(), anyhow::Error> {
+        let output_directory = self.current_dir.join(&self.out_dir);
+        println!("workspace dir:     {:?}", self.workspace_dir);
+        println!("output directory:  {:?}", output_directory);
+        let cache_dir = match cache_dir {
+            Some(x) => x,
+            _ => select_cache_dir(&self.workspace_dir)?,
+        };
+        println!("cache directory:   {:?}", cache_dir);
+        println!("sandbox directory: {:?}", select_sandbox_dir(&cache_dir)?);
+        println!("worker threads:    {}", self.worker_threads);
+        Ok(())
+    }
+
+    async fn prepare_run(
+        &mut self,
+        cache_dir: Option<PathBuf>,
+        remote_cache: Vec<String>,
+        remote_cache_threshold: Option<u32>,
+    ) -> Result<(), anyhow::Error> {
+        let output_directory = self.current_dir.join(&self.out_dir);
+        debug!("workspace dir:     {:?}", self.workspace_dir);
+        debug!("output directory:  {:?}", output_directory);
+        let cache_dir = match cache_dir {
+            Some(x) => x,
+            _ => select_cache_dir(&self.workspace_dir)?,
+        };
+        debug!("cache directory:   {:?}", cache_dir);
+        let sandbox_dir = select_sandbox_dir(&cache_dir)?;
+        let mut cache = Cache::new(cache_dir, self.out_dir.clone())?;
+        debug!("sandbox directory: {:?}", sandbox_dir);
+        debug!("worker threads:    {}", self.worker_threads);
+        if !remote_cache.is_empty() {
+            cache
+                .connect_remote_cache(&remote_cache, remote_cache_threshold)
+                .await?;
+        }
+        Sandbox::cleanup(&sandbox_dir);
+        self.cache = Some(cache);
+        self.sandbox_dir = Some(sandbox_dir);
+        match create_cgroup() {
+            Ok(x) => self.cgroup = x,
+            Err(e) => debug!("create_cgroup(): {:?}", e),
+        };
+        self.create_dependency_graph();
+        self.remove_unknown_files_from_out_dir(&self.out_dir).ok();
+        self.digest_input_files().await?;
+        self.create_output_dirs()?;
+        self.create_wasi_modules()?;
+        Ok(())
+    }
+
     pub async fn run(
         &mut self,
         keep_going: bool,
         verbose: bool,
         group_by_tag: &str,
+        cache_dir: Option<PathBuf>,
+        remote_cache: Vec<String>,
+        remote_cache_threshold: Option<u32>,
     ) -> Result<SchedulerStats, anyhow::Error> {
         let preparation_start = Instant::now();
         if self.commands.is_empty() {
             bail!("No commands added");
         }
         self.tui.verbose = verbose;
-        Sandbox::cleanup(&self.sandbox_dir);
-        self.create_dependency_graph();
-        self.remove_unknown_files_from_out_dir(&self.out_dir).ok();
-        self.digest_input_files().await?;
-        self.create_output_dirs()?;
-        self.create_wasi_modules()?;
+        self.prepare_run(cache_dir, remote_cache, remote_cache_threshold)
+            .await?;
         let (tx, mut rx) = mpsc::channel(32);
         let mut interval = tokio::time::interval(self.tui.get_update_interval());
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -386,7 +397,7 @@ impl Razel {
             }
         }
         self.remove_outputs_of_not_run_actions_from_out_dir();
-        Sandbox::cleanup(&self.sandbox_dir);
+        Sandbox::cleanup(self.sandbox_dir.as_ref().unwrap());
         self.push_logs_for_not_started_commands();
         self.write_metadata(group_by_tag)
             .context("Failed to write metadata")?;
@@ -748,14 +759,14 @@ impl Razel {
         let (bzl_command, bzl_input_root) = self.get_bzl_action_for_command(command);
         let no_cache_tag = command.tags.contains(&Tag::NoCache);
         let no_sandbox_tag = command.tags.contains(&Tag::NoSandbox);
-        let cache = (!no_cache_tag).then(|| self.cache.clone());
+        let cache = (!no_cache_tag).then(|| self.cache.as_ref().unwrap().clone());
         let read_cache = self.read_cache && !no_sandbox_tag;
         let use_remote_cache = cache.is_some() && !command.tags.contains(&Tag::NoRemoteCache);
         let executor = command.executor.clone();
         let sandbox_input_paths = self.collect_input_file_paths_for_sandbox(command);
         let output_paths = self.collect_output_file_paths_for_command(command);
         let sandbox = (!no_sandbox_tag && executor.use_sandbox())
-            .then(|| Sandbox::new(&self.sandbox_dir, &command.id.to_string()));
+            .then(|| Sandbox::new(self.sandbox_dir.as_ref().unwrap(), &command.id.to_string()));
         let cgroup = self.cgroup.clone();
         let out_dir = self.out_dir.clone();
         tokio::task::spawn(async move {
@@ -1258,7 +1269,10 @@ mod tests {
                 .unwrap();
         }
         assert_eq!(razel.len(), n);
-        let stats = razel.run(false, true, "").await.unwrap();
+        let stats = razel
+            .run(false, true, "", None, vec![], None)
+            .await
+            .unwrap();
         assert_eq!(
             stats.exec,
             SchedulerExecStats {

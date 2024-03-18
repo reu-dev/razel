@@ -1,7 +1,7 @@
 use anyhow::bail;
 use clap::{Args, Parser, Subcommand};
 use std::ffi::OsStr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::metadata::Tag;
@@ -38,8 +38,6 @@ enum CliCommands {
         file: String,
     },
     // TODO add Debug subcommand
-    /// Show info about configuration, cache, ...
-    Info,
     // TODO add upgrade subcommand
 }
 
@@ -54,6 +52,9 @@ struct Exec {
 
 #[derive(Args, Debug)]
 pub struct RunArgs {
+    /// No execution, just show info about configuration, cache, ...
+    #[clap(short, long)]
+    pub info: bool,
     /// No execution, just list commands
     #[clap(short, long, visible_alias = "ls")]
     pub no_execution: bool,
@@ -66,6 +67,9 @@ pub struct RunArgs {
     /// Prefix of tags to group the report
     #[clap(long, default_value = "group")]
     pub group_by_tag: String,
+    /// Local cache directory (use --info to show default value)
+    #[clap(long, env = "RAZEL_CACHE_DIR")]
+    pub cache_dir: Option<PathBuf>,
     /// Comma seperated list of remote cache URLs
     #[clap(long, env = "RAZEL_REMOTE_CACHE", value_delimiter = ',')]
     pub remote_cache: Vec<String>,
@@ -77,10 +81,12 @@ pub struct RunArgs {
 impl Default for RunArgs {
     fn default() -> Self {
         Self {
+            info: false,
             no_execution: false,
             keep_going: false,
             verbose: true,
             group_by_tag: "group".to_string(),
+            cache_dir: None,
             remote_cache: vec![],
             remote_cache_threshold: None,
         }
@@ -295,10 +301,6 @@ pub fn parse_cli(args: Vec<String>, razel: &mut Razel) -> Result<Option<RunArgs>
                 no_execution: true,
                 ..Default::default()
             })
-        }
-        CliCommands::Info => {
-            razel.show_info();
-            None
         }
     })
 }

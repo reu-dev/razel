@@ -5,7 +5,7 @@ use anyhow::{bail, Context, Error};
 use itertools::Itertools;
 use log::info;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -22,9 +22,9 @@ pub struct Cache {
 }
 
 impl Cache {
-    pub fn new(workspace_dir: &Path, out_dir: PathBuf) -> Result<Self, anyhow::Error> {
+    pub fn new(cache_dir: PathBuf, out_dir: PathBuf) -> Result<Self, anyhow::Error> {
         let local_cache =
-            LocalCache::new(workspace_dir).with_context(|| "Failed to create local cache")?;
+            LocalCache::new(cache_dir).with_context(|| "Failed to create local cache")?;
         if out_dir.starts_with(&local_cache.dir) {
             bail!("out_dir should not be within cache dir: {:?}", out_dir);
         }

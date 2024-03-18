@@ -31,6 +31,12 @@ pub fn select_cache_dir(workspace_dir: &Path) -> Result<PathBuf, anyhow::Error> 
     })
 }
 
+pub fn select_sandbox_dir(cache_dir: &Path) -> Result<PathBuf, anyhow::Error> {
+    Ok(cache_dir
+        .join("sandbox")
+        .join(std::process::id().to_string()))
+}
+
 #[cfg(target_family = "unix")]
 fn device_of_dir(dir: &Path) -> Result<u64, anyhow::Error> {
     use std::os::unix::fs::MetadataExt;

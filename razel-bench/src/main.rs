@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use razel::cache::LocalCache;
 use razel_bench::types::{Bench, CacheState, BENCHES_OUT_DIR};
 use serde_json::Value;
 use std::fs;
@@ -169,15 +168,21 @@ fn main() -> Result<()> {
     let file_abs = cli.file.canonicalize().unwrap();
     let workspace_dir = file_abs.parent().unwrap();
     let out_dir = workspace_dir.join("razel-out");
-    let cache_dir = LocalCache::new(workspace_dir).unwrap().dir;
+    let cache_dir = Path::new(BENCHES_OUT_DIR).join("tmp-cache");
     let config = Config {
         title: cli.title,
         bin: cli.bin,
         cwd: workspace_dir.to_path_buf(),
-        args: ["exec", "-f", cli.file.to_str().unwrap()]
-            .into_iter()
-            .map(String::from)
-            .collect(),
+        args: [
+            "exec",
+            "-f",
+            cli.file.to_str().unwrap(),
+            "--cache-dir",
+            cache_dir.to_str().unwrap(),
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect(),
         remote_cache_host: cli.remote_cache_host,
     };
     for _ in 0..cli.runs {
@@ -196,6 +201,7 @@ fn main() -> Result<()> {
             Bencher::bench(&config, CacheState::LocalColdRemoteWarm)?;
             stop_remote_cache(host);
         }
+        fs::remove_dir_all(&cache_dir).ok();
     }
     Ok(())
 }

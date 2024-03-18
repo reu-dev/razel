@@ -33,19 +33,19 @@ async fn main() -> Result<(), anyhow::Error> {
             .collect(),
         &mut razel,
     )? {
-        if run_args.no_execution {
+        if run_args.info {
+            razel.show_info(run_args.cache_dir)?;
+        } else if run_args.no_execution {
             razel.list_commands();
         } else {
-            if !run_args.remote_cache.is_empty() {
-                razel
-                    .connect_remote_cache(&run_args.remote_cache, run_args.remote_cache_threshold)
-                    .await?;
-            }
             let stats = razel
                 .run(
                     run_args.keep_going,
                     run_args.verbose,
                     &run_args.group_by_tag,
+                    run_args.cache_dir,
+                    run_args.remote_cache,
+                    run_args.remote_cache_threshold,
                 )
                 .await?;
             debug!(
@@ -99,7 +99,10 @@ mod main {
             if let Some((name, tag)) = additional_tag.clone() {
                 razel.add_tag_for_command(name, tag).unwrap();
             }
-            let act_stats = razel.run(false, true, "").await.unwrap();
+            let act_stats = razel
+                .run(false, true, "", None, vec![], None)
+                .await
+                .unwrap();
             assert_eq!(act_stats.exec, exp_stats);
             assert_eq!(act_stats.cache_hits, 0);
         }
@@ -113,7 +116,10 @@ mod main {
             if let Some((name, tag)) = additional_tag {
                 razel.add_tag_for_command(name, tag).unwrap();
             }
-            let act_stats = razel.run(false, true, "").await.unwrap();
+            let act_stats = razel
+                .run(false, true, "", None, vec![], None)
+                .await
+                .unwrap();
             assert_eq!(act_stats.exec, exp_stats);
             assert_eq!(act_stats.cache_hits, exp_cache_hits);
         }
