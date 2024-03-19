@@ -419,34 +419,25 @@ impl Razel {
     /// Register an executable file
     pub fn executable(&mut self, arg: String) -> Result<&File, anyhow::Error> {
         let path = Path::new(&arg);
-        let (file_type, abs_path) = if let Some(x) = arg.strip_prefix("./") {
-            (FileType::ExecutableInWorkspace, self.workspace_dir.join(x))
-        } else if path.is_absolute() {
-            match path.strip_prefix(&self.workspace_dir) {
-                Ok(_) => (FileType::ExecutableInWorkspace, path.to_path_buf()),
-                _ => (FileType::SystemExecutable, path.to_path_buf()),
-            }
-        } else if arg == config::EXECUTABLE {
-            return self.lazy_self_file_id().map(|x| &self.files[x]);
-        } else {
-            // relative path or system binary name
+        if path.is_relative() {
             let abs = self.workspace_dir.join(path);
             let cwd_path = abs.strip_prefix(&self.current_dir).unwrap().to_path_buf();
             if let Some(id) = self.path_to_file_id.get(&cwd_path) {
                 return Ok(&self.files[*id]);
-            } else if arg.contains('/') || abs.is_file() {
-                (FileType::ExecutableInWorkspace, abs)
-            } else {
-                return self.executable_which(arg, FileType::SystemExecutable);
             }
-        };
-        assert!(abs_path.is_absolute());
-        let cwd_path = if file_type == FileType::SystemExecutable {
-            abs_path
-        } else {
-            self.rel_path(&abs_path.to_str().unwrap().into())?
-        };
-        self.input_file_for_rel_path(arg, file_type, cwd_path)
+        }
+        let (file_type, abs_path) = FileType::from_executable_arg(&arg, &self.workspace_dir)?;
+        match file_type {
+            FileType::ExecutableInWorkspace
+            | FileType::ExecutableOutsideWorkspace
+            | FileType::WasiModule => {
+                let cwd_path = self.rel_path(&abs_path.unwrap().to_str().unwrap().into())?;
+                self.input_file_for_rel_path(arg, file_type, cwd_path)
+            }
+            FileType::SystemExecutable => self.executable_which(arg, file_type),
+            FileType::RazelExecutable => self.lazy_self_file_id().map(|x| &self.files[x]),
+            _ => unreachable!(),
+        }
     }
 
     fn executable_which(
