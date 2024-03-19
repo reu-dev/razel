@@ -104,7 +104,7 @@ impl TUI {
         println!();
         Self::line();
         Self::field(
-            format!("{:<11}", format!("{:?}", execution_result.status)).as_str(),
+            format!("{:<11}", format!("{:?} ", execution_result.status)).as_str(),
             Color::Red,
             command.name.as_str(),
         );
