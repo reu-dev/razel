@@ -55,10 +55,9 @@ sha2 = "0.10"
 simplelog = { workspace = true }
 tokio = { version = "1", features = ["full"] }
 tonic = "0.11"
-wasi-cap-std-sync = "8"
-wasi-common = { version = "8", default-features = false }
-wasmtime = { version = "8", default-features = false, features = ["async", "parallel-compilation", "cranelift", "pooling-allocator", "vtune"] }
-wasmtime-wasi = "8"
+cap-std = "2"
+wasmtime = { version = "18", default-features = false, features = ["async", "cranelift", "pooling-allocator", "runtime"] }
+wasmtime-wasi = "18"
 which = "6"
 
 [target.'cfg(target_os = "linux")'.dependencies]

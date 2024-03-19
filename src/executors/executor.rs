@@ -21,7 +21,7 @@ impl Executor {
     ) -> ExecutionResult {
         match self {
             Executor::CustomCommand(c) => c.exec(sandbox_dir, cgroup).await,
-            Executor::Wasi(x) => x.exec(sandbox_dir.as_ref().unwrap()),
+            Executor::Wasi(x) => x.exec(sandbox_dir.as_ref().unwrap()).await,
             Executor::AsyncTask(x) => x.exec(sandbox_dir).await,
             Executor::BlockingTask(t) => t.exec().await,
         }

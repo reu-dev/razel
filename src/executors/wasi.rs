@@ -1,17 +1,39 @@
 use crate::executors::{ExecutionResult, ExecutionStatus};
 use crate::{config, FileId};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use std::collections::HashMap;
-use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use wasi_common::dir::DirCaps;
-use wasi_common::file::FileCaps;
-use wasi_common::pipe::WritePipe;
-use wasi_common::WasiCtx;
-use wasmtime::*;
-use wasmtime_wasi::sync::WasiCtxBuilder;
-use wasmtime_wasi::I32Exit;
+use wasmtime::component::ResourceTable;
+use wasmtime::{Config, Engine, Linker, Module, Store};
+use wasmtime_wasi::preview2::preview1::WasiPreview1Adapter;
+use wasmtime_wasi::preview2::{
+    pipe::MemoryOutputPipe, DirPerms, FilePerms, I32Exit, WasiCtx, WasiCtxBuilder,
+};
+
+struct Ctx {
+    table: ResourceTable,
+    wasi: WasiCtx,
+    adapter: WasiPreview1Adapter,
+}
+
+impl wasmtime_wasi::preview2::WasiView for Ctx {
+    fn table(&mut self) -> &mut ResourceTable {
+        &mut self.table
+    }
+    fn ctx(&mut self) -> &mut WasiCtx {
+        &mut self.wasi
+    }
+}
+
+impl wasmtime_wasi::preview2::preview1::WasiPreview1View for Ctx {
+    fn adapter(&self) -> &WasiPreview1Adapter {
+        &self.adapter
+    }
+    fn adapter_mut(&mut self) -> &mut WasiPreview1Adapter {
+        &mut self.adapter
+    }
+}
 
 #[derive(Clone, Default)]
 pub struct WasiExecutor {
@@ -28,6 +50,7 @@ pub struct WasiExecutor {
 impl WasiExecutor {
     pub fn create_engine() -> Result<Engine> {
         let mut config = Config::new();
+        config.async_support(true);
         config.cranelift_nan_canonicalization(true);
         let engine = Engine::new(&config).context("create WASM engine")?;
         Ok(engine)
@@ -38,8 +61,8 @@ impl WasiExecutor {
             .with_context(|| format!("create WASM module: {:?}", file.as_ref()))
     }
 
-    pub fn exec(&self, sandbox_dir: &Path) -> ExecutionResult {
-        match self.wasi_exec(sandbox_dir) {
+    pub async fn exec(&self, sandbox_dir: &Path) -> ExecutionResult {
+        match self.wasi_exec(sandbox_dir).await {
             Ok(execution_result) => execution_result,
             Err(error) => ExecutionResult {
                 status: ExecutionStatus::FailedToStart,
@@ -49,21 +72,19 @@ impl WasiExecutor {
         }
     }
 
-    fn wasi_exec(&self, sandbox_dir: &Path) -> Result<ExecutionResult> {
+    async fn wasi_exec(&self, sandbox_dir: &Path) -> Result<ExecutionResult> {
         assert!(self.module.is_some());
         let engine = self.module.as_ref().unwrap().engine();
         let mut linker = Linker::new(engine);
-        wasmtime_wasi::add_to_linker(&mut linker, |s| s)?;
+        wasmtime_wasi::preview2::preview1::add_to_linker_async(&mut linker)?;
 
-        let stdout_pipe = WritePipe::new_in_memory();
-        let stderr_pipe = WritePipe::new_in_memory();
-
-        let wasi_ctx = self
-            .create_wasi_ctx(&stdout_pipe, &stderr_pipe, sandbox_dir)
+        let (ctx, stdout, stderr) = self
+            .create_wasi_ctx(sandbox_dir)
             .with_context(|| format!("create_wasi_ctx() sandbox_dir: {sandbox_dir:?}"))?;
-        let mut store = Store::new(engine, wasi_ctx);
+        let mut store = Store::new(engine, ctx);
         let instance = linker
-            .instantiate(&mut store, self.module.as_ref().unwrap())
+            .instantiate_async(&mut store, self.module.as_ref().unwrap())
+            .await
             .context("linker.instantiate()")?;
         let func = instance
             .get_typed_func::<(), ()>(&mut store, "_start")
@@ -71,7 +92,7 @@ impl WasiExecutor {
 
         let mut execution_result: ExecutionResult = Default::default();
         let execution_start = Instant::now();
-        match func.call(&mut store, ()) {
+        match func.call_async(&mut store, ()).await {
             Ok(()) => {
                 execution_result.status = ExecutionStatus::Success;
                 execution_result.exit_code = Some(0);
@@ -89,14 +110,8 @@ impl WasiExecutor {
         execution_result.exec_duration = Some(execution_start.elapsed());
 
         drop(store);
-        execution_result.stdout = stdout_pipe
-            .try_into_inner()
-            .map_err(|err| anyhow!("failed to take stdout_pipe: {err:?}"))?
-            .into_inner();
-        execution_result.stderr = stderr_pipe
-            .try_into_inner()
-            .map_err(|err| anyhow!("failed to take stderr_pipe: {err:?}"))?
-            .into_inner();
+        execution_result.stdout = stdout.try_into_inner().unwrap().into();
+        execution_result.stderr = stderr.try_into_inner().unwrap().into();
         Ok(execution_result)
     }
 
@@ -142,36 +157,29 @@ impl WasiExecutor {
 
     fn create_wasi_ctx(
         &self,
-        stdout_pipe: &WritePipe<Cursor<Vec<u8>>>,
-        stderr_pipe: &WritePipe<Cursor<Vec<u8>>>,
         sandbox_dir: &Path,
-    ) -> Result<WasiCtx> {
-        let mut wasi_ctx = WasiCtxBuilder::new()
-            .stdout(Box::new(stdout_pipe.clone()))
-            .stderr(Box::new(stderr_pipe.clone()))
-            .build();
-        wasi_ctx.push_arg(&self.executable)?;
+    ) -> Result<(Ctx, MemoryOutputPipe, MemoryOutputPipe)> {
+        let stdout = MemoryOutputPipe::new(4096);
+        let stderr = MemoryOutputPipe::new(4096);
+        let mut builder = WasiCtxBuilder::new();
+        builder.stdout(stdout.clone()).stderr(stderr.clone());
+        builder.arg(&self.executable);
         for arg in &self.args {
-            wasi_ctx.push_arg(arg)?;
+            builder.arg(arg);
         }
         for (k, v) in &self.env {
-            wasi_ctx.push_env(k, v)?;
+            builder.env(k, v);
         }
-        Self::add_dir_to_wasi_ctx(&mut wasi_ctx, sandbox_dir, "".into())
-            .with_context(|| format!("add_dir_to_wasi_ctx() sandbox_dir: {sandbox_dir:?}"))?;
-        Ok(wasi_ctx)
-    }
-
-    fn add_dir_to_wasi_ctx(wasi: &mut WasiCtx, host_dir: &Path, guest_dir: PathBuf) -> Result<()> {
-        let cap_std_dir = wasi_cap_std_sync::Dir::open_ambient_dir(
-            host_dir,
-            wasi_cap_std_sync::ambient_authority(),
-        )?;
-        let wasi_dir = Box::new(wasi_cap_std_sync::dir::Dir::from_cap_std(cap_std_dir));
-        let dir_caps = DirCaps::all();
-        let file_caps = FileCaps::all();
-        wasi.push_dir(wasi_dir, dir_caps, file_caps, guest_dir)?;
-        Ok(())
+        let preopen_dir =
+            cap_std::fs::Dir::open_ambient_dir(sandbox_dir, cap_std::ambient_authority())
+                .with_context(|| format!("Add sandbox dir to WASI ctx: {sandbox_dir:?}"))?;
+        builder.preopened_dir(preopen_dir, DirPerms::all(), FilePerms::all(), ".");
+        let ctx = Ctx {
+            table: ResourceTable::new(),
+            wasi: builder.build(),
+            adapter: WasiPreview1Adapter::new(),
+        };
+        Ok((ctx, stdout, stderr))
     }
 }
 
@@ -192,8 +200,8 @@ mod tests {
         WasiExecutor::create_module(&engine, CP_MODULE_PATH).unwrap()
     }
 
-    #[test]
-    fn cp_help() {
+    #[tokio::test]
+    async fn cp_help() {
         let sandbox_dir = new_tmp_dir!();
         let x = WasiExecutor {
             module: Some(create_cp_module()),
@@ -201,15 +209,16 @@ mod tests {
             args: vec!["-h".into()],
             ..Default::default()
         }
-        .exec(sandbox_dir.dir());
+        .exec(sandbox_dir.dir())
+        .await;
         println!("{x:?}");
         assert!(x.success());
         assert_eq!(x.exit_code, Some(0));
         assert!(std::str::from_utf8(&x.stdout).unwrap().contains("Usage"));
     }
 
-    #[test]
-    fn cp() {
+    #[tokio::test]
+    async fn cp() {
         let sandbox_dir = new_tmp_dir!();
         let src = sandbox_dir.join_and_write_file(SRC_PATH, SOURCE_CONTENTS);
         let dst = sandbox_dir.join(DST_PATH);
@@ -219,14 +228,15 @@ mod tests {
             args: vec![SRC_PATH.into(), DST_PATH.into()],
             ..Default::default()
         }
-        .exec(sandbox_dir.dir());
+        .exec(sandbox_dir.dir())
+        .await;
         println!("{x:?}");
         assert!(x.success());
         ensure_equal(src, dst).unwrap();
     }
 
-    #[test]
-    fn cp_not_existing_input_file() {
+    #[tokio::test]
+    async fn cp_not_existing_input_file() {
         let sandbox_dir = new_tmp_dir!();
         // not writing source file
         let x = WasiExecutor {
@@ -235,7 +245,8 @@ mod tests {
             args: vec![SRC_PATH.into(), DST_PATH.into()],
             ..Default::default()
         }
-        .exec(sandbox_dir.dir());
+        .exec(sandbox_dir.dir())
+        .await;
         println!("{x:?}");
         assert!(!x.success());
         assert_eq!(x.exit_code, Some(1));
@@ -244,8 +255,8 @@ mod tests {
             .contains("error opening input file"));
     }
 
-    #[test]
-    fn cp_read_outside_sandbox() {
+    #[tokio::test]
+    async fn cp_read_outside_sandbox() {
         let sandbox_dir = new_tmp_dir!();
         let file_outside_sandbox = fs::canonicalize("README.md").unwrap();
         assert!(file_outside_sandbox.exists());
@@ -258,7 +269,8 @@ mod tests {
             ],
             ..Default::default()
         }
-        .exec(sandbox_dir.dir());
+        .exec(sandbox_dir.dir())
+        .await;
         println!("{x:?}");
         assert!(!x.success());
         assert!(std::str::from_utf8(&x.stderr)
@@ -266,8 +278,8 @@ mod tests {
             .contains("error opening input file"));
     }
 
-    #[test]
-    fn cp_write_outside_sandbox() {
+    #[tokio::test]
+    async fn cp_write_outside_sandbox() {
         let sandbox_dir = new_tmp_dir!();
         sandbox_dir.join_and_write_file(SRC_PATH, SOURCE_CONTENTS);
         let file_outside_sandbox = fs::canonicalize(".").unwrap().join("not-existing-file");
@@ -281,7 +293,8 @@ mod tests {
             ],
             ..Default::default()
         }
-        .exec(sandbox_dir.dir());
+        .exec(sandbox_dir.dir())
+        .await;
         println!("{x:?}");
         assert!(!x.success());
         assert!(std::str::from_utf8(&x.stderr)
