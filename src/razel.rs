@@ -416,6 +416,10 @@ impl Razel {
         Ok(stats)
     }
 
+    pub(crate) fn get_file_path(&self, id: FileId) -> &PathBuf {
+        &self.files[id].path
+    }
+
     /// Register an executable file
     pub fn executable(&mut self, arg: String) -> Result<&File, anyhow::Error> {
         let path = Path::new(&arg);
@@ -759,6 +763,7 @@ impl Razel {
         let sandbox = (!no_sandbox_tag && executor.use_sandbox())
             .then(|| Sandbox::new(self.sandbox_dir.as_ref().unwrap(), &command.id.to_string()));
         let cgroup = self.cgroup.clone();
+        let cwd = self.current_dir.clone();
         let out_dir = self.out_dir.clone();
         tokio::task::spawn(async move {
             let action = bazel_remote_exec::Action {
@@ -777,6 +782,7 @@ impl Razel {
                 &output_paths,
                 &sandbox,
                 cgroup,
+                &cwd,
                 &out_dir,
             )
             .await
@@ -807,6 +813,7 @@ impl Razel {
         output_paths: &Vec<PathBuf>,
         sandbox: &Option<Sandbox>,
         cgroup: Option<CGroup>,
+        cwd: &Path,
         out_dir: &PathBuf,
     ) -> Result<(ExecutionResult, Vec<OutputFile>), anyhow::Error> {
         let (execution_result, output_files) = if let Some(x) =
@@ -824,6 +831,7 @@ impl Razel {
                 sandbox_input_paths,
                 output_paths,
                 cgroup,
+                cwd,
                 out_dir,
             )
             .await
@@ -836,6 +844,7 @@ impl Razel {
                 executor,
                 output_paths,
                 cgroup,
+                cwd,
                 out_dir,
             )
             .await
@@ -892,13 +901,18 @@ impl Razel {
         sandbox_input_paths: &Vec<PathBuf>,
         output_paths: &Vec<PathBuf>,
         cgroup: Option<CGroup>,
+        cwd: &Path,
         out_dir: &PathBuf,
     ) -> Result<(ExecutionResult, Vec<OutputFile>), anyhow::Error> {
         sandbox
-            .create(sandbox_input_paths, output_paths)
+            .create(
+                sandbox_input_paths,
+                output_paths,
+                executor.sandbox_link_type(),
+            )
             .await
             .context("Sandbox::create()")?;
-        let execution_result = executor.exec(Some(sandbox.dir.clone()), cgroup).await;
+        let execution_result = executor.exec(cwd, Some(sandbox.dir.clone()), cgroup).await;
         let output_files = if execution_result.success() {
             Self::new_output_files_with_digest(Some(&sandbox.dir), out_dir, output_paths).await?
         } else {
@@ -927,6 +941,7 @@ impl Razel {
         Ok((execution_result, output_files))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn exec_action_without_sandbox(
         action_digest: &MessageDigest,
         cache: Option<&mut Cache>,
@@ -934,13 +949,14 @@ impl Razel {
         executor: &Executor,
         output_paths: &Vec<PathBuf>,
         cgroup: Option<CGroup>,
+        cwd: &Path,
         out_dir: &PathBuf,
     ) -> Result<(ExecutionResult, Vec<OutputFile>), anyhow::Error> {
         // remove expected output files, because symlinks will not be overwritten
         for x in output_paths {
             force_remove_file(x).await?;
         }
-        let execution_result = executor.exec(None, cgroup).await;
+        let execution_result = executor.exec(cwd, None, cgroup).await;
         let output_files = if execution_result.success() {
             Self::new_output_files_with_digest(None, out_dir, output_paths).await?
         } else {

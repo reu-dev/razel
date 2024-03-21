@@ -184,6 +184,13 @@ impl CommandBuilder {
         env: HashMap<String, String>,
         razel: &mut Razel,
     ) -> Result<(), anyhow::Error> {
+        let mut read_dirs = vec![];
+        for id in &self.inputs {
+            let dir = razel.get_file_path(*id).parent().unwrap().to_path_buf();
+            if !read_dirs.contains(&dir) {
+                read_dirs.push(dir);
+            }
+        }
         let file = razel.wasi_module(executable)?;
         self.executables.push(file.id);
         self.executor = Some(Executor::Wasi(WasiExecutor {
@@ -194,6 +201,7 @@ impl CommandBuilder {
             env,
             stdout_file: self.stdout_file.clone(),
             stderr_file: self.stderr_file.clone(),
+            read_dirs,
         }));
         Ok(())
     }

@@ -232,6 +232,7 @@ impl CustomCommandExecutor {
 mod tests {
     use crate::executors::{CustomCommandExecutor, ExecutionStatus};
     use crate::Razel;
+    use std::path::Path;
 
     #[tokio::test]
     async fn exec_ok() {
@@ -251,7 +252,7 @@ mod tests {
             )
             .map(|id| razel.get_command(id).unwrap())
             .unwrap();
-        let result = command.executor.exec(None, None).await;
+        let result = command.executor.exec(Path::new("."), None, None).await;
         assert!(result.success());
         assert_eq!(result.status, ExecutionStatus::Success);
         assert_eq!(result.exit_code, Some(0));
@@ -276,7 +277,7 @@ mod tests {
             )
             .map(|id| razel.get_command(id).unwrap())
             .unwrap();
-        let result = command.executor.exec(None, None).await;
+        let result = command.executor.exec(Path::new("."), None, None).await;
         assert!(!result.success());
         assert_eq!(result.status, ExecutionStatus::FailedToStart);
         assert_eq!(result.exit_code, None);
@@ -301,7 +302,7 @@ mod tests {
             )
             .map(|id| razel.get_command(id).unwrap())
             .unwrap();
-        let result = command.executor.exec(None, None).await;
+        let result = command.executor.exec(Path::new("."), None, None).await;
         assert!(!result.success());
         assert_eq!(result.status, ExecutionStatus::Failed);
         assert_eq!(result.exit_code, Some(1));
@@ -326,7 +327,7 @@ mod tests {
             )
             .map(|id| razel.get_command(id).unwrap())
             .unwrap();
-        let result = command.executor.exec(None, None).await;
+        let result = command.executor.exec(Path::new("."), None, None).await;
         assert!(result.success());
         assert_eq!(result.status, ExecutionStatus::Success);
         assert_eq!(result.exit_code, Some(0));
@@ -353,7 +354,7 @@ mod tests {
             )
             .map(|id| razel.get_command(id).unwrap())
             .unwrap();
-        let result = command.executor.exec(None, None).await;
+        let result = command.executor.exec(Path::new("."), None, None).await;
         assert!(!result.success());
         assert_eq!(result.status, ExecutionStatus::Failed);
         assert_eq!(result.exit_code, Some(1));
@@ -379,7 +380,7 @@ mod tests {
             )
             .map(|id| razel.get_command(id).unwrap())
             .unwrap();
-        let result = command.executor.exec().await;
+        let result = command.executor.exec(Path::new("."), None, None).await;
         assert!(!result.success());
         assert_eq!(result.status, ExecutionStatus::Failed);
         assert_eq!(result.exit_code, Some(-1));

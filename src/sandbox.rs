@@ -25,18 +25,18 @@ impl Sandbox {
         &self,
         inputs: &Vec<PathBuf>,
         outputs: &Vec<PathBuf>,
+        link_type: LinkType,
     ) -> Result<&PathBuf, anyhow::Error> {
         fs::create_dir_all(&self.dir)
             .await
             .with_context(|| format!("Failed to create sandbox dir: {:?}", self.dir))?;
         for input in inputs {
             if input.is_absolute() {
-                //todo!("also link absolute paths into sandbox - needed for wasi_ctx: {input:?}");
                 continue;
             }
             let src = input;
             let dst = self.dir.join(input);
-            match crate::config::SANDBOX_LINK_TYPE {
+            match link_type {
                 LinkType::Hardlink => crate::force_hardlink(src, &dst).await?,
                 LinkType::Symlink => crate::force_symlink(src, &dst).await?,
             }
@@ -103,7 +103,11 @@ mod tests {
         let command_id = "0";
         let sandbox = Sandbox::new(base_dir, command_id);
         let sandbox_dir = sandbox
-            .create(&vec![input.clone()], &vec![output.clone()])
+            .create(
+                &vec![input.clone()],
+                &vec![output.clone()],
+                crate::config::SANDBOX_LINK_TYPE,
+            )
             .await
             .unwrap();
         let sandbox_input = sandbox_dir.join(&input);

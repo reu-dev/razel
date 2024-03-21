@@ -1,9 +1,10 @@
+use crate::config::LinkType;
 use crate::executors::{
     AsyncTaskExecutor, BlockingTaskExecutor, CustomCommandExecutor, ExecutionResult, WasiExecutor,
 };
 use crate::CGroup;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone)]
 pub enum Executor {
@@ -16,12 +17,13 @@ pub enum Executor {
 impl Executor {
     pub async fn exec(
         &self,
+        cwd: &Path,
         sandbox_dir: Option<PathBuf>,
         cgroup: Option<CGroup>,
     ) -> ExecutionResult {
         match self {
             Executor::CustomCommand(c) => c.exec(sandbox_dir, cgroup).await,
-            Executor::Wasi(x) => x.exec(sandbox_dir.as_ref().unwrap()).await,
+            Executor::Wasi(x) => x.exec(cwd, sandbox_dir.as_ref().unwrap()).await,
             Executor::AsyncTask(x) => x.exec(sandbox_dir).await,
             Executor::BlockingTask(t) => t.exec().await,
         }
@@ -64,6 +66,13 @@ impl Executor {
             Executor::Wasi(_) => true,
             Executor::AsyncTask(_) => true,
             Executor::BlockingTask(_) => false,
+        }
+    }
+
+    pub fn sandbox_link_type(&self) -> LinkType {
+        match self {
+            Executor::Wasi(_) => LinkType::Hardlink,
+            _ => crate::config::SANDBOX_LINK_TYPE,
         }
     }
 }

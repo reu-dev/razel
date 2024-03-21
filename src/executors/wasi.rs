@@ -35,6 +35,11 @@ impl wasmtime_wasi::preview2::preview1::WasiPreview1View for Ctx {
     }
 }
 
+/// WASI filesystem:
+/// - preopen sandbox_dir for reading
+/// - preopen sandbox_dir/razel-out for writing
+/// - input files from cache: hardlink into sandbox
+/// - input files outside cache: preopen parent dirs for reading
 #[derive(Clone, Default)]
 pub struct WasiExecutor {
     /// WASM module, is internally shared between executors to compile just once
@@ -45,6 +50,7 @@ pub struct WasiExecutor {
     pub env: HashMap<String, String>,
     pub stdout_file: Option<PathBuf>,
     pub stderr_file: Option<PathBuf>,
+    pub read_dirs: Vec<PathBuf>,
 }
 
 impl WasiExecutor {
@@ -61,8 +67,8 @@ impl WasiExecutor {
             .with_context(|| format!("create WASM module: {:?}", file.as_ref()))
     }
 
-    pub async fn exec(&self, sandbox_dir: &Path) -> ExecutionResult {
-        match self.wasi_exec(sandbox_dir).await {
+    pub async fn exec(&self, cwd: &Path, sandbox_dir: &Path) -> ExecutionResult {
+        match self.wasi_exec(cwd, sandbox_dir).await {
             Ok(execution_result) => execution_result,
             Err(error) => ExecutionResult {
                 status: ExecutionStatus::FailedToStart,
@@ -72,15 +78,16 @@ impl WasiExecutor {
         }
     }
 
-    async fn wasi_exec(&self, sandbox_dir: &Path) -> Result<ExecutionResult> {
+    async fn wasi_exec(&self, cwd: &Path, sandbox_dir: &Path) -> Result<ExecutionResult> {
         assert!(self.module.is_some());
         let engine = self.module.as_ref().unwrap().engine();
         let mut linker = Linker::new(engine);
         wasmtime_wasi::preview2::preview1::add_to_linker_async(&mut linker)?;
 
         let (ctx, stdout, stderr) = self
-            .create_wasi_ctx(sandbox_dir)
-            .with_context(|| format!("create_wasi_ctx() sandbox_dir: {sandbox_dir:?}"))?;
+            .create_wasi_ctx(cwd, sandbox_dir)
+            .with_context(|| format!("cwd: {cwd:?}, sandbox_dir: {sandbox_dir:?}"))
+            .context("Error in create_wasi_ctx()")?;
         let mut store = Store::new(engine, ctx);
         let instance = linker
             .instantiate_async(&mut store, self.module.as_ref().unwrap())
@@ -157,6 +164,7 @@ impl WasiExecutor {
 
     fn create_wasi_ctx(
         &self,
+        cwd: &Path,
         sandbox_dir: &Path,
     ) -> Result<(Ctx, MemoryOutputPipe, MemoryOutputPipe)> {
         let stdout = MemoryOutputPipe::new(4096);
@@ -170,10 +178,14 @@ impl WasiExecutor {
         for (k, v) in &self.env {
             builder.env(k, v);
         }
-        let preopen_dir =
-            cap_std::fs::Dir::open_ambient_dir(sandbox_dir, cap_std::ambient_authority())
-                .with_context(|| format!("Add sandbox dir to WASI ctx: {sandbox_dir:?}"))?;
-        builder.preopened_dir(preopen_dir, DirPerms::all(), FilePerms::all(), ".");
+        for dir in &self.read_dirs {
+            preopen_dir_for_read(&mut builder, &cwd.join(dir), dir)?;
+        }
+        preopen_dir_for_write(
+            &mut builder,
+            &sandbox_dir.join(config::OUT_DIR),
+            Path::new(config::OUT_DIR),
+        )?;
         let ctx = Ctx {
             table: ResourceTable::new(),
             wasi: builder.build(),
@@ -181,6 +193,46 @@ impl WasiExecutor {
         };
         Ok((ctx, stdout, stderr))
     }
+}
+
+fn preopen_dir_for_read(
+    builder: &mut WasiCtxBuilder,
+    host_dir: &Path,
+    guest_dir: &Path,
+) -> Result<()> {
+    log::info!("preopen_dir_for_read() host: {host_dir:?}, guest: {guest_dir:?}");
+    assert!(guest_dir.is_relative());
+    let cap_dir = cap_std::fs::Dir::open_ambient_dir(host_dir, cap_std::ambient_authority())
+        .with_context(|| {
+            format!("preopen_dir_for_read() host: {host_dir:?}, guest: {guest_dir:?}")
+        })?;
+    builder.preopened_dir(
+        cap_dir,
+        DirPerms::READ,
+        FilePerms::READ,
+        guest_dir.to_str().unwrap(),
+    );
+    Ok(())
+}
+
+fn preopen_dir_for_write(
+    builder: &mut WasiCtxBuilder,
+    host_dir: &Path,
+    guest_dir: &Path,
+) -> Result<()> {
+    log::info!("preopen_dir_for_write() host: {host_dir:?}, guest: {guest_dir:?}");
+    assert!(guest_dir.is_relative());
+    let cap_dir = cap_std::fs::Dir::open_ambient_dir(host_dir, cap_std::ambient_authority())
+        .with_context(|| {
+            format!("preopen_dir_for_write() host: {host_dir:?}, guest: {guest_dir:?}")
+        })?;
+    builder.preopened_dir(
+        cap_dir,
+        DirPerms::all(),
+        FilePerms::all(),
+        guest_dir.to_str().unwrap(),
+    );
+    Ok(())
 }
 
 #[cfg(test)]
