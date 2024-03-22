@@ -59,7 +59,7 @@ impl SchedulerExecStats {
     }
 }
 
-type ExecutionResultChannel = (CommandId, ExecutionResult, Vec<OutputFile>);
+type ExecutionResultChannel = (CommandId, ExecutionResult, Vec<OutputFile>, bool);
 
 pub struct Razel {
     pub read_cache: bool,
@@ -382,8 +382,8 @@ impl Razel {
         let mut start_more_commands = true;
         while self.scheduler.running() != 0 {
             tokio::select! {
-                Some((id, execution_result, output_files)) = rx.recv() => {
-                    self.on_command_finished(id, &execution_result, output_files);
+                Some((id, execution_result, output_files, output_files_cached)) = rx.recv() => {
+                    self.on_command_finished(id, &execution_result, output_files, output_files_cached);
                     if execution_result.status == ExecutionStatus::SystemError
                         || (!self.failed.is_empty() && !keep_going)
                     {
@@ -751,8 +751,14 @@ impl Razel {
             .inputs
             .iter()
             .map(|x| &self.files[*x])
-            .filter(|x| x.file_type == FileType::OutputFile && x.digest.is_some())
-            .map(|x| (x.path.clone(), cache.cas_path(x.digest.as_ref().unwrap())))
+            .filter(|x| x.file_type == FileType::OutputFile)
+            .map(|x| {
+                (
+                    x.path.clone(),
+                    x.locally_cached
+                        .then_some(cache.cas_path(x.digest.as_ref().unwrap())),
+                )
+            })
             .collect();
         Box::new(WasiSandbox::new(
             self.sandbox_dir.as_ref().unwrap(),
@@ -791,6 +797,7 @@ impl Razel {
         let cwd = self.current_dir.clone();
         let out_dir = self.out_dir.clone();
         tokio::task::spawn(async move {
+            let use_cache = cache.is_some();
             let action = bazel_remote_exec::Action {
                 command_digest: Some(Digest::for_message(&bzl_command)),
                 input_root_digest: Some(Digest::for_message(&bzl_input_root)),
@@ -821,8 +828,11 @@ impl Razel {
                 )
             });
             execution_result.total_duration = Some(total_duration_start.elapsed());
+            let output_files_cached = use_cache && execution_result.success();
             // ignore SendError - channel might be closed if a previous command failed
-            tx.send((id, execution_result, output_files)).await.ok();
+            tx.send((id, execution_result, output_files, output_files_cached))
+                .await
+                .ok();
         });
     }
 
@@ -1083,6 +1093,7 @@ impl Razel {
         id: CommandId,
         execution_result: &ExecutionResult,
         output_files: Vec<OutputFile>,
+        output_files_cached: bool,
     ) {
         let retry = self.scheduler.set_finished_and_get_retry_flag(
             id,
@@ -1108,7 +1119,7 @@ impl Razel {
                 measurements,
             );
             if execution_result.success() {
-                self.set_output_file_digests(output_files);
+                self.set_output_file_digests(output_files, output_files_cached);
                 self.on_command_succeeded(id, execution_result);
             } else if self.commands[id].tags.contains(&Tag::Condition) {
                 self.on_condition_failed(id, execution_result);
@@ -1119,13 +1130,20 @@ impl Razel {
         }
     }
 
-    fn set_output_file_digests(&mut self, output_files: Vec<OutputFile>) {
+    fn set_output_file_digests(
+        &mut self,
+        output_files: Vec<OutputFile>,
+        output_files_cached: bool,
+    ) {
         for output_file in output_files {
             assert!(output_file.digest.is_some());
             let path = PathBuf::from(output_file.path);
             let file = &mut self.files[self.path_to_file_id[&path]];
             assert!(file.digest.is_none());
             file.digest = output_file.digest;
+            if output_files_cached {
+                file.locally_cached = true;
+            }
         }
     }
 

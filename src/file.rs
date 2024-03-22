@@ -64,6 +64,7 @@ pub struct File {
     /// files without creating_command are input files (data or executable) which must exist before running any commands
     pub creating_command: Option<CommandId>,
     pub digest: Option<BlobDigest>,
+    pub locally_cached: bool,
 }
 
 impl File {
@@ -84,6 +85,7 @@ impl File {
             path,
             creating_command: None,
             digest: None,
+            locally_cached: false,
         }
     }
 

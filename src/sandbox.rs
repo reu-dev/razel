@@ -97,11 +97,11 @@ impl Sandbox for TmpDirSandbox {
 #[derive(Debug)]
 pub struct WasiSandbox {
     tmp_dir_sandbox: TmpDirSandbox,
-    inputs: Vec<(PathBuf, PathBuf)>,
+    inputs: Vec<(PathBuf, Option<PathBuf>)>,
 }
 
 impl WasiSandbox {
-    pub fn new(base_dir: &Path, command_id: &str, inputs: Vec<(PathBuf, PathBuf)>) -> Self {
+    pub fn new(base_dir: &Path, command_id: &str, inputs: Vec<(PathBuf, Option<PathBuf>)>) -> Self {
         Self {
             tmp_dir_sandbox: TmpDirSandbox::new(base_dir, command_id, vec![]),
             inputs,
@@ -120,7 +120,8 @@ impl Sandbox for WasiSandbox {
             .await
             .with_context(|| format!("Failed to create sandbox dir: {:?}", self.dir()))?;
         for (input, cas_path) in &self.inputs {
-            crate::force_hardlink(cas_path, &self.dir().join(input)).await?;
+            let src = cas_path.as_ref().unwrap_or(input);
+            crate::force_hardlink(src, &self.dir().join(input)).await?;
         }
         for output in outputs {
             let output_abs = self.dir().join(output);
