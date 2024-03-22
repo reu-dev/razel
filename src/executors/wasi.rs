@@ -2,16 +2,16 @@ use crate::config::OUT_DIR;
 use crate::executors::{ExecutionResult, ExecutionStatus};
 use crate::{config, FileId};
 use anyhow::{Context, Result};
+use cap_std::ambient_authority;
+use cap_std::fs::Dir;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use wasmtime::component::ResourceTable;
 use wasmtime::{Config, Engine, Linker, Module, Store};
-use wasmtime_wasi::preview2::preview1::WasiPreview1Adapter;
-use wasmtime_wasi::preview2::{
-    pipe::MemoryOutputPipe, DirPerms, FilePerms, I32Exit, WasiCtx, WasiCtxBuilder,
-};
-use wasmtime_wasi::{ambient_authority, Dir};
+use wasmtime_wasi::pipe::MemoryOutputPipe;
+use wasmtime_wasi::preview1::{add_to_linker_async, WasiPreview1Adapter, WasiPreview1View};
+use wasmtime_wasi::{DirPerms, FilePerms, I32Exit, WasiCtx, WasiCtxBuilder, WasiView};
 
 struct Ctx {
     table: ResourceTable,
@@ -19,7 +19,7 @@ struct Ctx {
     adapter: WasiPreview1Adapter,
 }
 
-impl wasmtime_wasi::preview2::WasiView for Ctx {
+impl WasiView for Ctx {
     fn table(&mut self) -> &mut ResourceTable {
         &mut self.table
     }
@@ -28,7 +28,7 @@ impl wasmtime_wasi::preview2::WasiView for Ctx {
     }
 }
 
-impl wasmtime_wasi::preview2::preview1::WasiPreview1View for Ctx {
+impl WasiPreview1View for Ctx {
     fn adapter(&self) -> &WasiPreview1Adapter {
         &self.adapter
     }
@@ -85,7 +85,7 @@ impl WasiExecutor {
         assert!(self.module.is_some());
         let engine = self.module.as_ref().unwrap().engine();
         let mut linker = Linker::new(engine);
-        wasmtime_wasi::preview2::preview1::add_to_linker_async(&mut linker)?;
+        add_to_linker_async(&mut linker, |x| x)?;
 
         let (ctx, stdout, stderr) = self
             .create_wasi_ctx(cwd, sandbox_dir)
