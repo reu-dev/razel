@@ -3,7 +3,7 @@ use crate::executors::{
 };
 use crate::CGroup;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone)]
 pub enum Executor {
@@ -16,12 +16,13 @@ pub enum Executor {
 impl Executor {
     pub async fn exec(
         &self,
+        cwd: &Path,
         sandbox_dir: Option<PathBuf>,
         cgroup: Option<CGroup>,
     ) -> ExecutionResult {
         match self {
             Executor::CustomCommand(c) => c.exec(sandbox_dir, cgroup).await,
-            Executor::Wasi(x) => x.exec(sandbox_dir.as_ref().unwrap()),
+            Executor::Wasi(x) => x.exec(cwd, sandbox_dir.as_ref().unwrap()).await,
             Executor::AsyncTask(x) => x.exec(sandbox_dir).await,
             Executor::BlockingTask(t) => t.exec().await,
         }

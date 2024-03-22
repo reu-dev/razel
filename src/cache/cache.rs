@@ -41,6 +41,10 @@ impl Cache {
         &self.local_cache.dir
     }
 
+    pub fn cas_path(&self, digest: &BlobDigest) -> PathBuf {
+        self.local_cache.cas_path(digest)
+    }
+
     pub async fn connect_remote_cache(
         &mut self,
         urls: &Vec<String>,
