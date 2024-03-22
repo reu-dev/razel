@@ -201,7 +201,7 @@ fn preopen_dir_for_read(
     host_dir: &Path,
     guest_dir: &Path,
 ) -> Result<()> {
-    log::info!("preopen_dir_for_read() host: {host_dir:?}, guest: {guest_dir:?}");
+    log::debug!("preopen_dir_for_read() host: {host_dir:?}, guest: {guest_dir:?}");
     assert!(guest_dir.is_relative());
     let cap_dir = Dir::open_ambient_dir(host_dir, ambient_authority()).with_context(|| {
         format!("preopen_dir_for_read() host: {host_dir:?}, guest: {guest_dir:?}")
@@ -220,7 +220,7 @@ fn preopen_dir_for_write(
     host_dir: &Path,
     guest_dir: &Path,
 ) -> Result<()> {
-    log::info!("preopen_dir_for_write() host: {host_dir:?}, guest: {guest_dir:?}");
+    log::debug!("preopen_dir_for_write() host: {host_dir:?}, guest: {guest_dir:?}");
     assert!(guest_dir.is_relative());
     let cap_dir = Dir::open_ambient_dir(host_dir, ambient_authority()).with_context(|| {
         format!("preopen_dir_for_write() host: {host_dir:?}, guest: {guest_dir:?}")
