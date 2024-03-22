@@ -348,7 +348,7 @@ impl Razel {
         self.sandbox_dir = Some(sandbox_dir);
         match create_cgroup() {
             Ok(x) => self.cgroup = x,
-            Err(e) => debug!("create_cgroup(): {:?}", e),
+            Err(e) => debug!("create_cgroup(): {e}"),
         };
         self.create_dependency_graph();
         self.remove_unknown_files_from_out_dir(&self.out_dir).ok();
