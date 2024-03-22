@@ -176,16 +176,21 @@ impl WasiExecutor {
         builder.stdout(stdout.clone()).stderr(stderr.clone());
         builder.arg(&self.executable);
         for arg in &self.args {
-            builder.arg(arg);
+            builder.arg(wasi_path(arg));
         }
         for (k, v) in &self.env {
             builder.env(k, v);
         }
         for dir in self.read_dirs.iter().filter(|x| !x.starts_with(OUT_DIR)) {
-            preopen_dir_for_read(&mut builder, &cwd.join(dir), dir)?;
+            assert!(dir.is_relative());
+            preopen_dir_for_read(
+                &mut builder,
+                &cwd.join(dir),
+                &wasi_path(dir.to_str().unwrap()),
+            )?;
         }
         if self.write_dir {
-            preopen_dir_for_write(&mut builder, &sandbox_dir.join(OUT_DIR), Path::new(OUT_DIR))?;
+            preopen_dir_for_write(&mut builder, &sandbox_dir.join(OUT_DIR), OUT_DIR)?;
         }
         let ctx = Ctx {
             table: ResourceTable::new(),
@@ -196,41 +201,39 @@ impl WasiExecutor {
     }
 }
 
+#[cfg(target_family = "windows")]
+fn wasi_path(path: &str) -> String {
+    path.replace("\\", "/")
+}
+
+#[cfg(not(target_family = "windows"))]
+fn wasi_path(path: &str) -> String {
+    path.into()
+}
+
 fn preopen_dir_for_read(
     builder: &mut WasiCtxBuilder,
     host_dir: &Path,
-    guest_dir: &Path,
+    guest_dir: &str,
 ) -> Result<()> {
     log::debug!("preopen_dir_for_read() host: {host_dir:?}, guest: {guest_dir:?}");
-    assert!(guest_dir.is_relative());
     let cap_dir = Dir::open_ambient_dir(host_dir, ambient_authority()).with_context(|| {
         format!("preopen_dir_for_read() host: {host_dir:?}, guest: {guest_dir:?}")
     })?;
-    builder.preopened_dir(
-        cap_dir,
-        DirPerms::READ,
-        FilePerms::READ,
-        guest_dir.to_str().unwrap(),
-    );
+    builder.preopened_dir(cap_dir, DirPerms::READ, FilePerms::READ, guest_dir);
     Ok(())
 }
 
 fn preopen_dir_for_write(
     builder: &mut WasiCtxBuilder,
     host_dir: &Path,
-    guest_dir: &Path,
+    guest_dir: &str,
 ) -> Result<()> {
-    log::debug!("preopen_dir_for_write() host: {host_dir:?}, guest: {guest_dir:?}");
-    assert!(guest_dir.is_relative());
+    log::debug!("preopen_dir_for_write() host: {host_dir:?}");
     let cap_dir = Dir::open_ambient_dir(host_dir, ambient_authority()).with_context(|| {
         format!("preopen_dir_for_write() host: {host_dir:?}, guest: {guest_dir:?}")
     })?;
-    builder.preopened_dir(
-        cap_dir,
-        DirPerms::all(),
-        FilePerms::all(),
-        guest_dir.to_str().unwrap(),
-    );
+    builder.preopened_dir(cap_dir, DirPerms::all(), FilePerms::all(), guest_dir);
     Ok(())
 }
 
