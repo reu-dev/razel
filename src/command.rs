@@ -192,6 +192,10 @@ impl CommandBuilder {
             }
         }
         let file = razel.wasi_module(executable)?;
+        let write_dir = (self.outputs.len()
+            - self.stdout_file.is_some() as usize
+            - self.stderr_file.is_some() as usize)
+            != 0;
         self.executables.push(file.id);
         self.executor = Some(Executor::Wasi(WasiExecutor {
             module: None,
@@ -202,6 +206,7 @@ impl CommandBuilder {
             stdout_file: self.stdout_file.clone(),
             stderr_file: self.stderr_file.clone(),
             read_dirs,
+            write_dir,
         }));
         Ok(())
     }

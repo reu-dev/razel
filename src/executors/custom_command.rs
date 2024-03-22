@@ -380,7 +380,7 @@ mod tests {
             )
             .map(|id| razel.get_command(id).unwrap())
             .unwrap();
-        let result = command.executor.exec(Path::new("."), None, None).await;
+        let result = command.executor.exec().await;
         assert!(!result.success());
         assert_eq!(result.status, ExecutionStatus::Failed);
         assert_eq!(result.exit_code, Some(-1));

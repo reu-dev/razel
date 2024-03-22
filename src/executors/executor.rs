@@ -1,4 +1,3 @@
-use crate::config::LinkType;
 use crate::executors::{
     AsyncTaskExecutor, BlockingTaskExecutor, CustomCommandExecutor, ExecutionResult, WasiExecutor,
 };
@@ -66,13 +65,6 @@ impl Executor {
             Executor::Wasi(_) => true,
             Executor::AsyncTask(_) => true,
             Executor::BlockingTask(_) => false,
-        }
-    }
-
-    pub fn sandbox_link_type(&self) -> LinkType {
-        match self {
-            Executor::Wasi(_) => LinkType::Hardlink,
-            _ => crate::config::SANDBOX_LINK_TYPE,
         }
     }
 }

@@ -7,8 +7,8 @@ use crate::metadata::{write_graphs_html, LogFile, Measurements, Profile, Report,
 use crate::tui::TUI;
 use crate::{
     bazel_remote_exec, config, create_cgroup, force_remove_file, is_file_executable,
-    write_gitignore, Arena, CGroup, Command, CommandBuilder, CommandId, File, FileId, FileType,
-    Sandbox, Scheduler, GITIGNORE_FILENAME,
+    write_gitignore, Arena, BoxedSandbox, CGroup, Command, CommandBuilder, CommandId, File, FileId,
+    FileType, Scheduler, TmpDirSandbox, WasiSandbox, GITIGNORE_FILENAME,
 };
 use anyhow::{anyhow, bail, Context};
 use itertools::{chain, Itertools};
@@ -343,7 +343,7 @@ impl Razel {
                 .connect_remote_cache(&remote_cache, remote_cache_threshold)
                 .await?;
         }
-        Sandbox::cleanup(&sandbox_dir);
+        TmpDirSandbox::cleanup(&sandbox_dir);
         self.cache = Some(cache);
         self.sandbox_dir = Some(sandbox_dir);
         match create_cgroup() {
@@ -397,7 +397,7 @@ impl Razel {
             }
         }
         self.remove_outputs_of_not_run_actions_from_out_dir();
-        Sandbox::cleanup(self.sandbox_dir.as_ref().unwrap());
+        TmpDirSandbox::cleanup(self.sandbox_dir.as_ref().unwrap());
         self.push_logs_for_not_started_commands();
         self.write_metadata(group_by_tag)
             .context("Failed to write metadata")?;
@@ -719,20 +719,46 @@ impl Razel {
         self.tui_dirty = false;
     }
 
-    fn collect_input_file_paths_for_sandbox(&self, command: &Command) -> Vec<PathBuf> {
+    fn new_sandbox(&self, command: &Command) -> BoxedSandbox {
+        match command.executor {
+            Executor::Wasi(_) => self.new_wasi_sandbox(command),
+            _ => self.new_tmp_dir_sandbox(command),
+        }
+    }
+
+    fn new_tmp_dir_sandbox(&self, command: &Command) -> BoxedSandbox {
         let command_executables = command.executables.iter().filter(|&&x| {
-            if matches!(command.executor, Executor::Wasi(_)) {
-                false
-            } else if let Some(self_file_id) = self.self_file_id {
+            if let Some(self_file_id) = self.self_file_id {
                 // razel never calls itself
                 x != self_file_id
             } else {
                 true
             }
         });
-        chain(command_executables, command.inputs.iter())
+        let inputs = chain(command_executables, command.inputs.iter())
             .map(|x| self.files[*x].path.clone())
-            .collect()
+            .collect();
+        Box::new(TmpDirSandbox::new(
+            self.sandbox_dir.as_ref().unwrap(),
+            &command.id.to_string(),
+            inputs,
+        ))
+    }
+
+    fn new_wasi_sandbox(&self, command: &Command) -> BoxedSandbox {
+        let cache = self.cache.as_ref().unwrap();
+        let inputs = command
+            .inputs
+            .iter()
+            .map(|x| &self.files[*x])
+            .filter(|x| x.file_type == FileType::OutputFile && x.digest.is_some())
+            .map(|x| (x.path.clone(), cache.cas_path(x.digest.as_ref().unwrap())))
+            .collect();
+        Box::new(WasiSandbox::new(
+            self.sandbox_dir.as_ref().unwrap(),
+            &command.id.to_string(),
+            inputs,
+        ))
     }
 
     fn collect_output_file_paths_for_command(&self, command: &Command) -> Vec<PathBuf> {
@@ -758,10 +784,9 @@ impl Razel {
         let read_cache = self.read_cache && !no_sandbox_tag;
         let use_remote_cache = cache.is_some() && !command.tags.contains(&Tag::NoRemoteCache);
         let executor = command.executor.clone();
-        let sandbox_input_paths = self.collect_input_file_paths_for_sandbox(command);
+        let sandbox =
+            (!no_sandbox_tag && executor.use_sandbox()).then(|| self.new_sandbox(command));
         let output_paths = self.collect_output_file_paths_for_command(command);
-        let sandbox = (!no_sandbox_tag && executor.use_sandbox())
-            .then(|| Sandbox::new(self.sandbox_dir.as_ref().unwrap(), &command.id.to_string()));
         let cgroup = self.cgroup.clone();
         let cwd = self.current_dir.clone();
         let out_dir = self.out_dir.clone();
@@ -778,9 +803,8 @@ impl Razel {
                 read_cache,
                 use_remote_cache,
                 &executor,
-                &sandbox_input_paths,
                 &output_paths,
-                &sandbox,
+                sandbox,
                 cgroup,
                 &cwd,
                 &out_dir,
@@ -809,9 +833,8 @@ impl Razel {
         read_cache: bool,
         use_remote_cache: bool,
         executor: &Executor,
-        sandbox_input_paths: &Vec<PathBuf>,
         output_paths: &Vec<PathBuf>,
-        sandbox: &Option<Sandbox>,
+        sandbox: Option<BoxedSandbox>,
         cgroup: Option<CGroup>,
         cwd: &Path,
         out_dir: &PathBuf,
@@ -828,7 +851,6 @@ impl Razel {
                 use_remote_cache,
                 executor,
                 sandbox,
-                sandbox_input_paths,
                 output_paths,
                 cgroup,
                 cwd,
@@ -897,24 +919,21 @@ impl Razel {
         cache: Option<&mut Cache>,
         use_remote_cache: bool,
         executor: &Executor,
-        sandbox: &Sandbox,
-        sandbox_input_paths: &Vec<PathBuf>,
+        sandbox: BoxedSandbox,
         output_paths: &Vec<PathBuf>,
         cgroup: Option<CGroup>,
         cwd: &Path,
         out_dir: &PathBuf,
     ) -> Result<(ExecutionResult, Vec<OutputFile>), anyhow::Error> {
         sandbox
-            .create(
-                sandbox_input_paths,
-                output_paths,
-                executor.sandbox_link_type(),
-            )
+            .create(output_paths)
             .await
             .context("Sandbox::create()")?;
-        let execution_result = executor.exec(cwd, Some(sandbox.dir.clone()), cgroup).await;
+        let execution_result = executor
+            .exec(cwd, Some(sandbox.dir().clone()), cgroup)
+            .await;
         let output_files = if execution_result.success() {
-            Self::new_output_files_with_digest(Some(&sandbox.dir), out_dir, output_paths).await?
+            Self::new_output_files_with_digest(Some(sandbox.dir()), out_dir, output_paths).await?
         } else {
             Default::default()
         };
@@ -924,7 +943,7 @@ impl Razel {
                     action_digest,
                     &execution_result,
                     output_files.clone(),
-                    Some(&sandbox.dir),
+                    Some(sandbox.dir()),
                     cache,
                     use_remote_cache,
                 )
@@ -988,7 +1007,7 @@ impl Razel {
         for path in output_paths {
             let output_file = Self::new_output_file_with_digest(sandbox_dir, out_dir, path)
                 .await
-                .context("Failed to read output file")?;
+                .context("Handle expected output file")?;
             output_files.push(output_file);
         }
         Ok(output_files)

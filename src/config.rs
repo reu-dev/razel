@@ -2,7 +2,6 @@ use anyhow::Context;
 use directories::ProjectDirs;
 use std::path::{Path, PathBuf};
 
-#[derive(Copy, Clone)]
 pub enum LinkType {
     Hardlink,
     Symlink,

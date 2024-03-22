@@ -1,3 +1,4 @@
+use crate::config::OUT_DIR;
 use crate::executors::{ExecutionResult, ExecutionStatus};
 use crate::{config, FileId};
 use anyhow::{Context, Result};
@@ -10,6 +11,7 @@ use wasmtime_wasi::preview2::preview1::WasiPreview1Adapter;
 use wasmtime_wasi::preview2::{
     pipe::MemoryOutputPipe, DirPerms, FilePerms, I32Exit, WasiCtx, WasiCtxBuilder,
 };
+use wasmtime_wasi::{ambient_authority, Dir};
 
 struct Ctx {
     table: ResourceTable,
@@ -51,6 +53,7 @@ pub struct WasiExecutor {
     pub stdout_file: Option<PathBuf>,
     pub stderr_file: Option<PathBuf>,
     pub read_dirs: Vec<PathBuf>,
+    pub write_dir: bool,
 }
 
 impl WasiExecutor {
@@ -178,14 +181,12 @@ impl WasiExecutor {
         for (k, v) in &self.env {
             builder.env(k, v);
         }
-        for dir in &self.read_dirs {
+        for dir in self.read_dirs.iter().filter(|x| !x.starts_with(OUT_DIR)) {
             preopen_dir_for_read(&mut builder, &cwd.join(dir), dir)?;
         }
-        preopen_dir_for_write(
-            &mut builder,
-            &sandbox_dir.join(config::OUT_DIR),
-            Path::new(config::OUT_DIR),
-        )?;
+        if self.write_dir {
+            preopen_dir_for_write(&mut builder, &sandbox_dir.join(OUT_DIR), Path::new(OUT_DIR))?;
+        }
         let ctx = Ctx {
             table: ResourceTable::new(),
             wasi: builder.build(),
@@ -202,10 +203,9 @@ fn preopen_dir_for_read(
 ) -> Result<()> {
     log::info!("preopen_dir_for_read() host: {host_dir:?}, guest: {guest_dir:?}");
     assert!(guest_dir.is_relative());
-    let cap_dir = cap_std::fs::Dir::open_ambient_dir(host_dir, cap_std::ambient_authority())
-        .with_context(|| {
-            format!("preopen_dir_for_read() host: {host_dir:?}, guest: {guest_dir:?}")
-        })?;
+    let cap_dir = Dir::open_ambient_dir(host_dir, ambient_authority()).with_context(|| {
+        format!("preopen_dir_for_read() host: {host_dir:?}, guest: {guest_dir:?}")
+    })?;
     builder.preopened_dir(
         cap_dir,
         DirPerms::READ,
@@ -222,10 +222,9 @@ fn preopen_dir_for_write(
 ) -> Result<()> {
     log::info!("preopen_dir_for_write() host: {host_dir:?}, guest: {guest_dir:?}");
     assert!(guest_dir.is_relative());
-    let cap_dir = cap_std::fs::Dir::open_ambient_dir(host_dir, cap_std::ambient_authority())
-        .with_context(|| {
-            format!("preopen_dir_for_write() host: {host_dir:?}, guest: {guest_dir:?}")
-        })?;
+    let cap_dir = Dir::open_ambient_dir(host_dir, ambient_authority()).with_context(|| {
+        format!("preopen_dir_for_write() host: {host_dir:?}, guest: {guest_dir:?}")
+    })?;
     builder.preopened_dir(
         cap_dir,
         DirPerms::all(),
@@ -254,50 +253,59 @@ mod tests {
 
     #[tokio::test]
     async fn cp_help() {
+        let workspace_dir = Path::new(".");
         let sandbox_dir = new_tmp_dir!();
-        let x = WasiExecutor {
+        let mut x = WasiExecutor {
             module: Some(create_cp_module()),
             executable: CP_MODULE_PATH.into(),
             args: vec!["-h".into()],
             ..Default::default()
         }
-        .exec(sandbox_dir.dir())
+        .exec(workspace_dir, sandbox_dir.dir())
         .await;
         println!("{x:?}");
-        assert!(x.success());
-        assert_eq!(x.exit_code, Some(0));
+        x.assert_success();
         assert!(std::str::from_utf8(&x.stdout).unwrap().contains("Usage"));
     }
 
     #[tokio::test]
     async fn cp() {
+        let workspace_dir = new_tmp_dir!();
         let sandbox_dir = new_tmp_dir!();
-        let src = sandbox_dir.join_and_write_file(SRC_PATH, SOURCE_CONTENTS);
-        let dst = sandbox_dir.join(DST_PATH);
-        let x = WasiExecutor {
+        let out_file = format!("{OUT_DIR}/{DST_PATH}");
+        let src = workspace_dir.join_and_write_file(SRC_PATH, SOURCE_CONTENTS);
+        let dst = sandbox_dir.join_and_create_parent(&out_file);
+        let mut x = WasiExecutor {
             module: Some(create_cp_module()),
             executable: CP_MODULE_PATH.into(),
-            args: vec![SRC_PATH.into(), DST_PATH.into()],
+            args: vec![SRC_PATH.into(), out_file],
+            read_dirs: vec![".".into()],
+            write_dir: true,
             ..Default::default()
         }
-        .exec(sandbox_dir.dir())
+        .exec(workspace_dir.dir(), sandbox_dir.dir())
         .await;
         println!("{x:?}");
-        assert!(x.success());
+        x.assert_success();
         ensure_equal(src, dst).unwrap();
     }
 
     #[tokio::test]
     async fn cp_not_existing_input_file() {
+        let workspace_dir = new_tmp_dir!();
         let sandbox_dir = new_tmp_dir!();
+        let out_file = format!("{OUT_DIR}/{DST_PATH}");
+        let _dst = sandbox_dir.join_and_create_parent(&out_file);
         // not writing source file
         let x = WasiExecutor {
             module: Some(create_cp_module()),
             executable: CP_MODULE_PATH.into(),
-            args: vec![SRC_PATH.into(), DST_PATH.into()],
+            args: vec![SRC_PATH.into(), out_file],
+            read_dirs: vec![".".into()],
+            write_dir: true,
             ..Default::default()
         }
-        .exec(sandbox_dir.dir())
+        .exec(workspace_dir.dir(), sandbox_dir.dir())
         .await;
         println!("{x:?}");
         assert!(!x.success());
@@ -309,19 +317,21 @@ mod tests {
 
     #[tokio::test]
     async fn cp_read_outside_sandbox() {
+        let workspace_dir = new_tmp_dir!();
         let sandbox_dir = new_tmp_dir!();
+        let out_file = format!("{OUT_DIR}/{DST_PATH}");
         let file_outside_sandbox = fs::canonicalize("README.md").unwrap();
+        let _dst = sandbox_dir.join_and_create_parent(&out_file);
         assert!(file_outside_sandbox.exists());
         let x = WasiExecutor {
             module: Some(create_cp_module()),
             executable: CP_MODULE_PATH.into(),
-            args: vec![
-                file_outside_sandbox.to_str().unwrap().into(),
-                DST_PATH.into(),
-            ],
+            args: vec![file_outside_sandbox.to_str().unwrap().into(), out_file],
+            read_dirs: vec![".".into()],
+            write_dir: true,
             ..Default::default()
         }
-        .exec(sandbox_dir.dir())
+        .exec(workspace_dir.dir(), sandbox_dir.dir())
         .await;
         println!("{x:?}");
         assert!(!x.success());
@@ -331,21 +341,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cp_write_outside_sandbox() {
+    async fn cp_write_outside_write_dir() {
+        let workspace_dir = new_tmp_dir!();
         let sandbox_dir = new_tmp_dir!();
-        sandbox_dir.join_and_write_file(SRC_PATH, SOURCE_CONTENTS);
-        let file_outside_sandbox = fs::canonicalize(".").unwrap().join("not-existing-file");
-        assert!(!file_outside_sandbox.exists());
+        let out_file = DST_PATH; // writing outside razel-out should fail
+        workspace_dir.join_and_write_file(SRC_PATH, SOURCE_CONTENTS);
+        sandbox_dir.join_and_create_parent(&format!("{OUT_DIR}/{DST_PATH}"));
         let x = WasiExecutor {
             module: Some(create_cp_module()),
             executable: CP_MODULE_PATH.into(),
-            args: vec![
-                SRC_PATH.into(),
-                file_outside_sandbox.to_str().unwrap().into(),
-            ],
+            args: vec![SRC_PATH.into(), out_file.into()],
+            read_dirs: vec![".".into()],
+            write_dir: true,
             ..Default::default()
         }
-        .exec(sandbox_dir.dir())
+        .exec(workspace_dir.dir(), sandbox_dir.dir())
         .await;
         println!("{x:?}");
         assert!(!x.success());
