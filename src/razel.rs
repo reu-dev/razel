@@ -737,6 +737,7 @@ impl Razel {
         });
         let inputs = chain(command_executables, command.inputs.iter())
             .map(|x| self.files[*x].path.clone())
+            .filter(|x| x.is_relative())
             .collect();
         Box::new(TmpDirSandbox::new(
             self.sandbox_dir.as_ref().unwrap(),

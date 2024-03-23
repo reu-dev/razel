@@ -1,4 +1,5 @@
 use crate::config::LinkType;
+use anyhow::bail;
 use anyhow::{Context, Error};
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
@@ -53,8 +54,8 @@ impl Sandbox for TmpDirSandbox {
             .await
             .with_context(|| format!("Failed to create sandbox dir: {:?}", self.dir))?;
         for input in &self.inputs {
-            if input.is_absolute() {
-                continue;
+            if input.starts_with("..") {
+                bail!("input file must be inside of workspace: {input:?}");
             }
             let src = input;
             let dst = self.dir.join(input);
@@ -120,6 +121,9 @@ impl Sandbox for WasiSandbox {
             .await
             .with_context(|| format!("Failed to create sandbox dir: {:?}", self.dir()))?;
         for (input, cas_path) in &self.inputs {
+            if input.starts_with("..") {
+                bail!("input file must be inside of workspace: {input:?}");
+            }
             let src = cas_path.as_ref().unwrap_or(input);
             crate::force_hardlink(src, &self.dir().join(input)).await?;
         }
