@@ -138,13 +138,27 @@ Razel detects those cases and replaces the arguments with a response file. The f
 If a process is killed by the OS, the command and similar ones will be retried with less concurrency to reduce the
 total memory usage. (Doesn't work in K8s because the whole pod is killed.)
 
+### Sandbox
+
+Commands are executed in a temporary directory which contains symlinks to the input files specific to one command.
+The allows detecting unspecified dependencies which would break caching.
+
+The sandbox is not meant for executing untrusted code.
+
+### Local Caching
+
+The local cache is enabled by default and stores information about previously executed commands and output files.
+The output directory `razel-out` contains symlinks to files stored in the local cache.
+
+Use `razel exec --info` to get the default cache directory and `--cache-dir` (env: `RAZEL_CACHE_DIR`) to move it.
+
 ### Remote Caching
 
 Razel supports remote caching compatible to
 [Bazel Remote Execution API](https://github.com/bazelbuild/remote-apis/blob/main/build/bazel/remote/execution/v2/remote_execution.proto).
 Remote execution is not yet implemented.
 
-Use `--remote-cache` (`RAZEL_REMOTE_CACHE`) to specify a comma seperated list of remote cache URLs.
+Use `--remote-cache` (env: `RAZEL_REMOTE_CACHE`) to specify a comma seperated list of remote cache URLs.
 The first available one will be used.
 Optionally `--remote-cache-threshold` (`REMOTE_CACHE_THRESHOLD`) can be set to only cache commands with
 `outputSize / execTime < threshold [kilobyte / s]`. If your remote cache doesn't have unlimited storage capacity,
@@ -164,6 +178,18 @@ The following remote cache implementations are tested with Razel:
         podman run -p 50051:50051 -v $PWD/nativelink-config:/nativelink-config:ro ghcr.io/tracemachina/nativelink:v0.2.0 /nativelink-config/basic_cas.json
         ```
     - call razel with `RAZEL_REMOTE_CACHE=grpc://localhost:50051/main`
+
+## Configuration
+
+Use `razel exec -h` to list the configuration options for execution.
+Some options can also be set as environment variables and those are loaded from `.env` files.
+
+The following sources are used in order, overwriting previous values:
+
+- `.env` file in current directory or its parents
+- `.env.local` file in current directory or its parents
+- environment variable
+- command line option
 
 ## Acknowledgements
 
