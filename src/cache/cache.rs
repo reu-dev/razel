@@ -98,9 +98,7 @@ impl Cache {
         if to_download.is_empty() {
             return Some((action_result, cache_hit));
         }
-        let Some(remote_cache) = self.remote_cache.as_ref().filter(|_| use_remote_cache) else {
-            return None;
-        };
+        let remote_cache = self.remote_cache.as_ref().filter(|_| use_remote_cache)?;
         if self.is_output_size_above_remote_cache_threshold(&action_result) {
             return None;
         }

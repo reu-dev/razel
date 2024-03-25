@@ -898,9 +898,7 @@ impl Razel {
         read_cache: bool,
         use_remote_cache: bool,
     ) -> Option<(ExecutionResult, Vec<OutputFile>)> {
-        let Some(cache) = cache.filter(|_| read_cache) else {
-            return None;
-        };
+        let cache = cache.filter(|_| read_cache)?;
         if let Some((action_result, cache_hit)) = cache
             .get_action_result(action_digest, use_remote_cache)
             .await
