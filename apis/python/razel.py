@@ -264,7 +264,7 @@ class CustomCommand(Command):
         (inputs, outputs) = _split_args_in_inputs_and_outputs(args)
         super().__init__(name, inputs, outputs)
         self._executable = str(executable)
-        self._args = [x if isinstance(x, File) else str(x) for x in args]
+        self._args: Sequence[str | File] = [x if isinstance(x, File) else str(x) for x in args]
         self._env = env
 
     @property
@@ -361,7 +361,7 @@ class Task(Command):
         (inputs, outputs) = _split_args_in_inputs_and_outputs(args)
         super().__init__(name, inputs, outputs)
         self._task = str(task)
-        self._args = [x if isinstance(x, File) else str(x) for x in args]
+        self._args: Sequence[str | File] = [x if isinstance(x, File) else str(x) for x in args]
 
     @property
     def task(self) -> str:
