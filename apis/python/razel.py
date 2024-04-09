@@ -23,11 +23,11 @@ class Razel:
         """always show verbose output"""
         CONDITION = 'razel:condition'
         """keep running and don't be verbose if command failed"""
-        NO_CACHE = 'razel:no-cache',
+        NO_CACHE = 'razel:no-cache'
         """always execute a command without caching"""
-        NO_REMOTE_CACHE = 'razel:no-remote-cache',
+        NO_REMOTE_CACHE = 'razel:no-remote-cache'
         """don't use remote cache"""
-        NO_SANDBOX = 'razel:no-sandbox',
+        NO_SANDBOX = 'razel:no-sandbox'
         """disable sandbox and also cache - for commands with unspecified input/output files"""
 
     def __init__(self, workspace_dir: str) -> None:
