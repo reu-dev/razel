@@ -387,7 +387,7 @@ class Task(Command):
 def _map_arg_to_output_path(arg: str | File | Command) -> str:
     if isinstance(arg, Command):
         return arg.output.file_name
-    elif isinstance(arg, File):
+    if isinstance(arg, File):
         return arg.file_name
     return arg
 
