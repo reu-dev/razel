@@ -103,12 +103,12 @@ class Razel:
         razel_binary_path = find_or_download_razel_binary(Razel.version)
         cmd = [razel_binary_path]
         if len(args) > 0 and args[0] == "exec":
-            razel_file_rel = os.path.relpath(self.razel_file, os.curdir)
+            razel_file_rel = os.path.relpath(self.razel_file, self._workspace_dir)
             cmd.extend([args[0]] + ['-f', razel_file_rel] + args[1:])
         else:
             cmd.extend(args)
         print(" ".join(cmd))
-        status = subprocess.run(cmd).returncode
+        status = subprocess.run(cmd, cwd=self._workspace_dir).returncode
         if status != 0:
             sys.exit(status)
 
