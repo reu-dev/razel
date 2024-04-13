@@ -23,11 +23,11 @@ class Razel:
         """always show verbose output"""
         CONDITION = 'razel:condition'
         """keep running and don't be verbose if command failed"""
-        NO_CACHE = 'razel:no-cache',
+        NO_CACHE = 'razel:no-cache'
         """always execute a command without caching"""
-        NO_REMOTE_CACHE = 'razel:no-remote-cache',
+        NO_REMOTE_CACHE = 'razel:no-remote-cache'
         """don't use remote cache"""
-        NO_SANDBOX = 'razel:no-sandbox',
+        NO_SANDBOX = 'razel:no-sandbox'
         """disable sandbox and also cache - for commands with unspecified input/output files"""
 
     def __init__(self, workspace_dir: str) -> None:
@@ -71,8 +71,8 @@ class Razel:
         """Add a task to compare two files. In case of two commands, all output files will be compared."""
         if isinstance(arg1, Command) and isinstance(arg2, Command):
             assert len(arg1.outputs) == len(arg2.outputs), "Commands to compare have different number of output files!"
-            for i in range(len(arg1.outputs)):
-                self.ensure_equal(arg1.outputs[i], arg2.outputs[i])
+            for a, b in zip(arg1.outputs, arg2.outputs):
+                self.ensure_equal(a, b)
         else:
             file1 = _map_arg_to_output_file(arg1)
             file2 = _map_arg_to_output_file(arg2)
@@ -83,8 +83,8 @@ class Razel:
         """Add a task to compare two files. In case of two commands, all output files will be compared."""
         if isinstance(arg1, Command) and isinstance(arg2, Command):
             assert len(arg1.outputs) == len(arg2.outputs), "Commands to compare have different number of output files!"
-            for i in range(len(arg1.outputs)):
-                self.ensure_equal(arg1.outputs[i], arg2.outputs[i])
+            for a, b in zip(arg1.outputs, arg2.outputs):
+                self.ensure_equal(a, b)
         else:
             file1 = _map_arg_to_output_file(arg1)
             file2 = _map_arg_to_output_file(arg2)
@@ -387,7 +387,7 @@ class Task(Command):
 def _map_arg_to_output_path(arg: str | File | Command) -> str:
     if isinstance(arg, Command):
         return arg.output.file_name
-    elif isinstance(arg, File):
+    if isinstance(arg, File):
         return arg.file_name
     return arg
 
