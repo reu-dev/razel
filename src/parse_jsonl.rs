@@ -55,39 +55,39 @@ pub fn parse_jsonl_file(razel: &mut Razel, file_name: &String) -> Result<(), any
     Ok(())
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, untagged)]
-enum RazelJson {
+pub enum RazelJson {
     CustomCommand(RazelCustomCommandJson),
     Task(RazelTaskJson),
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RazelCustomCommandJson {
-    name: String,
-    executable: String,
-    args: Vec<String>,
+pub struct RazelCustomCommandJson {
+    pub name: String,
+    pub executable: String,
+    pub args: Vec<String>,
     #[serde(default)]
-    env: HashMap<String, String>,
+    pub env: HashMap<String, String>,
     #[serde(default)]
-    inputs: Vec<String>,
+    pub inputs: Vec<String>,
     #[serde(default)]
-    outputs: Vec<String>,
-    stdout: Option<String>,
-    stderr: Option<String>,
+    pub outputs: Vec<String>,
+    pub stdout: Option<String>,
+    pub stderr: Option<String>,
     #[serde(default)]
-    deps: Vec<String>,
+    pub deps: Vec<String>,
     #[serde(default)]
-    tags: Vec<Tag>,
+    pub tags: Vec<Tag>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RazelTaskJson {
-    name: String,
-    task: String,
-    args: Vec<String>,
+pub struct RazelTaskJson {
+    pub name: String,
+    pub task: String,
+    pub args: Vec<String>,
     #[serde(default)]
-    tags: Vec<Tag>,
+    pub tags: Vec<Tag>,
 }
