@@ -3,12 +3,12 @@ pub use cli::*;
 pub use command::*;
 pub use file::*;
 pub use parse_batch::*;
+pub use parse_jsonl::*;
 pub use rules::*;
 pub use sandbox::*;
 pub use scheduler::*;
 pub use types::*;
 pub use utils::*;
-pub use parse_jsonl::*;
 
 mod cli;
 mod command;
@@ -21,7 +21,6 @@ mod rules;
 mod sandbox;
 mod scheduler;
 mod types;
-
 
 #[allow(clippy::all)]
 pub mod bazel_remote_exec {
