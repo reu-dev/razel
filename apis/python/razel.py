@@ -31,6 +31,7 @@ class Razel:
         """disable sandbox and also cache - for commands with unspecified input/output files"""
 
     def __init__(self, workspace_dir: str) -> None:
+        workspace_dir = str(workspace_dir)
         assert os.path.isabs(workspace_dir)
         self._workspace_dir = workspace_dir
         self.razel_file = os.path.join(self._workspace_dir, "razel.jsonl")
@@ -38,6 +39,7 @@ class Razel:
 
     @staticmethod
     def init(workspace_dir: str) -> Razel:
+        workspace_dir = str(workspace_dir)
         assert Razel._instance is None
         Razel._instance = Razel(workspace_dir)
         return Razel._instance
@@ -48,9 +50,11 @@ class Razel:
         return Razel._instance
 
     def add_data_file(self, path: str) -> File:
+        path = str(path)
         return File(self._rel_path(path), True, None)
 
     def add_output_file(self, path: str) -> File:
+        path = str(path)
         return File(self._rel_path(path), False, None)
 
     def add_command(
@@ -136,9 +140,11 @@ class Razel:
 
     @staticmethod
     def _sanitize_name(name: str) -> str:
+        name = str(name)
         return name.replace(":", ".")  # target names may not contain ':'
 
     def _rel_path(self, file_name: str) -> str:
+        file_name = str(file_name)
         if not os.path.isabs(file_name) or not file_name.startswith(self._workspace_dir):
             return file_name
 
@@ -147,7 +153,7 @@ class Razel:
 
 class File:
     def __init__(self, file_name: str, is_data: bool, created_by: Optional[Command]) -> None:
-        self._file_name = file_name
+        self._file_name = str(file_name)
         self._is_data = is_data
         self._created_by = created_by
 
@@ -176,7 +182,7 @@ class File:
 
 class Command(abc.ABC):
     def __init__(self, name: str, inputs: list[File], outputs: list[File]) -> None:
-        self._name = name
+        self._name = str(name)
         self._inputs = inputs
         self._outputs = outputs
         self._stdout: File | None = None
@@ -257,8 +263,8 @@ class CustomCommand(Command):
     ) -> None:
         (inputs, outputs) = _split_args_in_inputs_and_outputs(args)
         super().__init__(name, inputs, outputs)
-        self._executable = executable
-        self._args = args
+        self._executable = str(executable)
+        self._args: Sequence[str | File] = [x if isinstance(x, File) else str(x) for x in args]
         self._env = env
 
     @property
@@ -354,8 +360,8 @@ class Task(Command):
     def __init__(self, name: str, task: str, args: Sequence[str | File]) -> None:
         (inputs, outputs) = _split_args_in_inputs_and_outputs(args)
         super().__init__(name, inputs, outputs)
-        self._task = task
-        self._args = args
+        self._task = str(task)
+        self._args: Sequence[str | File] = [x if isinstance(x, File) else str(x) for x in args]
 
     @property
     def task(self) -> str:
@@ -389,7 +395,7 @@ def _map_arg_to_output_path(arg: str | File | Command) -> str:
         return arg.output.file_name
     if isinstance(arg, File):
         return arg.file_name
-    return arg
+    return str(arg)
 
 
 def _map_arg_to_output_file(arg: File | Command) -> File:
@@ -397,7 +403,7 @@ def _map_arg_to_output_file(arg: File | Command) -> File:
 
 
 def _map_args_to_output_files(args: Sequence[str | File | Command]) -> Sequence[str | File]:
-    return [x.output if isinstance(x, Command) else x for x in args]
+    return [x.output if isinstance(x, Command) else x if isinstance(x, File) else str(x) for x in args]
 
 
 def _split_args_in_inputs_and_outputs(args: Sequence[str | File | Command]) -> Tuple[list[File], list[File]]:
