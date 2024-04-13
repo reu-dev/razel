@@ -141,7 +141,7 @@ total memory usage. (Doesn't work in K8s because the whole pod is killed.)
 ### Sandbox
 
 Commands are executed in a temporary directory which contains symlinks to the input files specific to one command.
-The allows detecting unspecified dependencies which would break caching.
+This allows detecting unspecified dependencies which would break caching.
 
 The sandbox is not meant for executing untrusted code.
 
