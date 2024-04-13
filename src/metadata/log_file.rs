@@ -30,6 +30,11 @@ pub struct LogFileItem {
 }
 
 impl LogFileItem {
+    pub fn kilobyte_per_second(&self) -> Option<f32> {
+        self.exec
+            .map(|exec| self.output_size.unwrap() as f32 / exec / 1000.0)
+    }
+
     pub fn time_saved_by_cache(&self) -> Option<f32> {
         match (self.cache, self.exec, self.total) {
             (Some(_), Some(exec), Some(total)) => Some(exec - total),
