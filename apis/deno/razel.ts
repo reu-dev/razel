@@ -32,8 +32,8 @@ export class Razel {
 
     addCommand(name: string, executable: (string | File | Command), args: (string | File | Command)[], env?: any): CustomCommand {
         name = this.sanitizeName(name);
-        const path = this.relPath(mapArgToOutputPath(executable));
-        const command = new CustomCommand(name, path, mapArgsToOutputFiles(args), env);
+        const executablePath = mapArgToOutputPath(executable);
+        const command = new CustomCommand(name, executablePath, mapArgsToOutputFiles(args), env);
         return this.add(command) as CustomCommand;
     }
 
@@ -427,7 +427,7 @@ async function downloadRazelBinary(version: string | null, razelBinaryPath: stri
         throw response.statusText;
     }
     console.log(`Extract razel binary to ${razelBinaryPath}`);
-    await Deno.mkdir(path.dirname(razelBinaryPath), { recursive: true });
+    await Deno.mkdir(path.dirname(razelBinaryPath), {recursive: true});
     const dest = await Deno.open(razelBinaryPath, {create: true, write: true});
     await response.body
         .pipeThrough(new DecompressionStream("gzip"))

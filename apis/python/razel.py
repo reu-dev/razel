@@ -58,12 +58,12 @@ class Razel:
         return File(self._rel_path(path), False, None)
 
     def add_command(
-        self, name: str, executable: str | File | Command, args: Sequence[str | File | Command],
-        env: Optional[Mapping[str, str]] = None
+            self, name: str, executable: str | File | Command, args: Sequence[str | File | Command],
+            env: Optional[Mapping[str, str]] = None
     ) -> CustomCommand:
         name = self._sanitize_name(name)
-        path = self._rel_path(_map_arg_to_output_path(executable))
-        command = CustomCommand(name, path, _map_args_to_output_files(args), env)
+        executable_path = _map_arg_to_output_path(executable)
+        command = CustomCommand(name, executable_path, _map_args_to_output_files(args), env)
         return self._add(command)
 
     def add_task(self, name: str, task: str, args: Sequence[str | File | Command]) -> Task:
@@ -259,7 +259,7 @@ class Command(abc.ABC):
 
 class CustomCommand(Command):
     def __init__(
-        self, name: str, executable: str, args: Sequence[str | File], env: Optional[Mapping[str, str]] = None
+            self, name: str, executable: str, args: Sequence[str | File], env: Optional[Mapping[str, str]] = None
     ) -> None:
         (inputs, outputs) = _split_args_in_inputs_and_outputs(args)
         super().__init__(name, inputs, outputs)
