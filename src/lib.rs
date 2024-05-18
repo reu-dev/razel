@@ -1,3 +1,5 @@
+#![allow(clippy::assigning_clones)] // makes code less readable
+
 pub use crate::razel::*;
 pub use cli::*;
 pub use command::*;

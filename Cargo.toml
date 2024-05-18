@@ -4,7 +4,7 @@ members = [".", "razel-bench", "razel-self-test"]
 [workspace.package]
 version = "0.4.1"
 edition = "2021"
-rust-version = "1.59"
+rust-version = "1.70"
 homepage = "https://github.com/reu-dev/razel"
 repository = "https://github.com/reu-dev/razel"
 license = "MIT"
