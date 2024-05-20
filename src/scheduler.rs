@@ -1,4 +1,4 @@
-use crate::executors::Executor;
+use crate::executors::{Executor, HttpRemoteExecConfig};
 use crate::{Command, CommandId};
 use itertools::Itertools;
 use std::collections::HashMap;
@@ -11,6 +11,19 @@ struct ReadyItem {
     slots: usize,
 }
 
+struct HttpDomainData {
+    domain: String,
+    ready_items: Vec<ReadyItem>,
+    hosts: Vec<HttpHostData>,
+}
+
+struct HttpHostData {
+    host: String,
+    client: reqwest::Client,
+    available_slots: usize,
+    used_slots: usize,
+}
+
 /// Keeps track of ready/running commands and selects next to run depending on resources
 pub struct Scheduler {
     available_slots: usize,
@@ -20,6 +33,7 @@ pub struct Scheduler {
     running_items: HashMap<CommandId, Group>,
     /// groups commands by estimated resource requirement
     group_to_slots: HashMap<String, usize>,
+    http_domains: Vec<HttpDomainData>,
 }
 
 impl Scheduler {
@@ -30,6 +44,29 @@ impl Scheduler {
             ready_items: Default::default(),
             running_items: Default::default(),
             group_to_slots: Default::default(),
+            http_domains: vec![],
+        }
+    }
+
+    pub fn set_http_remote_exec_config(&mut self, http_remote_exec: HttpRemoteExecConfig) {
+        for (domain, host_and_slot) in http_remote_exec.0 {
+            if host_and_slot.is_empty() {
+                continue;
+            }
+            let domain_data = HttpDomainData {
+                domain,
+                ready_items: vec![],
+                hosts: host_and_slot
+                    .into_iter()
+                    .map(|(host, available_slots)| HttpHostData {
+                        host,
+                        client: Default::default(),
+                        available_slots,
+                        used_slots: 0,
+                    })
+                    .collect(),
+            };
+            self.http_domains.push(domain_data);
         }
     }
 
@@ -54,6 +91,9 @@ impl Scheduler {
     }
 
     pub fn push_ready(&mut self, command: &Command) {
+        if let Executor::HttpRemote(_) = &command.executor {
+            todo!();
+        }
         let group = Self::group_for_command(command);
         let slots = self.slots_for_group(&group);
         self.ready_items.push(ReadyItem {
@@ -63,7 +103,7 @@ impl Scheduler {
         });
     }
 
-    pub fn pop_ready_and_run(&mut self) -> Option<CommandId> {
+    pub fn pop_ready_and_run(&mut self) -> Option<(CommandId, Option<Executor>)> {
         if self.used_slots >= self.available_slots || self.ready_items.is_empty() {
             return None;
         }
@@ -76,7 +116,7 @@ impl Scheduler {
             let item = self.ready_items.remove(index);
             self.running_items.insert(item.id, item.group);
             self.used_slots += item.slots;
-            Some(item.id)
+            Some((item.id, None))
         } else {
             None
         }
@@ -129,6 +169,7 @@ impl Scheduler {
             Executor::Wasi(x) => x.executable.clone(),
             Executor::AsyncTask(_) => String::new(),
             Executor::BlockingTask(_) => String::new(),
+            Executor::HttpRemote(_) => String::new(),
         }
     }
 }
@@ -169,13 +210,13 @@ mod tests {
     #[test]
     fn simple() {
         let mut ror = create(3, vec!["exec_0", "exec_0", "exec_1", "exec_1"]);
-        let c0 = ror.pop_ready_and_run().unwrap();
-        let c1 = ror.pop_ready_and_run().unwrap();
-        let c2 = ror.pop_ready_and_run().unwrap();
-        assert_eq!(ror.pop_ready_and_run(), None);
+        let c0 = ror.pop_ready_and_run().unwrap().0;
+        let c1 = ror.pop_ready_and_run().unwrap().0;
+        let c2 = ror.pop_ready_and_run().unwrap().0;
+        assert_eq!(ror.pop_ready_and_run().map(|x| x.0), None);
         assert_eq!(ror.used_slots, 3);
         assert_eq!(ror.set_finished_and_get_retry_flag(c1, false), false);
-        let c3 = ror.pop_ready_and_run().unwrap();
+        let c3 = ror.pop_ready_and_run().unwrap().0;
         assert_eq!(ror.set_finished_and_get_retry_flag(c0, false), false);
         assert_eq!(ror.set_finished_and_get_retry_flag(c2, false), false);
         assert_eq!(ror.set_finished_and_get_retry_flag(c3, false), false);
@@ -186,28 +227,28 @@ mod tests {
     #[test]
     fn killed() {
         let mut ror = create(3, vec!["exec_0", "exec_0", "exec_1", "exec_1"]);
-        let c0 = ror.pop_ready_and_run().unwrap();
-        let c1 = ror.pop_ready_and_run().unwrap();
-        let c2 = ror.pop_ready_and_run().unwrap();
-        assert_eq!(ror.pop_ready_and_run(), None);
+        let c0 = ror.pop_ready_and_run().unwrap().0;
+        let c1 = ror.pop_ready_and_run().unwrap().0;
+        let c2 = ror.pop_ready_and_run().unwrap().0;
+        assert_eq!(ror.pop_ready_and_run().map(|x| x.0), None);
         assert_eq!(ror.used_slots, 3);
         assert_eq!(ror.set_finished_and_get_retry_flag(c1, true), true); // -> exec_0: 2 slots
         assert_eq!(ror.used_slots, 3); // c0 (2), c2 (1)
-        assert_eq!(ror.pop_ready_and_run(), None);
+        assert_eq!(ror.pop_ready_and_run().map(|x| x.0), None);
         assert_eq!(ror.set_finished_and_get_retry_flag(c0, true), true); // -> exec_0: 3 slots
         assert_eq!(ror.used_slots, 1); // c2 (1)
         assert_eq!(ror.set_finished_and_get_retry_flag(c2, false), false);
         assert_eq!(ror.used_slots, 0);
-        let c3 = ror.pop_ready_and_run().unwrap();
+        let c3 = ror.pop_ready_and_run().unwrap().0;
         assert_eq!(ror.used_slots, 1); // c4 (1)
-        assert_eq!(ror.pop_ready_and_run(), None);
+        assert_eq!(ror.pop_ready_and_run().map(|x| x.0), None);
         assert_eq!(ror.set_finished_and_get_retry_flag(c3, false), false);
         assert_eq!(ror.used_slots, 0);
-        let c0_or_c1 = ror.pop_ready_and_run().unwrap();
+        let c0_or_c1 = ror.pop_ready_and_run().unwrap().0;
         assert_eq!(ror.used_slots, 3);
-        assert_eq!(ror.pop_ready_and_run(), None);
+        assert_eq!(ror.pop_ready_and_run().map(|x| x.0), None);
         assert_eq!(ror.set_finished_and_get_retry_flag(c0_or_c1, false), false);
-        let c0_or_c1 = ror.pop_ready_and_run().unwrap();
+        let c0_or_c1 = ror.pop_ready_and_run().unwrap().0;
         assert_eq!(ror.set_finished_and_get_retry_flag(c0_or_c1, true), false);
         assert_eq!(ror.len(), 0);
         assert_eq!(ror.used_slots, 0);

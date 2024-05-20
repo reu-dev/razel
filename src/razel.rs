@@ -2,7 +2,9 @@ use crate::bazel_remote_exec::command::EnvironmentVariable;
 use crate::bazel_remote_exec::{ActionResult, Digest, ExecutedActionMetadata, OutputFile};
 use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::config::{select_cache_dir, select_sandbox_dir};
-use crate::executors::{ExecutionResult, ExecutionStatus, Executor, WasiExecutor};
+use crate::executors::{
+    ExecutionResult, ExecutionStatus, Executor, HttpRemoteExecConfig, WasiExecutor,
+};
 use crate::metadata::{write_graphs_html, LogFile, Measurements, Profile, Report, Tag};
 use crate::tui::TUI;
 use crate::{
@@ -278,7 +280,7 @@ impl Razel {
 
     pub fn list_commands(&mut self) {
         self.create_dependency_graph();
-        while let Some(id) = self.scheduler.pop_ready_and_run() {
+        while let Some((id, _)) = self.scheduler.pop_ready_and_run() {
             let command = &mut self.commands[id];
             println!("# {}", command.name);
             println!(
@@ -325,6 +327,7 @@ impl Razel {
         cache_dir: Option<PathBuf>,
         remote_cache: Vec<String>,
         remote_cache_threshold: Option<u32>,
+        http_remote_exec_config: Option<HttpRemoteExecConfig>,
     ) -> Result<(), anyhow::Error> {
         let output_directory = self.current_dir.join(&self.out_dir);
         debug!("workspace dir:     {:?}", self.workspace_dir);
@@ -346,6 +349,9 @@ impl Razel {
         TmpDirSandbox::cleanup(&sandbox_dir);
         self.cache = Some(cache);
         self.sandbox_dir = Some(sandbox_dir);
+        if let Some(x) = http_remote_exec_config {
+            self.scheduler.set_http_remote_exec_config(x);
+        }
         match create_cgroup() {
             Ok(x) => self.cgroup = x,
             Err(e) => debug!("create_cgroup(): {e}"),
@@ -358,6 +364,7 @@ impl Razel {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn run(
         &mut self,
         keep_going: bool,
@@ -366,14 +373,20 @@ impl Razel {
         cache_dir: Option<PathBuf>,
         remote_cache: Vec<String>,
         remote_cache_threshold: Option<u32>,
+        http_remote_exec_config: Option<HttpRemoteExecConfig>,
     ) -> Result<SchedulerStats, anyhow::Error> {
         let preparation_start = Instant::now();
         if self.commands.is_empty() {
             bail!("No commands added");
         }
         self.tui.verbose = verbose;
-        self.prepare_run(cache_dir, remote_cache, remote_cache_threshold)
-            .await?;
+        self.prepare_run(
+            cache_dir,
+            remote_cache,
+            remote_cache_threshold,
+            http_remote_exec_config,
+        )
+        .await?;
         let (tx, mut rx) = mpsc::channel(32);
         let mut interval = tokio::time::interval(self.tui.get_update_interval());
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -699,8 +712,8 @@ impl Razel {
     }
 
     fn start_ready_commands(&mut self, tx: &Sender<ExecutionResultChannel>) {
-        while let Some(id) = self.scheduler.pop_ready_and_run() {
-            self.start_next_command(id, tx.clone());
+        while let Some((id, executor)) = self.scheduler.pop_ready_and_run() {
+            self.start_next_command(id, executor, tx.clone());
             self.tui_dirty = true;
         }
     }
@@ -779,7 +792,12 @@ impl Razel {
     /// Execute a command in a worker thread with caching.
     ///
     /// If the executed command failed, action_result will be None and the action will not be cached.
-    fn start_next_command(&mut self, id: CommandId, tx: Sender<ExecutionResultChannel>) {
+    fn start_next_command(
+        &mut self,
+        id: CommandId,
+        executor: Option<Executor>,
+        tx: Sender<ExecutionResultChannel>,
+    ) {
         let total_duration_start = Instant::now();
         let command = &self.commands[id];
         assert_eq!(command.schedule_state, ScheduleState::Ready);
@@ -790,7 +808,7 @@ impl Razel {
         let cache = (!no_cache_tag).then(|| self.cache.as_ref().unwrap().clone());
         let read_cache = self.read_cache && !no_sandbox_tag;
         let use_remote_cache = cache.is_some() && !command.tags.contains(&Tag::NoRemoteCache);
-        let executor = command.executor.clone();
+        let executor = executor.unwrap_or_else(|| command.executor.clone());
         let sandbox =
             (!no_sandbox_tag && executor.use_sandbox()).then(|| self.new_sandbox(command));
         let output_paths = self.collect_output_file_paths_for_command(command);
@@ -1313,7 +1331,7 @@ mod tests {
         }
         assert_eq!(razel.len(), n);
         let stats = razel
-            .run(false, true, "", None, vec![], None)
+            .run(false, true, "", None, vec![], None, None)
             .await
             .unwrap();
         assert_eq!(

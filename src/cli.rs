@@ -1,9 +1,11 @@
 use anyhow::bail;
 use clap::{Args, Parser, Subcommand};
+use reqwest::Url;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::executors::HttpRemoteExecConfig;
 use crate::metadata::Tag;
 use crate::parse_jsonl::parse_jsonl_file;
 use crate::tasks::DownloadFileTask;
@@ -76,6 +78,9 @@ pub struct RunArgs {
     /// Only cache commands with: output size / exec time < threshold [kilobyte / s]
     #[clap(long, env = "RAZEL_REMOTE_CACHE_THRESHOLD")]
     pub remote_cache_threshold: Option<u32>,
+    /// Http remote execution configuration
+    #[clap(long, env = "RAZEL_HTTP_REMOTE_EXEC")]
+    pub http_remote_exec: Option<HttpRemoteExecConfig>,
 }
 
 impl Default for RunArgs {
@@ -89,6 +94,7 @@ impl Default for RunArgs {
             cache_dir: None,
             remote_cache: vec![],
             remote_cache_threshold: None,
+            http_remote_exec: None,
         }
     }
 }
@@ -242,6 +248,31 @@ impl TaskBuilder for DownloadFileTaskBuilder {
             output,
             executable: self.executable,
         });
+        Ok(())
+    }
+}
+
+#[derive(Args, Debug)]
+struct PostMultipartFormTaskBuilder {
+    #[clap(short, long)]
+    url: Url,
+    #[clap(short, long)]
+    files: Vec<String>,
+    #[clap(long, alias = "n")]
+    file_names: Vec<String>,
+}
+
+impl TaskBuilder for PostMultipartFormTaskBuilder {
+    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
+        if self.file_names.len() != self.files.len() {
+            bail!("number of file names must equal number of files");
+        }
+        let mut files = Vec::with_capacity(self.files.len());
+        for (i, name) in self.file_names.into_iter().enumerate() {
+            let file = builder.input(&self.files[i], razel)?;
+            files.push((name, file));
+        }
+        builder.http_remote_executor(self.url, files);
         Ok(())
     }
 }
