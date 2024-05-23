@@ -1081,7 +1081,7 @@ impl Razel {
         assert!(execution_result.success());
         let mut action_result = ActionResult {
             output_files,
-            exit_code: execution_result.exit_code.unwrap(),
+            exit_code: execution_result.exit_code.unwrap_or_default(),
             execution_metadata: Some(ExecutedActionMetadata {
                 virtual_execution_duration: execution_result.exec_duration.map(|x| {
                     prost_types::Duration {

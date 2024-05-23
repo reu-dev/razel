@@ -1,5 +1,5 @@
 use crate::CacheHit;
-use anyhow::{Context, Error};
+use anyhow::Error;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::time::Duration;
@@ -42,7 +42,9 @@ impl ExecutionResult {
         self.status == ExecutionStatus::Success
     }
 
+    #[cfg(test)]
     pub fn assert_success(&mut self) {
+        use anyhow::Context;
         if self.success() {
             assert_eq!(self.exit_code, Some(0));
             assert!(self.error.is_none());

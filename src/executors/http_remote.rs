@@ -40,11 +40,18 @@ impl HttpRemoteExecState {
             .map(|(domain, hosts_with_slots)| {
                 let hosts = hosts_with_slots
                     .iter()
-                    .map(|(host, &available_slots)| HttpRemoteExecHost {
-                        host: host.clone(),
-                        client: Default::default(),
-                        available_slots,
-                        used_slots: Default::default(),
+                    .map(|(host, &available_slots)| {
+                        let (host, port) =
+                            host.split_once(':').map_or((host.clone(), None), |(h, p)| {
+                                (h.into(), Some(p.parse().unwrap()))
+                            });
+                        HttpRemoteExecHost {
+                            host,
+                            port,
+                            client: Default::default(),
+                            available_slots,
+                            used_slots: Default::default(),
+                        }
                     })
                     .collect_vec();
                 let available_slots = hosts.iter().map(|x| x.available_slots).sum();
@@ -92,6 +99,7 @@ impl HttpRemoteExecDomain {
 
 struct HttpRemoteExecHost {
     host: String,
+    port: Option<u16>,
     client: Client,
     available_slots: usize,
     used_slots: AtomicUsize,
@@ -129,6 +137,9 @@ impl HttpRemoteExecutor {
             host.used_slots.fetch_add(1, Ordering::Relaxed);
             let mut url = self.url.clone();
             url.set_host(Some(&host.host)).unwrap();
+            if let Some(port) = host.port {
+                url.set_port(Some(port)).unwrap();
+            }
             let result = self.request(&host.client, url, form).await;
             host.used_slots.fetch_sub(1, Ordering::Relaxed);
             result
