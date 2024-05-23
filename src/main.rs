@@ -10,8 +10,11 @@ async fn main() -> Result<(), anyhow::Error> {
         LevelFilter::Info,
         ConfigBuilder::new()
             .add_filter_ignore_str("cranelift_codegen")
+            .add_filter_ignore_str("tracing::span")
             .add_filter_ignore_str("wasmtime_cranelift")
             .add_filter_ignore_str("wasmtime_jit")
+            .add_filter_ignore_str("wasmtime_wasi")
+            .set_target_level(LevelFilter::Error)
             .build(),
         TerminalMode::Stderr,
         ColorChoice::Auto,
