@@ -2,6 +2,7 @@ __pycache__/
 .idea/
 .vscode/
 
+.env.local
 .tmp
 razel-out/
 /benches/

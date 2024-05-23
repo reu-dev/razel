@@ -46,7 +46,6 @@ async fn main() -> Result<(), anyhow::Error> {
                     run_args.cache_dir,
                     run_args.remote_cache,
                     run_args.remote_cache_threshold,
-                    run_args.http_remote_exec,
                 )
                 .await?;
             debug!(
@@ -101,7 +100,7 @@ mod main {
                 razel.add_tag_for_command(name, tag).unwrap();
             }
             let act_stats = razel
-                .run(false, true, "", None, vec![], None, None)
+                .run(false, true, "", None, vec![], None)
                 .await
                 .unwrap();
             assert_eq!(act_stats.exec, exp_stats);
@@ -118,7 +117,7 @@ mod main {
                 razel.add_tag_for_command(name, tag).unwrap();
             }
             let act_stats = razel
-                .run(false, true, "", None, vec![], None, None)
+                .run(false, true, "", None, vec![], None)
                 .await
                 .unwrap();
             assert_eq!(act_stats.exec, exp_stats);

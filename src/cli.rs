@@ -1,9 +1,9 @@
 use anyhow::bail;
 use clap::{Args, Parser, Subcommand};
-use reqwest::Url;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use url::Url;
 
 use crate::executors::HttpRemoteExecConfig;
 use crate::metadata::Tag;
@@ -115,6 +115,8 @@ enum CliTasks {
     EnsureEqual(EnsureEqualTask),
     /// Ensure that two files are not equal
     EnsureNotEqual(EnsureNotEqualTask),
+    /// Post a HTTP request for remote execution
+    HttpRemoteExec(HttpRemoteExecTask),
 }
 
 impl CliTasks {
@@ -134,6 +136,7 @@ impl CliTasks {
             CliTasks::DownloadFile(x) => x.build(&mut builder, razel),
             CliTasks::EnsureEqual(x) => x.build(&mut builder, razel),
             CliTasks::EnsureNotEqual(x) => x.build(&mut builder, razel),
+            CliTasks::HttpRemoteExec(x) => x.build(&mut builder, razel),
         }?;
         razel.push(builder)?;
         Ok(())
@@ -253,31 +256,6 @@ impl TaskBuilder for DownloadFileTaskBuilder {
 }
 
 #[derive(Args, Debug)]
-struct PostMultipartFormTaskBuilder {
-    #[clap(short, long)]
-    url: Url,
-    #[clap(short, long)]
-    files: Vec<String>,
-    #[clap(long, alias = "n")]
-    file_names: Vec<String>,
-}
-
-impl TaskBuilder for PostMultipartFormTaskBuilder {
-    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
-        if self.file_names.len() != self.files.len() {
-            bail!("number of file names must equal number of files");
-        }
-        let mut files = Vec::with_capacity(self.files.len());
-        for (i, name) in self.file_names.into_iter().enumerate() {
-            let file = builder.input(&self.files[i], razel)?;
-            files.push((name, file));
-        }
-        builder.http_remote_executor(self.url, files);
-        Ok(())
-    }
-}
-
-#[derive(Args, Debug)]
 struct EnsureEqualTask {
     file1: String,
     file2: String,
@@ -311,6 +289,32 @@ impl TaskBuilder for EnsureNotEqualTask {
     }
 }
 
+#[derive(Args, Debug)]
+struct HttpRemoteExecTask {
+    #[clap(short, long)]
+    url: Url,
+    #[clap(short, long)]
+    files: Vec<String>,
+    #[clap(short = 'n', long)]
+    file_names: Vec<String>,
+}
+
+impl TaskBuilder for HttpRemoteExecTask {
+    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
+        if self.file_names.len() != self.files.len() {
+            bail!("number of file names and files must be equal");
+        }
+        let state = razel.http_remote_exec(&self.url);
+        let mut files = Vec::with_capacity(self.files.len());
+        for (i, name) in self.file_names.into_iter().enumerate() {
+            let file = builder.input(&self.files[i], razel)?;
+            files.push((name, file));
+        }
+        builder.http_remote_executor(state, self.url, files);
+        Ok(())
+    }
+}
+
 pub fn parse_cli(args: Vec<String>, razel: &mut Razel) -> Result<Option<RunArgs>, anyhow::Error> {
     let cli = Cli::parse_from(args.iter());
     Ok(match cli.command {
@@ -323,6 +327,9 @@ pub fn parse_cli(args: Vec<String>, razel: &mut Razel) -> Result<Option<RunArgs>
             Some(Default::default())
         }
         CliCommands::Exec(exec) => {
+            if let Some(x) = &exec.run_args.http_remote_exec {
+                razel.set_http_remote_exec_config(x);
+            }
             apply_file(razel, &exec.file)?;
             Some(exec.run_args)
         }

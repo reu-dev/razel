@@ -37,7 +37,7 @@ impl Executor {
             Executor::Wasi(x) => x.args_with_executable(),
             Executor::AsyncTask(x) => x.args_with_executable(),
             Executor::BlockingTask(t) => t.args_with_executable(),
-            Executor::HttpRemote(_) => todo!(),
+            Executor::HttpRemote(x) => x.args_with_executable(),
         }
     }
 
@@ -47,7 +47,7 @@ impl Executor {
             Executor::Wasi(x) => x.command_line_with_redirects(razel_executable),
             Executor::AsyncTask(x) => x.args_with_executable(),
             Executor::BlockingTask(t) => t.args_with_executable(),
-            Executor::HttpRemote(_) => todo!(),
+            Executor::HttpRemote(x) => x.args_with_executable(),
         }
     }
 

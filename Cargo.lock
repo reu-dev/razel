@@ -1823,6 +1823,7 @@ dependencies = [
  "tokio",
  "tonic",
  "tonic-build",
+ "url",
  "wasmtime",
  "wasmtime-wasi",
  "which 6.0.0",

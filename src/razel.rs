@@ -3,7 +3,8 @@ use crate::bazel_remote_exec::{ActionResult, Digest, ExecutedActionMetadata, Out
 use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::config::{select_cache_dir, select_sandbox_dir};
 use crate::executors::{
-    ExecutionResult, ExecutionStatus, Executor, HttpRemoteExecConfig, WasiExecutor,
+    ExecutionResult, ExecutionStatus, Executor, HttpRemoteExecConfig, HttpRemoteExecDomain,
+    HttpRemoteExecState, WasiExecutor,
 };
 use crate::metadata::{write_graphs_html, LogFile, Measurements, Profile, Report, Tag};
 use crate::tui::TUI;
@@ -18,10 +19,12 @@ use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::{hash_map, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{env, fs};
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::{Sender, UnboundedSender};
+use url::Url;
 use which::which;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -87,6 +90,7 @@ pub struct Razel {
     commands: Arena<Command>,
     /// single Linux cgroup for all commands to trigger OOM killer
     cgroup: Option<CGroup>,
+    http_remote_exec_state: HttpRemoteExecState,
     waiting: HashSet<CommandId>,
     scheduler: Scheduler,
     succeeded: Vec<CommandId>,
@@ -121,6 +125,7 @@ impl Razel {
             self_file_id: None,
             commands: Default::default(),
             cgroup: None,
+            http_remote_exec_state: Default::default(),
             waiting: Default::default(),
             scheduler: Scheduler::new(worker_threads),
             succeeded: vec![],
@@ -148,6 +153,10 @@ impl Razel {
             self.workspace_dir = self.current_dir.join(workspace);
         }
         Ok(())
+    }
+
+    pub fn set_http_remote_exec_config(&mut self, config: &HttpRemoteExecConfig) {
+        self.http_remote_exec_state = HttpRemoteExecState::new(config);
     }
 
     pub fn len(&self) -> usize {
@@ -280,7 +289,7 @@ impl Razel {
 
     pub fn list_commands(&mut self) {
         self.create_dependency_graph();
-        while let Some((id, _)) = self.scheduler.pop_ready_and_run() {
+        while let Some(id) = self.scheduler.pop_ready_and_run() {
             let command = &mut self.commands[id];
             println!("# {}", command.name);
             println!(
@@ -292,7 +301,8 @@ impl Razel {
                 )
             );
             command.schedule_state = ScheduleState::Succeeded;
-            self.scheduler.set_finished_and_get_retry_flag(id, false);
+            self.scheduler
+                .set_finished_and_get_retry_flag(command, false);
             for rdep_id in command.reverse_deps.clone() {
                 let rdep = &mut self.commands[rdep_id];
                 assert_eq!(rdep.schedule_state, ScheduleState::Waiting);
@@ -327,7 +337,6 @@ impl Razel {
         cache_dir: Option<PathBuf>,
         remote_cache: Vec<String>,
         remote_cache_threshold: Option<u32>,
-        http_remote_exec_config: Option<HttpRemoteExecConfig>,
     ) -> Result<(), anyhow::Error> {
         let output_directory = self.current_dir.join(&self.out_dir);
         debug!("workspace dir:     {:?}", self.workspace_dir);
@@ -349,9 +358,6 @@ impl Razel {
         TmpDirSandbox::cleanup(&sandbox_dir);
         self.cache = Some(cache);
         self.sandbox_dir = Some(sandbox_dir);
-        if let Some(x) = http_remote_exec_config {
-            self.scheduler.set_http_remote_exec_config(x);
-        }
         match create_cgroup() {
             Ok(x) => self.cgroup = x,
             Err(e) => debug!("create_cgroup(): {e}"),
@@ -364,7 +370,6 @@ impl Razel {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn run(
         &mut self,
         keep_going: bool,
@@ -373,21 +378,15 @@ impl Razel {
         cache_dir: Option<PathBuf>,
         remote_cache: Vec<String>,
         remote_cache_threshold: Option<u32>,
-        http_remote_exec_config: Option<HttpRemoteExecConfig>,
     ) -> Result<SchedulerStats, anyhow::Error> {
         let preparation_start = Instant::now();
         if self.commands.is_empty() {
             bail!("No commands added");
         }
         self.tui.verbose = verbose;
-        self.prepare_run(
-            cache_dir,
-            remote_cache,
-            remote_cache_threshold,
-            http_remote_exec_config,
-        )
-        .await?;
-        let (tx, mut rx) = mpsc::channel(32);
+        self.prepare_run(cache_dir, remote_cache, remote_cache_threshold)
+            .await?;
+        let (tx, mut rx) = mpsc::unbounded_channel();
         let mut interval = tokio::time::interval(self.tui.get_update_interval());
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let execution_start = Instant::now();
@@ -526,6 +525,10 @@ impl Razel {
         });
         self.path_to_file_id.insert(rel_path, id);
         Ok(&self.files[id])
+    }
+
+    pub fn http_remote_exec(&self, url: &Url) -> Option<Arc<HttpRemoteExecDomain>> {
+        self.http_remote_exec_state.for_url(url)
     }
 
     pub fn wasi_module(&mut self, arg: String) -> Result<&File, anyhow::Error> {
@@ -711,9 +714,9 @@ impl Razel {
         Ok(())
     }
 
-    fn start_ready_commands(&mut self, tx: &Sender<ExecutionResultChannel>) {
-        while let Some((id, executor)) = self.scheduler.pop_ready_and_run() {
-            self.start_next_command(id, executor, tx.clone());
+    fn start_ready_commands(&mut self, tx: &UnboundedSender<ExecutionResultChannel>) {
+        while let Some(id) = self.scheduler.pop_ready_and_run() {
+            self.start_next_command(id, tx.clone());
             self.tui_dirty = true;
         }
     }
@@ -792,12 +795,7 @@ impl Razel {
     /// Execute a command in a worker thread with caching.
     ///
     /// If the executed command failed, action_result will be None and the action will not be cached.
-    fn start_next_command(
-        &mut self,
-        id: CommandId,
-        executor: Option<Executor>,
-        tx: Sender<ExecutionResultChannel>,
-    ) {
+    fn start_next_command(&mut self, id: CommandId, tx: UnboundedSender<ExecutionResultChannel>) {
         let total_duration_start = Instant::now();
         let command = &self.commands[id];
         assert_eq!(command.schedule_state, ScheduleState::Ready);
@@ -808,7 +806,7 @@ impl Razel {
         let cache = (!no_cache_tag).then(|| self.cache.as_ref().unwrap().clone());
         let read_cache = self.read_cache && !no_sandbox_tag;
         let use_remote_cache = cache.is_some() && !command.tags.contains(&Tag::NoRemoteCache);
-        let executor = executor.unwrap_or_else(|| command.executor.clone());
+        let executor = command.executor.clone();
         let sandbox =
             (!no_sandbox_tag && executor.use_sandbox()).then(|| self.new_sandbox(command));
         let output_paths = self.collect_output_file_paths_for_command(command);
@@ -850,7 +848,6 @@ impl Razel {
             let output_files_cached = use_cache && execution_result.success();
             // ignore SendError - channel might be closed if a previous command failed
             tx.send((id, execution_result, output_files, output_files_cached))
-                .await
                 .ok();
         });
     }
@@ -1113,7 +1110,7 @@ impl Razel {
         output_files_cached: bool,
     ) {
         let retry = self.scheduler.set_finished_and_get_retry_flag(
-            id,
+            &self.commands[id],
             execution_result.status == ExecutionStatus::Killed,
         );
         if retry {
@@ -1331,7 +1328,7 @@ mod tests {
         }
         assert_eq!(razel.len(), n);
         let stats = razel
-            .run(false, true, "", None, vec![], None, None)
+            .run(false, true, "", None, vec![], None)
             .await
             .unwrap();
         assert_eq!(
