@@ -19,7 +19,9 @@ pub struct Scheduler {
     // TODO sort by weight, e.g. recursive number of rdeps
     ready_items: Vec<ReadyItem>,
     ready_for_remote_exec: Vec<(Arc<HttpRemoteExecDomain>, VecDeque<CommandId>)>,
+    ready_for_remote_exec_len: usize,
     running_items: HashMap<CommandId, Group>,
+    running_with_remote_exec: usize,
     /// groups commands by estimated resource requirement
     group_to_slots: HashMap<String, usize>,
 }
@@ -31,29 +33,42 @@ impl Scheduler {
             used_slots: 0,
             ready_items: Default::default(),
             ready_for_remote_exec: Default::default(),
+            ready_for_remote_exec_len: 0,
             running_items: Default::default(),
+            running_with_remote_exec: 0,
             group_to_slots: Default::default(),
         }
     }
 
     pub fn ready(&self) -> usize {
-        self.ready_items.len()
+        self.ready_items.len() + self.ready_for_remote_exec_len
     }
 
     pub fn ready_ids(&self) -> Vec<CommandId> {
-        self.ready_items.iter().map(|x| x.id).collect()
+        self.ready_items
+            .iter()
+            .map(|x| x.id)
+            .chain(
+                self.ready_for_remote_exec
+                    .iter()
+                    .flat_map(|(_, x)| x.iter().cloned()),
+            )
+            .collect()
     }
 
     pub fn running(&self) -> usize {
-        self.running_items.len()
+        self.running_items.len() + self.running_with_remote_exec
     }
 
     pub fn len(&self) -> usize {
-        self.ready_items.len() + self.running_items.len()
+        self.ready() + self.running()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.ready_items.is_empty() && self.running_items.is_empty()
+        self.ready_items.is_empty()
+            && self.ready_for_remote_exec_len == 0
+            && self.running_items.is_empty()
+            && self.running_with_remote_exec == 0
     }
 
     pub fn push_ready(&mut self, command: &Command) {
@@ -89,6 +104,7 @@ impl Scheduler {
             }
         };
         ready.push_back(command.id);
+        self.ready_for_remote_exec_len += 1;
         true
     }
 
@@ -115,10 +131,18 @@ impl Scheduler {
     }
 
     fn pop_ready_and_run_remote_exec(&mut self) -> Option<CommandId> {
-        self.ready_for_remote_exec
+        if self.ready_for_remote_exec_len == 0 {
+            return None;
+        }
+        let id = self
+            .ready_for_remote_exec
             .iter_mut()
             .find(|(domain, commands)| !commands.is_empty() && domain.try_schedule())
             .and_then(|(_, commands)| commands.pop_front())
+            .unwrap();
+        self.ready_for_remote_exec_len -= 1;
+        self.running_with_remote_exec += 1;
+        Some(id)
     }
 
     pub fn set_finished_and_get_retry_flag(&mut self, command: &Command, killed: bool) -> bool {
@@ -140,14 +164,16 @@ impl Scheduler {
         false
     }
 
-    fn unschedule_remote_exec(&self, command: &Command) -> bool {
+    fn unschedule_remote_exec(&mut self, command: &Command) -> bool {
         let Executor::HttpRemote(executor) = &command.executor else {
             return false;
         };
         let Some(domain) = &executor.state else {
             return false;
         };
+        assert!(self.running_with_remote_exec > 0);
         domain.unschedule();
+        self.running_with_remote_exec -= 1;
         true
     }
 
@@ -185,6 +211,18 @@ impl Scheduler {
             Executor::BlockingTask(_) => String::new(),
             Executor::HttpRemote(_) => String::new(),
         }
+    }
+}
+
+impl Drop for Scheduler {
+    fn drop(&mut self) {
+        assert_eq!(
+            self.ready_for_remote_exec
+                .iter()
+                .map(|(_, x)| x.len())
+                .sum::<usize>(),
+            self.ready_for_remote_exec_len
+        );
     }
 }
 
