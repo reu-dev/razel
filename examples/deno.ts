@@ -44,3 +44,4 @@ if (false) {  // requires clang
 
 // execute the commands using the native razel binary (will be downloaded)
 await razel.run(['exec', ...Deno.args.slice(1)]);
+const log = razel.readLogFile();

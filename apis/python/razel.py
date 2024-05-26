@@ -122,6 +122,11 @@ class Razel:
                 json.dump(command.json(), file, separators=(',', ':'))
                 file.write("\n")
 
+    def read_log_file(self):
+        path = "razel-out/razel-metadata/log.json"
+        with open(path) as f:
+            return json.load(f)
+
     # Generic type used to ensure that _add() takes and returns the same type.
     _Command = TypeVar("_Command", bound="Command")
 

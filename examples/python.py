@@ -46,3 +46,4 @@ if False:  # requires clang
 
 # execute the commands using the native razel binary (will be downloaded)
 razel.run(['exec'] + sys.argv[1:])
+log = razel.read_log_file()

@@ -117,6 +117,12 @@ export class Razel {
         await Deno.writeTextFile(this.razelFile, json.join('\n') + '\n');
     }
 
+    readLogFile(): LogFileItem[] {
+        const path = "razel-out/razel-metadata/log.json";
+        const text = Deno.readTextFileSync(path);
+        return JSON.parse(text);
+    }
+
     clear() {
         this.commands = [];
     }
@@ -344,6 +350,20 @@ export class Task extends Command {
             args: this.args.map(x => x instanceof File ? x.fileName : x),
         };
     }
+}
+
+export interface LogFileItem {
+    name: string,
+    tags?: string[],
+    status: string,
+    cache?: string,
+    // original execution duration of the command/task - ignoring cache
+    exec?: number,
+    // actual duration of processing the command/task - including caching and overheads
+    total?: number,
+    // total size of all output files and stdout/stderr [bytes]
+    output_size?: number,
+    measurements?: { [key: string]: string | number },
 }
 
 function mapArgToOutputPath(arg: string | File | Command): string {
