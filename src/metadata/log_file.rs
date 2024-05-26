@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::fmt::Debug;
 use std::fs;
+use std::fs::File;
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -96,9 +98,21 @@ impl LogFile {
         );
     }
 
+    /// Write a json file with one item per line
     pub fn write(&self, path: &PathBuf) -> Result<()> {
-        let vec = serde_json::to_vec(&self.items)?;
-        fs::write(path, vec)?;
+        let mut writer = BufWriter::new(File::create(path)?);
+        writer.write_all(b"[\n")?;
+        let mut is_first = true;
+        for item in &self.items {
+            if is_first {
+                is_first = false;
+            } else {
+                writer.write_all(b",\n")?;
+            }
+            writer.write_all(&serde_json::to_vec(item)?)?;
+        }
+        writer.write_all(b"\n]\n")?;
+        writer.flush()?;
         Ok(())
     }
 }
