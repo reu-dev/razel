@@ -24,6 +24,7 @@ pub struct LogFileItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total: Option<f32>,
     /// total size of all output files and stdout/stderr [bytes]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub output_size: Option<u64>,
     #[serde(default, skip_serializing_if = "Map::is_empty")]
     pub measurements: Map<String, Value>,
@@ -32,7 +33,7 @@ pub struct LogFileItem {
 impl LogFileItem {
     pub fn kilobyte_per_second(&self) -> Option<f32> {
         self.exec
-            .map(|exec| self.output_size.unwrap() as f32 / exec / 1000.0)
+            .map(|exec| self.output_size.unwrap_or_default() as f32 / exec / 1000.0)
     }
 
     pub fn time_saved_by_cache(&self) -> Option<f32> {
@@ -77,7 +78,7 @@ impl LogFile {
             cache: execution_result.cache_hit,
             exec: execution_result.exec_duration.map(|x| x.as_secs_f32()),
             total: execution_result.total_duration.map(|x| x.as_secs_f32()),
-            output_size,
+            output_size: output_size.filter(|&x| x != 0),
             measurements,
         });
     }
