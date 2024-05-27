@@ -138,8 +138,7 @@ impl Scheduler {
             .ready_for_remote_exec
             .iter_mut()
             .find(|(domain, commands)| !commands.is_empty() && domain.try_schedule())
-            .and_then(|(_, commands)| commands.pop_front())
-            .unwrap();
+            .and_then(|(_, commands)| commands.pop_front())?;
         self.ready_for_remote_exec_len -= 1;
         self.running_with_remote_exec += 1;
         Some(id)

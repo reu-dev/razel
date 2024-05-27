@@ -83,8 +83,6 @@ pub enum ExecutionStatus {
     FailedToCreateResponseFile,
     FailedToWriteStdoutFile,
     FailedToWriteStderrFile,
-    FailedToSendRequest,
-    FailedToParseResponse,
     Failed,
     /// SIGSEGV
     Crashed,

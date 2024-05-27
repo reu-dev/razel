@@ -1,12 +1,13 @@
 use crate::executors::{ExecutionResult, ExecutionStatus};
 use anyhow::anyhow;
 use itertools::Itertools;
+use log::warn;
 use reqwest::{multipart, Client, Url};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::ops::Not;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::fs;
@@ -51,6 +52,7 @@ impl HttpRemoteExecState {
                             client: Default::default(),
                             available_slots,
                             used_slots: Default::default(),
+                            is_ok: AtomicBool::new(true),
                         }
                     })
                     .collect_vec();
@@ -58,7 +60,7 @@ impl HttpRemoteExecState {
                 Arc::new(HttpRemoteExecDomain {
                     domain: domain.clone(),
                     hosts,
-                    available_slots,
+                    available_slots: AtomicUsize::new(available_slots),
                     scheduled_slots: Mutex::new(0),
                 })
             })
@@ -75,14 +77,14 @@ impl HttpRemoteExecState {
 pub struct HttpRemoteExecDomain {
     domain: String,
     hosts: Vec<HttpRemoteExecHost>,
-    available_slots: usize,
+    available_slots: AtomicUsize,
     scheduled_slots: Mutex<usize>,
 }
 
 impl HttpRemoteExecDomain {
     pub fn try_schedule(&self) -> bool {
         let mut scheduled = self.scheduled_slots.lock().unwrap();
-        if *scheduled < self.available_slots {
+        if *scheduled < self.available_slots.load(Ordering::Relaxed) {
             *scheduled += 1;
             true
         } else {
@@ -103,6 +105,8 @@ struct HttpRemoteExecHost {
     client: Client,
     available_slots: usize,
     used_slots: AtomicUsize,
+    /// to ignore host after connection error
+    is_ok: AtomicBool,
 }
 
 #[derive(Clone)]
@@ -115,41 +119,13 @@ pub struct HttpRemoteExecutor {
 
 impl HttpRemoteExecutor {
     pub async fn exec(&self) -> ExecutionResult {
-        let form = match self.build_form().await {
-            Ok(x) => x,
-            Err(x) => {
-                return ExecutionResult {
-                    status: ExecutionStatus::SystemError,
-                    error: Some(x),
-                    ..Default::default()
-                }
-            }
-        };
-
-        let result = if let Some(state) = &self.state {
-            assert!(!state.hosts.is_empty());
-            // TODO retry other hosts if not reachable
-            let host = state
-                .hosts
-                .iter()
-                .min_by_key(|x| x.used_slots.load(Ordering::Relaxed) * 100 / x.available_slots)
-                .unwrap();
-            host.used_slots.fetch_add(1, Ordering::Relaxed);
-            let mut url = self.url.clone();
-            url.set_host(Some(&host.host)).unwrap();
-            if let Some(port) = host.port {
-                url.set_port(Some(port)).unwrap();
-            }
-            let result = self.request(&host.client, url, form).await;
-            host.used_slots.fetch_sub(1, Ordering::Relaxed);
-            result
+        let result = if let Some(domain) = &self.state {
+            self.exec_on_some_host_of_domain(domain).await
         } else {
-            self.request(&Default::default(), self.url.clone(), form)
-                .await
+            self.request(&Default::default(), self.url.clone()).await
         };
-
-        result.unwrap_or_else(|(status, error)| ExecutionResult {
-            status,
+        result.unwrap_or_else(|error| ExecutionResult {
+            status: ExecutionStatus::SystemError,
             error: Some(error),
             ..Default::default()
         })
@@ -157,6 +133,47 @@ impl HttpRemoteExecutor {
 
     pub fn args_with_executable(&self) -> Vec<String> {
         self.args.clone()
+    }
+
+    async fn exec_on_some_host_of_domain(
+        &self,
+        domain: &Arc<HttpRemoteExecDomain>,
+    ) -> anyhow::Result<ExecutionResult> {
+        assert!(!domain.hosts.is_empty());
+        for host in domain
+            .hosts
+            .iter()
+            .filter(|x| x.is_ok.load(Ordering::Relaxed))
+            .sorted_by_key(|x| x.used_slots.load(Ordering::Relaxed) * 100 / x.available_slots)
+        {
+            if !host.is_ok.load(Ordering::Relaxed) {
+                continue;
+            }
+            host.used_slots.fetch_add(1, Ordering::Relaxed);
+            let mut url = self.url.clone();
+            url.set_host(Some(&host.host)).unwrap();
+            if let Some(port) = host.port {
+                url.set_port(Some(port)).unwrap();
+            }
+            let result = self.request(&host.client, url).await;
+            if let Err(err) = &result {
+                if host.is_ok.swap(false, Ordering::Relaxed) {
+                    domain
+                        .available_slots
+                        .fetch_sub(host.available_slots, Ordering::Relaxed);
+                    warn!("{err}");
+                }
+            };
+            host.used_slots.fetch_sub(1, Ordering::Relaxed);
+            if result.is_ok() {
+                return result;
+            }
+        }
+        Err(anyhow!(
+            "remote exec of {:?} failed on all hosts: {}",
+            domain.domain,
+            domain.hosts.iter().map(|x| &x.host).join(", ")
+        ))
     }
 
     async fn build_form(&self) -> Result<multipart::Form, anyhow::Error> {
@@ -169,22 +186,12 @@ impl HttpRemoteExecutor {
         Ok(form)
     }
 
-    async fn request(
-        &self,
-        client: &Client,
-        url: Url,
-        form: multipart::Form,
-    ) -> Result<ExecutionResult, (ExecutionStatus, anyhow::Error)> {
+    async fn request(&self, client: &Client, url: Url) -> anyhow::Result<ExecutionResult> {
         let execution_start = Instant::now();
-        let response = match client.post(url).multipart(form).send().await {
-            Ok(x) => x,
-            Err(x) => return Err((ExecutionStatus::FailedToSendRequest, x.into())),
-        };
+        let form = self.build_form().await?;
+        let response = client.post(url).multipart(form).send().await?;
         let status = response.status();
-        let text = match response.text().await {
-            Ok(x) => x,
-            Err(x) => return Err((ExecutionStatus::FailedToParseResponse, x.into())),
-        };
+        let text = response.text().await?;
         Ok(ExecutionResult {
             status: if status.is_success() {
                 ExecutionStatus::Success
