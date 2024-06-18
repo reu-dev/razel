@@ -13,7 +13,7 @@ from collections.abc import Mapping, Sequence
 
 
 class Razel:
-    version: ClassVar[str] = "0.4.1"
+    version: ClassVar[str] = "0.5.0"
     _instance: ClassVar[Optional[Razel]] = None
 
     class Tag(str, Enum):
