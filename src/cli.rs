@@ -3,7 +3,9 @@ use clap::{Args, Parser, Subcommand};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use url::Url;
 
+use crate::executors::HttpRemoteExecConfig;
 use crate::metadata::Tag;
 use crate::parse_jsonl::parse_jsonl_file;
 use crate::tasks::DownloadFileTask;
@@ -76,6 +78,9 @@ pub struct RunArgs {
     /// Only cache commands with: output size / exec time < threshold [kilobyte / s]
     #[clap(long, env = "RAZEL_REMOTE_CACHE_THRESHOLD")]
     pub remote_cache_threshold: Option<u32>,
+    /// Http remote execution configuration
+    #[clap(long, env = "RAZEL_HTTP_REMOTE_EXEC")]
+    pub http_remote_exec: Option<HttpRemoteExecConfig>,
 }
 
 impl Default for RunArgs {
@@ -89,6 +94,7 @@ impl Default for RunArgs {
             cache_dir: None,
             remote_cache: vec![],
             remote_cache_threshold: None,
+            http_remote_exec: None,
         }
     }
 }
@@ -109,6 +115,8 @@ enum CliTasks {
     EnsureEqual(EnsureEqualTask),
     /// Ensure that two files are not equal
     EnsureNotEqual(EnsureNotEqualTask),
+    /// Post a HTTP multipart form for remote execution
+    HttpRemoteExec(HttpRemoteExecTask),
 }
 
 impl CliTasks {
@@ -128,6 +136,7 @@ impl CliTasks {
             CliTasks::DownloadFile(x) => x.build(&mut builder, razel),
             CliTasks::EnsureEqual(x) => x.build(&mut builder, razel),
             CliTasks::EnsureNotEqual(x) => x.build(&mut builder, razel),
+            CliTasks::HttpRemoteExec(x) => x.build(&mut builder, razel),
         }?;
         razel.push(builder)?;
         Ok(())
@@ -280,6 +289,35 @@ impl TaskBuilder for EnsureNotEqualTask {
     }
 }
 
+#[derive(Args, Debug)]
+struct HttpRemoteExecTask {
+    /// url for HTTP multipart form POST
+    #[clap(short, long)]
+    url: Url,
+    /// files to attach to the form
+    #[clap(short, long)]
+    files: Vec<String>,
+    /// file names to use in the form
+    #[clap(short = 'n', long)]
+    file_names: Vec<String>,
+}
+
+impl TaskBuilder for HttpRemoteExecTask {
+    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
+        if self.file_names.len() != self.files.len() {
+            bail!("number of file names and files must be equal");
+        }
+        let state = razel.http_remote_exec(&self.url);
+        let mut files = Vec::with_capacity(self.files.len());
+        for (i, name) in self.file_names.into_iter().enumerate() {
+            let file = builder.input(&self.files[i], razel)?;
+            files.push((name, file));
+        }
+        builder.http_remote_executor(state, self.url, files);
+        Ok(())
+    }
+}
+
 pub fn parse_cli(args: Vec<String>, razel: &mut Razel) -> Result<Option<RunArgs>, anyhow::Error> {
     let cli = Cli::parse_from(args.iter());
     Ok(match cli.command {
@@ -292,6 +330,9 @@ pub fn parse_cli(args: Vec<String>, razel: &mut Razel) -> Result<Option<RunArgs>
             Some(Default::default())
         }
         CliCommands::Exec(exec) => {
+            if let Some(x) = &exec.run_args.http_remote_exec {
+                razel.set_http_remote_exec_config(x);
+            }
             apply_file(razel, &exec.file)?;
             Some(exec.run_args)
         }

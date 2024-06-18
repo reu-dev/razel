@@ -145,5 +145,6 @@ fn executable(command: &Command) -> String {
         Executor::Wasi(x) => x.executable.clone(),
         Executor::AsyncTask(x) => x.args.iter().take(3).join(" "),
         Executor::BlockingTask(x) => x.args.iter().take(3).join(" "),
+        Executor::HttpRemote(x) => x.args.iter().take(3).join(" "),
     }
 }

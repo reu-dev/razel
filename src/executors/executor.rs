@@ -1,5 +1,6 @@
 use crate::executors::{
-    AsyncTaskExecutor, BlockingTaskExecutor, CustomCommandExecutor, ExecutionResult, WasiExecutor,
+    AsyncTaskExecutor, BlockingTaskExecutor, CustomCommandExecutor, ExecutionResult,
+    HttpRemoteExecutor, WasiExecutor,
 };
 use crate::CGroup;
 use std::collections::HashMap;
@@ -11,6 +12,7 @@ pub enum Executor {
     Wasi(WasiExecutor),
     AsyncTask(AsyncTaskExecutor),
     BlockingTask(BlockingTaskExecutor),
+    HttpRemote(HttpRemoteExecutor),
 }
 
 impl Executor {
@@ -25,6 +27,7 @@ impl Executor {
             Executor::Wasi(x) => x.exec(cwd, sandbox_dir.as_ref().unwrap()).await,
             Executor::AsyncTask(x) => x.exec(sandbox_dir).await,
             Executor::BlockingTask(t) => t.exec().await,
+            Executor::HttpRemote(x) => x.exec().await,
         }
     }
 
@@ -34,6 +37,7 @@ impl Executor {
             Executor::Wasi(x) => x.args_with_executable(),
             Executor::AsyncTask(x) => x.args_with_executable(),
             Executor::BlockingTask(t) => t.args_with_executable(),
+            Executor::HttpRemote(x) => x.args_with_executable(),
         }
     }
 
@@ -43,6 +47,7 @@ impl Executor {
             Executor::Wasi(x) => x.command_line_with_redirects(razel_executable),
             Executor::AsyncTask(x) => x.args_with_executable(),
             Executor::BlockingTask(t) => t.args_with_executable(),
+            Executor::HttpRemote(x) => x.args_with_executable(),
         }
     }
 
@@ -52,6 +57,7 @@ impl Executor {
             Executor::Wasi(x) => Some(&x.env),
             Executor::AsyncTask(_) => None,
             Executor::BlockingTask(_) => None,
+            Executor::HttpRemote(_) => None,
         }
     }
 
@@ -65,6 +71,7 @@ impl Executor {
             Executor::Wasi(_) => true,
             Executor::AsyncTask(_) => true,
             Executor::BlockingTask(_) => false,
+            Executor::HttpRemote(_) => false,
         }
     }
 }

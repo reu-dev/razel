@@ -1,7 +1,8 @@
-use crate::executors::Executor;
+use crate::executors::{Executor, HttpRemoteExecDomain};
 use crate::{Command, CommandId};
 use itertools::Itertools;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 
 type Group = String;
 
@@ -17,7 +18,10 @@ pub struct Scheduler {
     used_slots: usize,
     // TODO sort by weight, e.g. recursive number of rdeps
     ready_items: Vec<ReadyItem>,
+    ready_for_remote_exec: Vec<(Arc<HttpRemoteExecDomain>, VecDeque<CommandId>)>,
+    ready_for_remote_exec_len: usize,
     running_items: HashMap<CommandId, Group>,
+    running_with_remote_exec: usize,
     /// groups commands by estimated resource requirement
     group_to_slots: HashMap<String, usize>,
 }
@@ -28,32 +32,49 @@ impl Scheduler {
             available_slots,
             used_slots: 0,
             ready_items: Default::default(),
+            ready_for_remote_exec: Default::default(),
+            ready_for_remote_exec_len: 0,
             running_items: Default::default(),
+            running_with_remote_exec: 0,
             group_to_slots: Default::default(),
         }
     }
 
     pub fn ready(&self) -> usize {
-        self.ready_items.len()
+        self.ready_items.len() + self.ready_for_remote_exec_len
     }
 
     pub fn ready_ids(&self) -> Vec<CommandId> {
-        self.ready_items.iter().map(|x| x.id).collect()
+        self.ready_items
+            .iter()
+            .map(|x| x.id)
+            .chain(
+                self.ready_for_remote_exec
+                    .iter()
+                    .flat_map(|(_, x)| x.iter().cloned()),
+            )
+            .collect()
     }
 
     pub fn running(&self) -> usize {
-        self.running_items.len()
+        self.running_items.len() + self.running_with_remote_exec
     }
 
     pub fn len(&self) -> usize {
-        self.ready_items.len() + self.running_items.len()
+        self.ready() + self.running()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.ready_items.is_empty() && self.running_items.is_empty()
+        self.ready_items.is_empty()
+            && self.ready_for_remote_exec_len == 0
+            && self.running_items.is_empty()
+            && self.running_with_remote_exec == 0
     }
 
     pub fn push_ready(&mut self, command: &Command) {
+        if self.push_ready_for_remote_exec(command) {
+            return;
+        }
         let group = Self::group_for_command(command);
         let slots = self.slots_for_group(&group);
         self.ready_items.push(ReadyItem {
@@ -63,7 +84,34 @@ impl Scheduler {
         });
     }
 
+    fn push_ready_for_remote_exec(&mut self, command: &Command) -> bool {
+        let Executor::HttpRemote(executor) = &command.executor else {
+            return false;
+        };
+        let Some(domain) = &executor.state else {
+            return false;
+        };
+        let ready = match self
+            .ready_for_remote_exec
+            .iter_mut()
+            .find(|(x, _)| Arc::ptr_eq(x, domain))
+        {
+            Some(x) => &mut x.1,
+            _ => {
+                self.ready_for_remote_exec
+                    .push((domain.clone(), Default::default()));
+                &mut self.ready_for_remote_exec.last_mut().unwrap().1
+            }
+        };
+        ready.push_back(command.id);
+        self.ready_for_remote_exec_len += 1;
+        true
+    }
+
     pub fn pop_ready_and_run(&mut self) -> Option<CommandId> {
+        if let Some(x) = self.pop_ready_and_run_remote_exec() {
+            return Some(x);
+        }
         if self.used_slots >= self.available_slots || self.ready_items.is_empty() {
             return None;
         }
@@ -82,7 +130,25 @@ impl Scheduler {
         }
     }
 
-    pub fn set_finished_and_get_retry_flag(&mut self, id: CommandId, killed: bool) -> bool {
+    fn pop_ready_and_run_remote_exec(&mut self) -> Option<CommandId> {
+        if self.ready_for_remote_exec_len == 0 {
+            return None;
+        }
+        let id = self
+            .ready_for_remote_exec
+            .iter_mut()
+            .find(|(domain, commands)| !commands.is_empty() && domain.try_schedule())
+            .and_then(|(_, commands)| commands.pop_front())?;
+        self.ready_for_remote_exec_len -= 1;
+        self.running_with_remote_exec += 1;
+        Some(id)
+    }
+
+    pub fn set_finished_and_get_retry_flag(&mut self, command: &Command, killed: bool) -> bool {
+        if self.unschedule_remote_exec(command) {
+            return false;
+        }
+        let id = command.id;
         let group = self.running_items.remove(&id).unwrap();
         self.used_slots -= self.slots_for_group(&group);
         if killed {
@@ -95,6 +161,19 @@ impl Scheduler {
             }
         }
         false
+    }
+
+    fn unschedule_remote_exec(&mut self, command: &Command) -> bool {
+        let Executor::HttpRemote(executor) = &command.executor else {
+            return false;
+        };
+        let Some(domain) = &executor.state else {
+            return false;
+        };
+        assert!(self.running_with_remote_exec > 0);
+        domain.unschedule();
+        self.running_with_remote_exec -= 1;
+        true
     }
 
     fn scale_up_memory_requirement(&mut self, group: &Group) -> bool {
@@ -129,7 +208,20 @@ impl Scheduler {
             Executor::Wasi(x) => x.executable.clone(),
             Executor::AsyncTask(_) => String::new(),
             Executor::BlockingTask(_) => String::new(),
+            Executor::HttpRemote(_) => String::new(),
         }
+    }
+}
+
+impl Drop for Scheduler {
+    fn drop(&mut self) {
+        assert_eq!(
+            self.ready_for_remote_exec
+                .iter()
+                .map(|(_, x)| x.len())
+                .sum::<usize>(),
+            self.ready_for_remote_exec_len
+        );
     }
 }
 
@@ -140,7 +232,7 @@ mod tests {
     use crate::executors::CustomCommandExecutor;
     use crate::{Arena, ScheduleState};
 
-    fn create(available_slots: usize, executables: Vec<&str>) -> Scheduler {
+    fn create(available_slots: usize, executables: Vec<&str>) -> (Scheduler, Arena<Command>) {
         let mut scheduler = Scheduler::new(available_slots);
         let mut commands: Arena<Command> = Default::default();
         for executable in &executables {
@@ -163,53 +255,77 @@ mod tests {
             scheduler.push_ready(&commands[id]);
         }
         assert_eq!(scheduler.ready(), executables.len());
-        scheduler
+        (scheduler, commands)
     }
 
     #[test]
     fn simple() {
-        let mut ror = create(3, vec!["exec_0", "exec_0", "exec_1", "exec_1"]);
-        let c0 = ror.pop_ready_and_run().unwrap();
-        let c1 = ror.pop_ready_and_run().unwrap();
-        let c2 = ror.pop_ready_and_run().unwrap();
-        assert_eq!(ror.pop_ready_and_run(), None);
-        assert_eq!(ror.used_slots, 3);
-        assert_eq!(ror.set_finished_and_get_retry_flag(c1, false), false);
-        let c3 = ror.pop_ready_and_run().unwrap();
-        assert_eq!(ror.set_finished_and_get_retry_flag(c0, false), false);
-        assert_eq!(ror.set_finished_and_get_retry_flag(c2, false), false);
-        assert_eq!(ror.set_finished_and_get_retry_flag(c3, false), false);
-        assert_eq!(ror.len(), 0);
-        assert_eq!(ror.used_slots, 0);
+        let (mut s, commands) = create(3, vec!["exec_0", "exec_0", "exec_1", "exec_1"]);
+        let c0 = s.pop_ready_and_run().unwrap();
+        let c1 = s.pop_ready_and_run().unwrap();
+        let c2 = s.pop_ready_and_run().unwrap();
+        assert_eq!(s.pop_ready_and_run(), None);
+        assert_eq!(s.used_slots, 3);
+        assert_eq!(
+            s.set_finished_and_get_retry_flag(&commands[c1], false),
+            false
+        );
+        let c3 = s.pop_ready_and_run().unwrap();
+        assert_eq!(
+            s.set_finished_and_get_retry_flag(&commands[c0], false),
+            false
+        );
+        assert_eq!(
+            s.set_finished_and_get_retry_flag(&commands[c2], false),
+            false
+        );
+        assert_eq!(
+            s.set_finished_and_get_retry_flag(&commands[c3], false),
+            false
+        );
+        assert_eq!(s.len(), 0);
+        assert_eq!(s.used_slots, 0);
     }
 
     #[test]
     fn killed() {
-        let mut ror = create(3, vec!["exec_0", "exec_0", "exec_1", "exec_1"]);
-        let c0 = ror.pop_ready_and_run().unwrap();
-        let c1 = ror.pop_ready_and_run().unwrap();
-        let c2 = ror.pop_ready_and_run().unwrap();
-        assert_eq!(ror.pop_ready_and_run(), None);
-        assert_eq!(ror.used_slots, 3);
-        assert_eq!(ror.set_finished_and_get_retry_flag(c1, true), true); // -> exec_0: 2 slots
-        assert_eq!(ror.used_slots, 3); // c0 (2), c2 (1)
-        assert_eq!(ror.pop_ready_and_run(), None);
-        assert_eq!(ror.set_finished_and_get_retry_flag(c0, true), true); // -> exec_0: 3 slots
-        assert_eq!(ror.used_slots, 1); // c2 (1)
-        assert_eq!(ror.set_finished_and_get_retry_flag(c2, false), false);
-        assert_eq!(ror.used_slots, 0);
-        let c3 = ror.pop_ready_and_run().unwrap();
-        assert_eq!(ror.used_slots, 1); // c4 (1)
-        assert_eq!(ror.pop_ready_and_run(), None);
-        assert_eq!(ror.set_finished_and_get_retry_flag(c3, false), false);
-        assert_eq!(ror.used_slots, 0);
-        let c0_or_c1 = ror.pop_ready_and_run().unwrap();
-        assert_eq!(ror.used_slots, 3);
-        assert_eq!(ror.pop_ready_and_run(), None);
-        assert_eq!(ror.set_finished_and_get_retry_flag(c0_or_c1, false), false);
-        let c0_or_c1 = ror.pop_ready_and_run().unwrap();
-        assert_eq!(ror.set_finished_and_get_retry_flag(c0_or_c1, true), false);
-        assert_eq!(ror.len(), 0);
-        assert_eq!(ror.used_slots, 0);
+        let (mut s, commands) = create(3, vec!["exec_0", "exec_0", "exec_1", "exec_1"]);
+        let c0 = s.pop_ready_and_run().unwrap();
+        let c1 = s.pop_ready_and_run().unwrap();
+        let c2 = s.pop_ready_and_run().unwrap();
+        assert_eq!(s.pop_ready_and_run(), None);
+        assert_eq!(s.used_slots, 3);
+        assert_eq!(s.set_finished_and_get_retry_flag(&commands[c1], true), true); // -> exec_0: 2 slots
+        assert_eq!(s.used_slots, 3); // c0 (2), c2 (1)
+        assert_eq!(s.pop_ready_and_run(), None);
+        assert_eq!(s.set_finished_and_get_retry_flag(&commands[c0], true), true); // -> exec_0: 3 slots
+        assert_eq!(s.used_slots, 1); // c2 (1)
+        assert_eq!(
+            s.set_finished_and_get_retry_flag(&commands[c2], false),
+            false
+        );
+        assert_eq!(s.used_slots, 0);
+        let c3 = s.pop_ready_and_run().unwrap();
+        assert_eq!(s.used_slots, 1); // c4 (1)
+        assert_eq!(s.pop_ready_and_run(), None);
+        assert_eq!(
+            s.set_finished_and_get_retry_flag(&commands[c3], false),
+            false
+        );
+        assert_eq!(s.used_slots, 0);
+        let c0_or_c1 = s.pop_ready_and_run().unwrap();
+        assert_eq!(s.used_slots, 3);
+        assert_eq!(s.pop_ready_and_run(), None);
+        assert_eq!(
+            s.set_finished_and_get_retry_flag(&commands[c0_or_c1], false),
+            false
+        );
+        let c0_or_c1 = s.pop_ready_and_run().unwrap();
+        assert_eq!(
+            s.set_finished_and_get_retry_flag(&commands[c0_or_c1], true),
+            false
+        );
+        assert_eq!(s.len(), 0);
+        assert_eq!(s.used_slots, 0);
     }
 }

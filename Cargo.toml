@@ -35,6 +35,7 @@ anyhow = { workspace = true }
 async-trait = "0.1"
 base16ct = { version = "0.2", features = ["alloc"] }
 bstr = "1"
+cap-std = "3"
 clap = { workspace = true }
 crossterm = "0.27"
 csv = "1"
@@ -48,14 +49,14 @@ num_cpus = "1"  # TODO replace with std::thread::available_parallelism() once it
 prost = "0.12"
 prost-types = "0.12"
 regex = "1"
-reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["multipart", "rustls-tls", "stream"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = "0.10"
 simplelog = { workspace = true }
 tokio = { version = "1", features = ["full"] }
 tonic = "0.11"
-cap-std = "3"
+url = "2"
 wasmtime = { version = "19", default-features = false, features = ["async", "cranelift", "pooling-allocator", "runtime"] }
 wasmtime-wasi = "19"
 which = "6"

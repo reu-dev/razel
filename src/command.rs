@@ -2,10 +2,11 @@ use anyhow::{anyhow, Context};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use url::Url;
 
 use crate::executors::{
-    AsyncTask, AsyncTaskExecutor, BlockingTaskExecutor, CustomCommandExecutor, Executor, TaskFn,
-    WasiExecutor,
+    AsyncTask, AsyncTaskExecutor, BlockingTaskExecutor, CustomCommandExecutor, Executor,
+    HttpRemoteExecDomain, HttpRemoteExecutor, TaskFn, WasiExecutor,
 };
 use crate::metadata::Tag;
 use crate::{ArenaId, FileId, FileType, Razel, ScheduleState};
@@ -222,6 +223,20 @@ impl CommandBuilder {
         self.executor = Some(Executor::BlockingTask(BlockingTaskExecutor {
             f,
             args: self.args_with_out_paths.clone(),
+        }));
+    }
+
+    pub fn http_remote_executor(
+        &mut self,
+        state: Option<Arc<HttpRemoteExecDomain>>,
+        url: Url,
+        files: Vec<(String, PathBuf)>,
+    ) {
+        self.executor = Some(Executor::HttpRemote(HttpRemoteExecutor {
+            args: self.args_with_out_paths.clone(),
+            state,
+            url,
+            files,
         }));
     }
 
