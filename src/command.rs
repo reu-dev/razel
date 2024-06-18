@@ -35,7 +35,6 @@ pub type CommandId = ArenaId<Command>;
 
 pub struct CommandBuilder {
     name: String,
-    args_with_exec_paths: Vec<String>,
     args_with_out_paths: Vec<String>,
     executables: Vec<FileId>,
     inputs: Vec<FileId>,
@@ -51,7 +50,6 @@ impl CommandBuilder {
     pub fn new(name: String, args: Vec<String>, tags: Vec<Tag>) -> CommandBuilder {
         CommandBuilder {
             name,
-            args_with_exec_paths: args.clone(),
             args_with_out_paths: args,
             executables: vec![],
             inputs: vec![],
@@ -64,14 +62,6 @@ impl CommandBuilder {
         }
     }
 
-    fn map_exec_path(&mut self, original: &String, mapped: &str) {
-        self.args_with_exec_paths.iter_mut().for_each(|x| {
-            if x == original {
-                *x = mapped.to_owned()
-            }
-        });
-    }
-
     fn map_out_path(&mut self, original: &String, mapped: &str) {
         self.args_with_out_paths.iter_mut().for_each(|x| {
             if x == original {
@@ -82,7 +72,6 @@ impl CommandBuilder {
 
     pub fn input(&mut self, path: &String, razel: &mut Razel) -> Result<PathBuf, anyhow::Error> {
         razel.input_file(path.clone()).map(|file| {
-            self.map_exec_path(path, file.path.to_str().unwrap());
             self.map_out_path(path, file.path.to_str().unwrap());
             self.inputs.push(file.id);
             file.path.clone()
@@ -99,7 +88,6 @@ impl CommandBuilder {
             .iter()
             .map(|path| {
                 let file = razel.input_file(path.clone())?;
-                self.map_exec_path(path, file.path.to_str().unwrap());
                 self.map_out_path(path, file.path.to_str().unwrap());
                 self.inputs.push(file.id);
                 Ok(file.path.clone())
@@ -114,7 +102,6 @@ impl CommandBuilder {
         razel: &mut Razel,
     ) -> Result<PathBuf, anyhow::Error> {
         razel.output_file(path, file_type).map(|file| {
-            self.map_exec_path(path, file.path.to_str().unwrap());
             self.map_out_path(path, file.path.to_str().unwrap());
             self.outputs.push(file.id);
             file.path.clone()
@@ -131,7 +118,6 @@ impl CommandBuilder {
             .iter()
             .map(|path| {
                 let file = razel.output_file(path, FileType::OutputFile)?;
-                self.map_exec_path(path, file.path.to_str().unwrap());
                 self.map_out_path(path, file.path.to_str().unwrap());
                 self.outputs.push(file.id);
                 Ok(file.path.clone())
