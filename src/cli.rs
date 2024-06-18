@@ -115,7 +115,7 @@ enum CliTasks {
     EnsureEqual(EnsureEqualTask),
     /// Ensure that two files are not equal
     EnsureNotEqual(EnsureNotEqualTask),
-    /// Post a HTTP request for remote execution
+    /// Post a HTTP multipart form for remote execution
     HttpRemoteExec(HttpRemoteExecTask),
 }
 
@@ -291,10 +291,13 @@ impl TaskBuilder for EnsureNotEqualTask {
 
 #[derive(Args, Debug)]
 struct HttpRemoteExecTask {
+    /// url for HTTP multipart form POST
     #[clap(short, long)]
     url: Url,
+    /// files to attach to the form
     #[clap(short, long)]
     files: Vec<String>,
+    /// file names to use in the form
     #[clap(short = 'n', long)]
     file_names: Vec<String>,
 }
