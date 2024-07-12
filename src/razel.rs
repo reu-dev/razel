@@ -279,8 +279,9 @@ impl Razel {
 
     pub fn add_tag_for_command(&mut self, name: &str, tag: Tag) -> Result<(), anyhow::Error> {
         match self.commands.iter_mut().find(|x| x.name == name) {
-            Some(x) => {
-                x.tags.push(tag);
+            Some(command) => {
+                command.tags.push(tag);
+                Self::check_tags(command)?;
                 Ok(())
             }
             _ => bail!("Command not found: {name}"),
@@ -802,13 +803,12 @@ impl Razel {
         assert_eq!(command.unfinished_deps.len(), 0);
         let (bzl_command, bzl_input_root) = self.get_bzl_action_for_command(command);
         let no_cache_tag = command.tags.contains(&Tag::NoCache);
-        let no_sandbox_tag = command.tags.contains(&Tag::NoSandbox);
         let cache = (!no_cache_tag).then(|| self.cache.as_ref().unwrap().clone());
-        let read_cache = self.read_cache && !no_sandbox_tag;
+        let read_cache = self.read_cache;
         let use_remote_cache = cache.is_some() && !command.tags.contains(&Tag::NoRemoteCache);
         let executor = command.executor.clone();
-        let sandbox =
-            (!no_sandbox_tag && executor.use_sandbox()).then(|| self.new_sandbox(command));
+        let sandbox = (executor.use_sandbox() && !command.tags.contains(&Tag::NoSandbox))
+            .then(|| self.new_sandbox(command));
         let output_paths = self.collect_output_file_paths_for_command(command);
         let cgroup = self.cgroup.clone();
         let cwd = self.current_dir.clone();
@@ -1005,19 +1005,17 @@ impl Razel {
         } else {
             Default::default()
         };
-        if execution_result.success() {
-            if let Some(cache) = cache {
-                Self::cache_action_result(
-                    action_digest,
-                    &execution_result,
-                    output_files.clone(),
-                    None,
-                    cache,
-                    use_remote_cache,
-                )
-                .await
-                .with_context(|| "cache_action_result()")?;
-            }
+        if let Some(cache) = cache.filter(|_| execution_result.success()) {
+            Self::cache_action_result(
+                action_digest,
+                &execution_result,
+                output_files.clone(),
+                None,
+                cache,
+                use_remote_cache,
+            )
+            .await
+            .with_context(|| "cache_action_result()")?;
         }
         Ok((execution_result, output_files))
     }
