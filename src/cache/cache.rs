@@ -79,6 +79,7 @@ impl Cache {
         &mut self,
         digest: &MessageDigest,
         use_remote_cache: bool,
+        use_remote_cache_threshold: bool,
     ) -> Option<(ActionResult, CacheHit)> {
         let remote_cache = self.remote_cache.as_ref().filter(|_| use_remote_cache);
         let (action_result, mut cache_hit) =
@@ -99,7 +100,9 @@ impl Cache {
             return Some((action_result, cache_hit));
         }
         let remote_cache = self.remote_cache.as_ref().filter(|_| use_remote_cache)?;
-        if self.is_output_size_above_remote_cache_threshold(&action_result) {
+        if use_remote_cache_threshold
+            && self.is_output_size_above_remote_cache_threshold(&action_result)
+        {
             return None;
         }
         let downloaded = remote_cache
@@ -164,6 +167,7 @@ impl Cache {
         action_result: &ActionResult,
         sandbox_dir: Option<&PathBuf>,
         use_remote_cache: bool,
+        use_remote_cache_threshold: bool,
     ) -> Result<(), anyhow::Error> {
         let files = self
             .prepare_files_to_push(action_result, sandbox_dir)
@@ -175,7 +179,9 @@ impl Cache {
         if let Some(remote_cache) = remote_cache {
             remote_cache.push_action_result(message_digest.clone(), action_result.clone());
         }
-        if self.is_output_size_above_remote_cache_threshold(action_result) {
+        if use_remote_cache_threshold
+            && self.is_output_size_above_remote_cache_threshold(action_result)
+        {
             // just skip uploading to cas, ac upload is still useful, e.g. files might already be cached
             remote_cache.take();
         }

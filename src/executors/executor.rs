@@ -74,4 +74,12 @@ impl Executor {
             Executor::HttpRemote(_) => false,
         }
     }
+
+    pub fn use_remote_cache_threshold(&self) -> bool {
+        match self {
+            // remote cache lookup is likely faster than http remote execution duration because of less overhead
+            Executor::HttpRemote(_) => false,
+            _ => true,
+        }
+    }
 }

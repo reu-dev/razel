@@ -865,9 +865,14 @@ impl Razel {
         cwd: &Path,
         out_dir: &PathBuf,
     ) -> Result<(ExecutionResult, Vec<OutputFile>), anyhow::Error> {
-        let (execution_result, output_files) = if let Some(x) =
-            Self::get_action_from_cache(action_digest, cache.as_mut(), read_cache, use_remote_cache)
-                .await
+        let (execution_result, output_files) = if let Some(x) = Self::get_action_from_cache(
+            action_digest,
+            cache.as_mut(),
+            read_cache,
+            use_remote_cache,
+            executor.use_remote_cache_threshold(),
+        )
+        .await
         {
             x
         } else if let Some(sandbox) = sandbox {
@@ -912,10 +917,11 @@ impl Razel {
         cache: Option<&mut Cache>,
         read_cache: bool,
         use_remote_cache: bool,
+        use_remote_cache_threshold: bool,
     ) -> Option<(ExecutionResult, Vec<OutputFile>)> {
         let cache = cache.filter(|_| read_cache)?;
         if let Some((action_result, cache_hit)) = cache
-            .get_action_result(action_digest, use_remote_cache)
+            .get_action_result(action_digest, use_remote_cache, use_remote_cache_threshold)
             .await
         {
             let exit_code = Some(action_result.exit_code);
@@ -970,6 +976,7 @@ impl Razel {
                     Some(sandbox.dir()),
                     cache,
                     use_remote_cache,
+                    executor.use_remote_cache_threshold(),
                 )
                 .await
                 .with_context(|| "cache_action_result()")?;
@@ -1013,6 +1020,7 @@ impl Razel {
                 None,
                 cache,
                 use_remote_cache,
+                    executor.use_remote_cache_threshold(),
             )
             .await
             .with_context(|| "cache_action_result()")?;
@@ -1075,6 +1083,7 @@ impl Razel {
         sandbox_dir: Option<&PathBuf>,
         cache: &mut Cache,
         use_remote_cache: bool,
+        use_remote_cache_threshold: bool,
     ) -> Result<Vec<OutputFile>, anyhow::Error> {
         assert!(execution_result.success());
         let mut action_result = ActionResult {
@@ -1095,7 +1104,13 @@ impl Razel {
         action_result.stdout_raw = execution_result.stdout.clone();
         action_result.stderr_raw = execution_result.stderr.clone();
         cache
-            .push(action_digest, &action_result, sandbox_dir, use_remote_cache)
+            .push(
+                action_digest,
+                &action_result,
+                sandbox_dir,
+                use_remote_cache,
+                use_remote_cache_threshold,
+            )
             .await?;
         Ok(action_result.output_files)
     }
