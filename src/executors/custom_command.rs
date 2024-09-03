@@ -177,7 +177,7 @@ impl CustomCommandExecutor {
          * TODO replace hardcoded limits with running that check before executing commands */
         let (max_len, terminator_len) = if cfg!(windows) {
             (32_760, 1)
-        } else if cfg!(macos) {
+        } else if cfg!(target_os = "macos") {
             (1_048_512, 1 + std::mem::size_of::<usize>())
         } else {
             (2_097_088, 1 + std::mem::size_of::<usize>())
