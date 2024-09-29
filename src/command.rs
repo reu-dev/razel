@@ -161,6 +161,13 @@ impl CommandBuilder {
             env,
             stdout_file: self.stdout_file.clone(),
             stderr_file: self.stderr_file.clone(),
+            timeout: self.tags.iter().find_map(|t| {
+                if let Tag::Timeout(x) = t {
+                    Some(*x)
+                } else {
+                    None
+                }
+            }),
         }));
         Ok(())
     }

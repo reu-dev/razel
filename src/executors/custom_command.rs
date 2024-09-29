@@ -16,6 +16,7 @@ pub struct CustomCommandExecutor {
     pub env: HashMap<String, String>,
     pub stdout_file: Option<PathBuf>,
     pub stderr_file: Option<PathBuf>,
+    pub timeout: Option<u16>,
 }
 
 impl CustomCommandExecutor {
@@ -43,6 +44,7 @@ impl CustomCommandExecutor {
             .current_dir(&cwd)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
+            .kill_on_drop(true)
             .spawn()
         {
             Ok(child) => child,
@@ -55,10 +57,13 @@ impl CustomCommandExecutor {
         if let Some(cgroup) = cgroup {
             cgroup.add_task("memory", child.id().unwrap()).ok();
         }
-        match child.wait_with_output().await {
+        let (exec_result, timed_out) = self.wait_with_timeout(child).await;
+        match exec_result {
             Ok(output) => {
                 if output.status.success() {
                     result.status = ExecutionStatus::Success;
+                } else if timed_out {
+                    result.status = ExecutionStatus::Timeout;
                 } else {
                     (result.status, result.error) = Self::evaluate_status(output.status);
                 }
@@ -74,6 +79,28 @@ impl CustomCommandExecutor {
         result.exec_duration = Some(execution_start.elapsed());
         self.write_redirect_files(&cwd, &mut result).await;
         result
+    }
+
+    async fn wait_with_timeout(
+        &self,
+        mut child: tokio::process::Child,
+    ) -> (std::io::Result<std::process::Output>, bool) {
+        let timed_out = if let Some(timeout_s) = self.timeout {
+            let sleep = tokio::time::sleep(std::time::Duration::from_secs(timeout_s.into()));
+            tokio::pin!(sleep);
+            tokio::select! {
+                _ = child.wait() => {
+                    false
+                }
+                _ = &mut sleep => {
+                    let _ = child.kill().await;
+                    true
+                }
+            }
+        } else {
+            false
+        };
+        (child.wait_with_output().await, timed_out)
     }
 
     pub fn args_with_executable(&self) -> Vec<String> {
@@ -231,6 +258,7 @@ impl CustomCommandExecutor {
 #[cfg(test)]
 mod tests {
     use crate::executors::{CustomCommandExecutor, ExecutionStatus};
+    use crate::metadata::Tag;
     use crate::Razel;
     use std::path::Path;
 
@@ -363,6 +391,30 @@ mod tests {
         assert!(!result.stderr.is_empty());
     }
 
+    #[tokio::test]
+    async fn exec_timeout() {
+        let mut razel = Razel::new();
+        let command = razel
+            .push_custom_command(
+                "test".into(),
+                "cmake".into(),
+                vec!["-E".into(), "sleep".into(), "3".into()],
+                Default::default(),
+                vec![],
+                vec![],
+                None,
+                None,
+                vec![],
+                vec![Tag::Timeout(1)],
+            )
+            .map(|id| razel.get_command(id).unwrap())
+            .unwrap();
+        let result = command.executor.exec(Path::new("."), None, None).await;
+        assert!(!result.success());
+        assert_eq!(result.status, ExecutionStatus::Timeout);
+        assert_eq!(result.exit_code, None);
+    }
+
     /* TODO
     #[tokio::test]
     async fn exec_kill() {
@@ -392,10 +444,7 @@ mod tests {
     async fn test_arg_max() {
         let mut executor = CustomCommandExecutor {
             executable: "echo".to_string(),
-            args: vec![],
-            env: Default::default(),
-            stdout_file: None,
-            stderr_file: None,
+            ..Default::default()
         };
         for arg in &["a", "ab", "abcdefabcdef"] {
             executor.args.clear();

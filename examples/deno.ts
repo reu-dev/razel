@@ -26,7 +26,7 @@ razel.addCommand('e.csv', 'bin/wasm32-wasi/cp.wasm', [d, razel.addOutputFile('e.
 
 // add command that will always be executed without caching
 razel.addCommand('cmake-sleep', 'cmake', ['-E', 'sleep', '0.010'])
-    .addTag(Razel.Tag.NoCache);
+    .addTags([Razel.Tag.NoCache, 'razel:timeout:2']);
 // add command with unspecified output files
 razel.addCommand('cmake-touch-files', 'cmake', ['-E', 'touch', 'razel-out/cmake-touch-1', 'razel-out/cmake-touch-2'])
     .addTag(Razel.Tag.NoSandbox);

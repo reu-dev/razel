@@ -29,7 +29,7 @@ razel.add_command('e.csv', 'bin/wasm32-wasi/cp.wasm', [d, razel.add_output_file(
 
 # add command that will always be executed without caching
 razel.add_command('cmake-sleep', 'cmake', ['-E', 'sleep', '0.010']) \
-    .add_tag(Razel.Tag.NO_CACHE)
+    .add_tags([Razel.Tag.NO_CACHE, 'razel:timeout:2'])
 # add command with unspecified output files
 razel.add_command('cmake-touch-files', 'cmake', ['-E', 'touch', 'razel-out/cmake-touch-1', 'razel-out/cmake-touch-2']) \
     .add_tag(Razel.Tag.NO_SANDBOX)
