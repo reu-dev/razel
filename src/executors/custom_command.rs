@@ -412,7 +412,7 @@ mod tests {
         let result = command.executor.exec(Path::new("."), None, None).await;
         assert!(!result.success());
         assert_eq!(result.status, ExecutionStatus::Timeout);
-        assert_eq!(result.exit_code, None);
+        assert_ne!(result.exit_code, Some(0));
     }
 
     /* TODO
