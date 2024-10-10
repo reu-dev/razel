@@ -38,7 +38,7 @@ impl Rules {
     pub fn parse_command(
         &self,
         command: &[String],
-    ) -> Result<Option<CommandFileArgIndices>, anyhow::Error> {
+    ) -> Result<Option<ParseCommandResult>, anyhow::Error> {
         let executable_stem: String = Path::new(command.first().unwrap())
             .file_stem()
             .unwrap()
@@ -144,21 +144,31 @@ impl Rule {
         })
     }
 
-    pub fn parse_command(
-        &self,
-        command: &[String],
-    ) -> Result<CommandFileArgIndices, anyhow::Error> {
-        let mut command_files: CommandFileArgIndices = Default::default();
+    pub fn parse_command(&self, command: &[String]) -> Result<ParseCommandResult, anyhow::Error> {
+        let items = &command[1..];
+        if items.len() < self.options.len() * 2 + self.positional_args.len() {
+            bail!(
+                "expected {} arguments, found only {}",
+                self.options.len() * 2 + self.positional_args.len(),
+                items.len()
+            );
+        }
+        let mut files: ParseCommandResult = Default::default();
         let mut prev_option: Option<&Arg> = None;
-        let mut i_positional = 1;
-        for (i, item) in command.iter().enumerate().skip(1) {
+        let mut positionals_missing = self.positional_args.len();
+        let mut first_positional = 0;
+        for (i, item) in items
+            .iter()
+            .enumerate()
+            .take(items.len() - positionals_missing)
+        {
             let mut is_option = true;
             let curr_option = self.options.get(item);
             match (prev_option, curr_option) {
                 (None, None) => is_option = item.starts_with('-'),
                 (None, Some(arg)) => prev_option = Some(arg),
                 (Some(arg), None) => {
-                    command_files.push(arg.file_type, item.clone());
+                    files.push(arg.file_type, item.clone());
                     if !arg.multiple {
                         prev_option = None;
                     }
@@ -168,25 +178,37 @@ impl Rule {
                 }
             }
             if is_option {
-                i_positional = i + 1;
+                first_positional = i + 1;
             }
         }
-        if command.len() - i_positional < self.positional_args.len() {
-            bail!("missing positional args");
+        if items.len() - first_positional < positionals_missing {
+            bail!(
+                "expected {positionals_missing} positional arguments, found only {}",
+                items.len() - first_positional
+            );
         }
-        for (i, arg) in self.positional_args.iter().enumerate() {
+        let mut positional_files: ParseCommandResult = Default::default();
+        let mut len = items.len();
+        for arg in self.positional_args.iter().rev() {
+            positionals_missing -= 1;
             if arg.multiple {
-                let needed_later = self.positional_args.len() - 1 - i;
-                while command.len() - i_positional > needed_later {
-                    command_files.push(arg.file_type, command[i_positional].clone());
-                    i_positional += 1;
+                while len - positionals_missing > first_positional {
+                    len -= 1;
+                    positional_files.push(arg.file_type, items[len].clone());
                 }
             } else {
-                command_files.push(arg.file_type, command[i_positional].clone());
-                i_positional += 1;
+                len -= 1;
+                positional_files.push(arg.file_type, items[len].clone());
             }
         }
-        Ok(command_files)
+        assert_eq!(positionals_missing, 0);
+        files
+            .inputs
+            .extend(positional_files.inputs.into_iter().rev());
+        files
+            .outputs
+            .extend(positional_files.outputs.into_iter().rev());
+        Ok(files)
     }
 }
 
@@ -202,18 +224,71 @@ enum ArgFileType {
     NoFile,
 }
 
-#[derive(Debug, Default)]
-pub struct CommandFileArgIndices {
+#[derive(Debug, Default, PartialEq)]
+pub struct ParseCommandResult {
     pub inputs: Vec<String>,
     pub outputs: Vec<String>,
 }
 
-impl CommandFileArgIndices {
+impl ParseCommandResult {
     fn push(&mut self, arg_file_type: ArgFileType, path: String) {
         match arg_file_type {
             ArgFileType::Input => self.inputs.push(path),
             ArgFileType::Output => self.outputs.push(path),
             ArgFileType::NoFile => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assert2::check;
+    use itertools::Itertools;
+
+    impl Rules {
+        fn test(&self, command: &str, exp_inputs: &[&str], exp_outputs: &[&str]) {
+            let files = self
+                .parse_command(
+                    &command
+                        .split_whitespace()
+                        .map(|x| x.to_string())
+                        .collect_vec(),
+                )
+                .unwrap()
+                .unwrap();
+            check!(files.inputs == exp_inputs);
+            check!(files.outputs == exp_outputs);
+        }
+
+        fn test_fail(&self, command: &str) {
+            let result = self.parse_command(
+                &command
+                    .split_whitespace()
+                    .map(|x| x.to_string())
+                    .collect_vec(),
+            );
+            check!(result.is_err());
+        }
+    }
+
+    #[test]
+    fn rules() {
+        let rules = Rules::new();
+        check!(rules
+            .parse_command(&["someNoneExistingExecutable".into()])
+            .unwrap()
+            .is_none());
+        rules.test_fail("cp");
+        rules.test_fail("cp a");
+        rules.test("cp in out", &["in"], &["out"]);
+        rules.test("c++ -MF out1 -o out2 in1", &["in1"], &["out1", "out2"]);
+        rules.test(
+            "c++ -MF out1 -o out2 in1 in2",
+            &["in1", "in2"],
+            &["out1", "out2"],
+        );
+        rules.test("sox in1 out", &["in1"], &["out"]);
+        rules.test("sox in1 in2 out", &["in1", "in2"], &["out"]);
     }
 }

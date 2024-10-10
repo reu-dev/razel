@@ -70,6 +70,7 @@ tonic-build = "0.11"
 
 [dev-dependencies]
 approx = "0.5"
+assert2 = "0.3"
 env_logger = "0.11"
 serial_test = "3"
 

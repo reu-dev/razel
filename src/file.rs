@@ -72,11 +72,17 @@ impl File {
         match file_type {
             FileType::DataFile => {}
             FileType::OutputFile | FileType::ExecutableInWorkspace | FileType::WasiModule => {
-                assert!(path.is_relative())
+                assert!(
+                    path.is_relative(),
+                    "{file_type:?} should have relative path: {path:?}"
+                )
             }
             FileType::ExecutableOutsideWorkspace
             | FileType::SystemExecutable
-            | FileType::RazelExecutable => assert!(path.is_absolute()),
+            | FileType::RazelExecutable => assert!(
+                path.is_absolute(),
+                "{file_type:?} should have absolute path: {path:?}"
+            ),
         };
         Self {
             id,
