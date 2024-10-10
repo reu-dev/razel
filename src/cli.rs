@@ -7,7 +7,7 @@ use url::Url;
 
 use crate::executors::HttpRemoteExecConfig;
 use crate::metadata::Tag;
-use crate::parse_jsonl::parse_jsonl_file;
+use crate::razel_jsonl::parse_jsonl_file;
 use crate::tasks::DownloadFileTask;
 use crate::{parse_batch_file, parse_command, tasks, CommandBuilder, FileType, Razel};
 

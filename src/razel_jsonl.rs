@@ -5,7 +5,7 @@ use std::path::Path;
 
 use anyhow::Context;
 use log::debug;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::metadata::Tag;
 use crate::{config, parse_cli_within_file, Razel};
@@ -55,39 +55,41 @@ pub fn parse_jsonl_file(razel: &mut Razel, file_name: &String) -> Result<(), any
     Ok(())
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, untagged)]
 pub enum RazelJson {
     CustomCommand(RazelCustomCommandJson),
     Task(RazelTaskJson),
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RazelCustomCommandJson {
     pub name: String,
     pub executable: String,
     pub args: Vec<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub env: HashMap<String, String>,
     #[serde(default)]
     pub inputs: Vec<String>,
     #[serde(default)]
     pub outputs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stdout: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stderr: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub deps: Vec<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<Tag>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RazelTaskJson {
     pub name: String,
     pub task: String,
     pub args: Vec<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<Tag>,
 }

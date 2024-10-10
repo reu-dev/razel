@@ -1292,6 +1292,8 @@ impl Default for Razel {
     }
 }
 
+mod import;
+
 #[cfg(test)]
 mod tests {
     use approx::assert_abs_diff_eq;
