@@ -30,6 +30,8 @@ use which::which;
 #[derive(Debug, PartialEq, Eq)]
 pub enum ScheduleState {
     New,
+    /// Command is filtered out
+    Excluded,
     /// Command can not yet be executed because dependencies are still missing
     Waiting,
     /// Command is ready for being executed
@@ -88,6 +90,7 @@ pub struct Razel {
     /// razel executable - used in Action::input_root_digest for versioning tasks
     self_file_id: Option<FileId>,
     commands: Arena<Command>,
+    excluded_commands_len: usize,
     /// single Linux cgroup for all commands to trigger OOM killer
     cgroup: Option<CGroup>,
     http_remote_exec_state: HttpRemoteExecState,
@@ -124,6 +127,7 @@ impl Razel {
             which_to_file_id: Default::default(),
             self_file_id: None,
             commands: Default::default(),
+            excluded_commands_len: 0,
             cgroup: None,
             http_remote_exec_state: Default::default(),
             waiting: Default::default(),
@@ -157,14 +161,6 @@ impl Razel {
 
     pub fn set_http_remote_exec_config(&mut self, config: &HttpRemoteExecConfig) {
         self.http_remote_exec_state = HttpRemoteExecState::new(config);
-    }
-
-    pub fn len(&self) -> usize {
-        self.commands.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.commands.is_empty()
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -364,7 +360,8 @@ impl Razel {
             Err(e) => debug!("create_cgroup(): {e}"),
         };
         self.create_dependency_graph();
-        self.remove_unknown_files_from_out_dir(&self.out_dir).ok();
+        self.remove_unknown_or_excluded_files_from_out_dir(&self.out_dir)
+            .ok();
         self.digest_input_files().await?;
         self.create_output_dirs()?;
         self.create_wasi_modules()?;
@@ -559,11 +556,16 @@ impl Razel {
     }
 
     fn create_dependency_graph(&mut self) {
-        self.waiting.reserve(self.commands.len());
-        self.succeeded.reserve(self.commands.len());
+        let reserve = self.commands.len() - self.excluded_commands_len;
+        self.waiting.reserve(reserve);
+        self.succeeded.reserve(reserve);
         let mut rdeps = vec![];
         for command in self.commands.iter_mut() {
             assert_eq!(command.schedule_state, ScheduleState::New);
+            if command.is_excluded {
+                command.schedule_state = ScheduleState::Excluded;
+                continue;
+            }
             command.unfinished_deps.reserve(command.deps.len());
             for input_id in chain(command.executables.iter(), command.inputs.iter()) {
                 if let Some(dep) = self.files[*input_id].creating_command {
@@ -587,26 +589,28 @@ impl Razel {
             self.commands[id].reverse_deps.push(rdep);
         }
         self.check_for_circular_dependencies();
-        assert_ne!(!self.scheduler.len(), 0);
     }
 
     fn check_for_circular_dependencies(&self) {
         // TODO
     }
 
-    fn remove_unknown_files_from_out_dir(&self, dir: &Path) -> Result<(), anyhow::Error> {
+    fn remove_unknown_or_excluded_files_from_out_dir(
+        &self,
+        dir: &Path,
+    ) -> Result<(), anyhow::Error> {
         for entry in fs::read_dir(dir)? {
             if let Ok(path) = entry.map(|x| x.path()) {
                 if path.is_dir() {
                     // TODO remove whole dir if not known
-                    self.remove_unknown_files_from_out_dir(&path).ok();
+                    self.remove_unknown_or_excluded_files_from_out_dir(&path)
+                        .ok();
                 } else {
                     let path_wo_prefix = path.strip_prefix(&self.out_dir).unwrap();
                     if self
                         .path_to_file_id
                         .get(path_wo_prefix)
-                        .filter(|x| self.files[**x].path == path)
-                        .is_none()
+                        .map_or(true, |x| self.files[*x].is_excluded)
                         && path_wo_prefix.to_string_lossy() != GITIGNORE_FILENAME
                     {
                         fs::remove_file(path).ok();
@@ -661,7 +665,7 @@ impl Razel {
             return;
         }
         while let Some(file) = self.files.get_and_inc_id(next_id) {
-            if file.creating_command.is_none() {
+            if file.creating_command.is_none() && !file.is_excluded {
                 let id = file.id;
                 let path = file.path.clone();
                 let tx = tx_option.clone().unwrap();
@@ -678,6 +682,7 @@ impl Razel {
         let dirs = self
             .files
             .iter()
+            .filter(|x| x.creating_command.is_some() && !x.is_excluded)
             .map(|x| x.path.parent().unwrap())
             .sorted_unstable()
             .dedup();
@@ -1275,7 +1280,12 @@ impl Razel {
         let dir = self.out_dir.join("razel-metadata");
         fs::create_dir_all(&dir)
             .with_context(|| format!("Failed to create metadata directory: {dir:?}"))?;
-        write_graphs_html(&self.commands, &self.files, &dir.join("graphs.html"))?;
+        write_graphs_html(
+            &self.commands,
+            self.excluded_commands_len,
+            &self.files,
+            &dir.join("graphs.html"),
+        )?;
         self.measurements.write_csv(&dir.join("measurements.csv"))?;
         self.profile.write_json(&dir.join("execution_times.json"))?;
         self.log_file.write(&dir.join("log.json"))?;
@@ -1292,6 +1302,7 @@ impl Default for Razel {
     }
 }
 
+mod filter;
 mod import;
 
 #[cfg(test)]
@@ -1326,7 +1337,6 @@ mod tests {
                 )
                 .unwrap();
         }
-        assert_eq!(razel.len(), n);
         let stats = razel
             .run(false, true, "", None, vec![], None)
             .await

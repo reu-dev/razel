@@ -38,6 +38,8 @@ enum CliCommands {
         /// File with commands to list
         #[clap(short, long, default_value = "razel.jsonl")]
         file: String,
+        #[clap(flatten)]
+        filter_args: FilterArgs,
     },
     // TODO add Debug subcommand
     // TODO add upgrade subcommand
@@ -50,6 +52,8 @@ struct Exec {
     file: String,
     #[clap(flatten)]
     run_args: RunArgs,
+    #[clap(flatten)]
+    filter_args: FilterArgs,
 }
 
 #[derive(Args, Debug)]
@@ -97,6 +101,19 @@ impl Default for RunArgs {
             http_remote_exec: None,
         }
     }
+}
+
+#[derive(Args, Debug)]
+#[group(multiple = false)]
+pub struct FilterArgs {
+    /// Filter commands by name or output file
+    pub targets: Vec<String>,
+    /// Filter commands by name or output file using regex
+    #[clap(short = 'r', long, num_args = 1..)]
+    pub filter_regex: Vec<String>,
+    // TODO Filter commands by tags
+    //#[clap(short = 't', long, num_args = 1..)]
+    //pub filter_tags: Vec<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -334,10 +351,12 @@ pub fn parse_cli(args: Vec<String>, razel: &mut Razel) -> Result<Option<RunArgs>
                 razel.set_http_remote_exec_config(x);
             }
             apply_file(razel, &exec.file)?;
+            apply_filter(razel, &exec.filter_args)?;
             Some(exec.run_args)
         }
-        CliCommands::ListCommands { file } => {
+        CliCommands::ListCommands { file, filter_args } => {
             apply_file(razel, &file)?;
+            apply_filter(razel, &filter_args)?;
             Some(RunArgs {
                 no_execution: true,
                 ..Default::default()
@@ -370,4 +389,13 @@ fn apply_file(razel: &mut Razel, file: &String) -> Result<(), anyhow::Error> {
         Some("jsonl") => parse_jsonl_file(razel, file),
         _ => parse_batch_file(razel, file),
     }
+}
+
+fn apply_filter(razel: &mut Razel, filter: &FilterArgs) -> Result<(), anyhow::Error> {
+    if !filter.targets.is_empty() {
+        razel.filter_targets(&filter.targets);
+    } else if !filter.filter_regex.is_empty() {
+        razel.filter_targets_regex(&filter.filter_regex)?;
+    }
+    Ok(())
 }

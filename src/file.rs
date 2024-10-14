@@ -63,6 +63,8 @@ pub struct File {
     pub path: PathBuf,
     /// files without creating_command are input files (data or executable) which must exist before running any commands
     pub creating_command: Option<CommandId>,
+    /// file is only used by commands which are filtered out
+    pub is_excluded: bool,
     pub digest: Option<BlobDigest>,
     pub locally_cached: bool,
 }
@@ -90,6 +92,7 @@ impl File {
             file_type,
             path,
             creating_command: None,
+            is_excluded: false,
             digest: None,
             locally_cached: false,
         }

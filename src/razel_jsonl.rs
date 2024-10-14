@@ -14,6 +14,7 @@ pub fn parse_jsonl_file(razel: &mut Razel, file_name: &String) -> Result<(), any
     razel.set_workspace_dir(Path::new(file_name).parent().unwrap())?;
     let file = File::open(file_name).with_context(|| file_name.clone())?;
     let file_buffered = BufReader::new(file);
+    let mut len: usize = 0;
     for (line_number, line_result) in file_buffered.lines().enumerate() {
         let line = line_result?;
         let line_trimmed = line.trim();
@@ -50,8 +51,9 @@ pub fn parse_jsonl_file(razel: &mut Razel, file_name: &String) -> Result<(), any
                     .with_context(|| format!("{}\n{}", t.name, args.join(" ")))?
             }
         }
+        len += 1;
     }
-    debug!("Added {} commands from {file_name}", razel.len());
+    debug!("Added {len} commands from {file_name}");
     Ok(())
 }
 

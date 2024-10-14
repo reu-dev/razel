@@ -30,35 +30,39 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let mut razel = Razel::new();
     dotenv_flow::dotenv_flow().context("Failed to read .env file")?;
-    if let Some(run_args) = parse_cli(
+    let Some(run_args) = parse_cli(
         std::env::args_os()
             .map(|x| x.into_string().unwrap())
             .collect(),
         &mut razel,
-    )? {
-        if run_args.info {
-            razel.show_info(run_args.cache_dir)?;
-        } else if run_args.no_execution {
-            razel.list_commands();
-        } else {
-            let stats = razel
-                .run(
-                    run_args.keep_going,
-                    run_args.verbose,
-                    &run_args.group_by_tag,
-                    run_args.cache_dir,
-                    run_args.remote_cache,
-                    run_args.remote_cache_threshold,
-                )
-                .await?;
-            debug!(
-                "preparation: {:.3}s, execution: {:.3}s",
-                stats.preparation_duration.as_secs_f32(),
-                stats.execution_duration.as_secs_f32()
-            );
-            if !stats.exec.finished_successfully() {
-                std::process::exit(1);
-            }
+    )?
+    else {
+        return Ok(());
+    };
+    if run_args.info {
+        razel.show_info(run_args.cache_dir)?;
+        return Ok(());
+    }
+    if run_args.no_execution {
+        razel.list_commands();
+    } else {
+        let stats = razel
+            .run(
+                run_args.keep_going,
+                run_args.verbose,
+                &run_args.group_by_tag,
+                run_args.cache_dir,
+                run_args.remote_cache,
+                run_args.remote_cache_threshold,
+            )
+            .await?;
+        debug!(
+            "preparation: {:.3}s, execution: {:.3}s",
+            stats.preparation_duration.as_secs_f32(),
+            stats.execution_duration.as_secs_f32()
+        );
+        if !stats.exec.finished_successfully() {
+            std::process::exit(1);
         }
     }
     Ok(())

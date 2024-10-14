@@ -18,6 +18,7 @@ pub fn parse_batch_file(razel: &mut Razel, file_name: &String) -> Result<(), any
     let rules = Rules::new();
     let file = File::open(file_name).with_context(|| file_name.clone())?;
     let file_buffered = BufReader::new(file);
+    let mut len: usize = 0;
     for (line_number, line) in file_buffered.lines().enumerate() {
         if let Ok(line) = line {
             let line_trimmed = line.trim();
@@ -30,9 +31,10 @@ pub fn parse_batch_file(razel: &mut Razel, file_name: &String) -> Result<(), any
             create_command(razel, &rules, name.clone(), command_line.clone())
                 .with_context(|| command_line.join(" "))
                 .with_context(|| format!("Failed to add command: {name}"))?;
+            len += 1;
         }
     }
-    debug!("Added {} commands from {file_name}", razel.len());
+    debug!("Added {len} commands from {file_name}");
     Ok(())
 }
 

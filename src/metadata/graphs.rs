@@ -7,12 +7,15 @@ use std::path::Path;
 
 pub fn write_graphs_html(
     commands: &Arena<Command>,
+    excluded_commands_len: usize,
     files: &Arena<File>,
     path: &Path,
 ) -> Result<()> {
     let template = include_str!("graphs.in.html");
     let ignored_files = collect_ignored_files(files);
-    let contents = if commands.len() < 100 && files.len() - ignored_files.len() < 100 {
+    let contents = if commands.len() - excluded_commands_len < 100
+        && files.len() - ignored_files.len() < 100
+    {
         template
             .replacen(
                 "{{graph_with_subgraphs}}",
@@ -36,7 +39,8 @@ fn collect_ignored_files(files: &Arena<File>) -> HashSet<FileId> {
         files
             .iter()
             .filter(|x| {
-                x.file_type == FileType::SystemExecutable
+                x.is_excluded
+                    || x.file_type == FileType::SystemExecutable
                     || x.file_type == FileType::RazelExecutable
             })
             .map(|x| x.id),
@@ -59,7 +63,7 @@ fn graph_with_subgraphs(
         lines.push(format!("f{id}([{arg}])"));
         lines.push(format!("style f{id} fill:#fff4dd"));
     }
-    for command in commands.iter() {
+    for command in commands.iter().filter(|c| !c.is_excluded) {
         let command_id = command.id;
         lines.push(format!("subgraph cg{command_id} [{}]", command.name));
         lines.push(format!("ce{command_id}[[{}]]", executable(command)));
@@ -98,7 +102,7 @@ fn graph_simple(
         lines.push(format!("f{id}[{arg}]"));
         lines.push(format!("style f{id} fill:#fff4dd"));
     }
-    for command in commands.iter() {
+    for command in commands.iter().filter(|c| !c.is_excluded) {
         let command_id = command.id;
         if command.inputs.len() == 1 && command.outputs.len() == 1 {
             let input_id = command.inputs.first().unwrap();

@@ -23,6 +23,7 @@ pub struct Command {
     pub deps: Vec<CommandId>,
     pub executor: Executor,
     pub tags: Vec<Tag>,
+    pub is_excluded: bool,
     /// dependencies which are not yet finished successfully
     pub unfinished_deps: Vec<CommandId>,
     /// commands which depend on this command
@@ -243,6 +244,7 @@ impl CommandBuilder {
             deps: self.deps,
             executor: self.executor.unwrap(),
             tags: self.tags,
+            is_excluded: false,
             unfinished_deps: vec![],
             reverse_deps: vec![],
             schedule_state: ScheduleState::New,

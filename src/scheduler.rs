@@ -248,6 +248,7 @@ mod tests {
                     ..Default::default()
                 }),
                 tags: vec![],
+                is_excluded: false,
                 unfinished_deps: vec![],
                 reverse_deps: vec![],
                 schedule_state: ScheduleState::New,
