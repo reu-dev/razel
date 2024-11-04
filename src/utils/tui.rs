@@ -84,34 +84,52 @@ impl TUI {
         );
     }
 
-    pub fn command_retry(&mut self, command: &Command, execution_result: &ExecutionResult) {
-        self.clear_status();
-        Self::field(
-            format!("{:?} (will retry) ", execution_result.status).as_str(),
-            Color::Yellow,
-            command.name.as_str(),
-        );
+    pub fn command_failed(&mut self, command: &Command, execution_result: &ExecutionResult) {
+        self.command_failed_impl(command, execution_result, false);
     }
 
-    pub fn command_failed(&mut self, command: &Command, execution_result: &ExecutionResult) {
+    pub fn command_retry(&mut self, command: &Command, execution_result: &ExecutionResult) {
+        self.command_failed_impl(command, execution_result, true);
+    }
+
+    fn command_failed_impl(
+        &mut self,
+        command: &Command,
+        execution_result: &ExecutionResult,
+        will_retry: bool,
+    ) {
         if command.tags.contains(&Tag::Condition)
             && !self.verbose
             && !command.tags.contains(&Tag::Verbose)
         {
             return;
         }
+        let color = if will_retry {
+            Color::Yellow
+        } else {
+            Color::Red
+        };
         self.clear_status();
         println!();
         Self::line();
         Self::field(
             format!("{:<11}", format!("{:?} ", execution_result.status)).as_str(),
-            Color::Red,
+            color,
             command.name.as_str(),
         );
         if let Some(x) = &execution_result.error {
-            Self::field("error:     ", Color::Red, format!("{x:?}").as_str());
+            if will_retry {
+                Self::field_with_hint(
+                    "error:     ",
+                    color,
+                    format!("{x:?}").as_str(),
+                    "(will retry)",
+                );
+            } else {
+                Self::field("error:     ", color, format!("{x:?}").as_str());
+            }
         } else if let Some(x) = execution_result.exit_code {
-            Self::field("exit code: ", Color::Red, x.to_string().as_str());
+            Self::field("exit code: ", color, x.to_string().as_str());
         }
         Self::field(
             "command:   ",
@@ -268,6 +286,17 @@ impl TUI {
         let c = SetForegroundColor(color);
         println!(
             "{A_BOLD}{c}{name}{C_RESET}{A_RESET}{}",
+            value.as_ref().trim()
+        );
+    }
+
+    fn field_with_hint<S: AsRef<str>>(name: &str, color: Color, value: S, hint: &str) {
+        if value.as_ref().is_empty() {
+            return;
+        }
+        let c = SetForegroundColor(color);
+        println!(
+            "{A_BOLD}{c}{name}{C_RESET}{A_RESET}{}{A_BOLD}{c} {hint}{C_RESET}{A_RESET}",
             value.as_ref().trim()
         );
     }
