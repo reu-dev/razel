@@ -31,12 +31,12 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: denoland/setup-deno@v1
       - name: Configure git
         run: |
-         git config user.email "${{github.actor}}@users.noreply.github.com"
-         git config user.name "${{github.actor}}"
+          git config user.email "${{github.actor}}@users.noreply.github.com"
+          git config user.name "${{github.actor}}"
       - run: echo $GITHUB_OUTPUT
       - run: cat $GITHUB_OUTPUT
       - run: |
@@ -47,7 +47,7 @@ jobs:
 
   build:
     name: build ${{matrix.target}}
-    needs: [bump-version-and-create-tag]
+    needs: [ bump-version-and-create-tag ]
     runs-on: ${{matrix.os}}
     timeout-minutes: 30
     strategy:
@@ -62,11 +62,11 @@ jobs:
             target: x86_64-pc-windows-msvc
     steps:
       - run: echo ${{needs.bump-version-and-create-tag.outputs.TAG}}
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           lfs: true
           ref: refs/tags/${{needs.bump-version-and-create-tag.outputs.TAG}}
-      - uses: arduino/setup-protoc@v1
+      - uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{secrets.GITHUB_TOKEN}}
       - uses: Swatinem/rust-cache@v2
@@ -114,10 +114,10 @@ jobs:
       - publish-github
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           ref: refs/tags/${{needs.bump-version-and-create-tag.outputs.TAG}}
-      - uses: arduino/setup-protoc@v1
+      - uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{secrets.GITHUB_TOKEN}}
       - run: cargo publish
@@ -130,7 +130,7 @@ jobs:
       - publish-github
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           ref: refs/tags/${{needs.bump-version-and-create-tag.outputs.TAG}}
       - run: .dist/publish-pypi.sh ${{needs.bump-version-and-create-tag.outputs.VERSION}}
