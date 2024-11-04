@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: 3.8
       - uses: arduino/setup-protoc@v3
@@ -46,7 +46,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: cache deno
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: .deno-cache/deps
           key: ${{ runner.os }}-deno-${{ hashFiles('apis/deno/razel.ts', 'examples/deno.ts') }}
