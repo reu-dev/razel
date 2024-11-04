@@ -65,7 +65,8 @@ impl CustomCommandExecutor {
                 } else if timed_out {
                     result.status = ExecutionStatus::Timeout;
                 } else {
-                    (result.status, result.error) = Self::evaluate_status(output.status);
+                    (result.status, result.signal, result.error) =
+                        Self::evaluate_status(output.status);
                 }
                 result.exit_code = output.status.code();
                 result.stdout = output.stdout;
@@ -134,48 +135,56 @@ impl CustomCommandExecutor {
     }
 
     #[cfg(target_family = "windows")]
-    fn evaluate_status(exit_status: ExitStatus) -> (ExecutionStatus, Option<anyhow::Error>) {
+    fn evaluate_status(
+        exit_status: ExitStatus,
+    ) -> (ExecutionStatus, Option<i32>, Option<anyhow::Error>) {
         if exit_status.success() {
-            (ExecutionStatus::Success, None)
+            (ExecutionStatus::Success, None, None)
         } else {
             (
                 ExecutionStatus::Failed,
+                None,
                 Some(anyhow!("command failed: {}", exit_status)),
             )
         }
     }
 
     #[cfg(target_family = "unix")]
-    fn evaluate_status(exit_status: ExitStatus) -> (ExecutionStatus, Option<anyhow::Error>) {
+    fn evaluate_status(
+        exit_status: ExitStatus,
+    ) -> (ExecutionStatus, Option<i32>, Option<anyhow::Error>) {
         use std::os::unix::process::ExitStatusExt;
         if exit_status.success() {
-            (ExecutionStatus::Success, None)
+            (ExecutionStatus::Success, None, None)
         } else if exit_status.core_dumped() {
+            let signal = exit_status.signal().unwrap();
             (
                 ExecutionStatus::Crashed,
-                Some(anyhow!(
-                    "command crashed with signal {}",
-                    exit_status.signal().unwrap()
-                )),
-            )
-        } else if let Some(signal) = exit_status.signal() {
-            (
-                ExecutionStatus::Killed,
-                Some(anyhow!("command terminated by signal {signal}")),
+                Some(signal),
+                Some(anyhow!("command core dumped with signal {signal}")),
             )
         } else if let Some(signal) = exit_status.stopped_signal() {
             (
-                ExecutionStatus::Killed,
-                Some(anyhow!("command stopped by {signal}")),
+                ExecutionStatus::Crashed,
+                Some(signal),
+                Some(anyhow!("command stopped by signal {signal}")),
+            )
+        } else if let Some(signal) = exit_status.signal() {
+            (
+                ExecutionStatus::Crashed,
+                Some(signal),
+                Some(anyhow!("command terminated by signal {signal}")),
             )
         } else if let Some(exit_code) = exit_status.code() {
             (
                 ExecutionStatus::Failed,
+                None,
                 Some(anyhow!("command failed with exit code {exit_code}")),
             )
         } else {
             (
                 ExecutionStatus::Failed,
+                None,
                 Some(anyhow!("command failed: {}", exit_status)),
             )
         }

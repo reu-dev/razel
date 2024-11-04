@@ -9,6 +9,7 @@ use std::time::Instant;
 pub struct ExecutionResult {
     pub status: ExecutionStatus,
     pub exit_code: Option<i32>,
+    pub signal: Option<i32>,
     pub error: Option<anyhow::Error>,
     pub cache_hit: Option<CacheHit>,
     pub stdout: Vec<u8>,
@@ -40,6 +41,10 @@ impl ExecutionResult {
 
     pub fn success(&self) -> bool {
         self.status == ExecutionStatus::Success
+    }
+
+    pub fn out_of_memory_killed(&self) -> bool {
+        self.status == ExecutionStatus::Crashed && self.signal == Some(9)
     }
 
     #[cfg(test)]
@@ -84,10 +89,8 @@ pub enum ExecutionStatus {
     FailedToWriteStdoutFile,
     FailedToWriteStderrFile,
     Failed,
-    /// SIGSEGV
+    /// core dumped or terminated by signal
     Crashed,
-    /// SIGTERM/SIGKILL, e.g. killed by OOM killer
-    Killed,
     Timeout,
     Success,
     /// not command related error, e.g. cache, sandbox

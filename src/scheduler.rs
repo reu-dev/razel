@@ -144,14 +144,14 @@ impl Scheduler {
         Some(id)
     }
 
-    pub fn set_finished_and_get_retry_flag(&mut self, command: &Command, killed: bool) -> bool {
+    pub fn set_finished_and_get_retry_flag(&mut self, command: &Command, oom_killed: bool) -> bool {
         if self.unschedule_remote_exec(command) {
             return false;
         }
         let id = command.id;
         let group = self.running_items.remove(&id).unwrap();
         self.used_slots -= self.slots_for_group(&group);
-        if killed {
+        if oom_killed {
             self.scale_up_memory_requirement(&group);
             // stop retry only when command was run exclusively
             if !self.running_items.is_empty() {

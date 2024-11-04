@@ -928,6 +928,7 @@ impl Razel {
             let execution_result = ExecutionResult {
                 status: ExecutionStatus::Success,
                 exit_code,
+                signal: None,
                 error: None,
                 cache_hit: Some(cache_hit),
                 stdout: action_result.stdout_raw,
@@ -1114,7 +1115,7 @@ impl Razel {
     ) {
         let retry = self.scheduler.set_finished_and_get_retry_flag(
             &self.commands[id],
-            execution_result.status == ExecutionStatus::Killed,
+            execution_result.out_of_memory_killed(),
         );
         if retry {
             self.on_command_retry(id, execution_result);
