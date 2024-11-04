@@ -41,6 +41,15 @@ enum CliCommands {
         #[clap(flatten)]
         filter_args: FilterArgs,
     },
+    /// Import commands from files and create razel.jsonl
+    Import {
+        /// razel.jsonl file to create
+        #[clap(short, long, default_value = "razel.jsonl")]
+        output: PathBuf,
+        /// Input files to parse commands from
+        #[clap(required = true)]
+        files: Vec<String>,
+    },
     // TODO add Debug subcommand
     // TODO add upgrade subcommand
 }
@@ -362,6 +371,10 @@ pub fn parse_cli(args: Vec<String>, razel: &mut Razel) -> Result<Option<RunArgs>
                 ..Default::default()
             })
         }
+        CliCommands::Import { output, files } => {
+            import(razel, &output, files)?;
+            None
+        }
     })
 }
 
@@ -398,4 +411,11 @@ fn apply_filter(razel: &mut Razel, filter: &FilterArgs) -> Result<(), anyhow::Er
         razel.filter_targets_regex(&filter.filter_regex)?;
     }
     Ok(())
+}
+
+fn import(razel: &mut Razel, output: &PathBuf, files: Vec<String>) -> Result<(), anyhow::Error> {
+    for file in files {
+        apply_file(razel, &file)?;
+    }
+    razel.write_jsonl(output)
 }

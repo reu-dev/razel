@@ -16,6 +16,7 @@ use log::warn;
 /// * positional arguments are parsed backwards from the command line
 /// * then named arguments are parsed
 /// * other arguments are ignored
+/// * stdout/stderr redirects should be handled beforehand
 pub struct Rules {
     rules: HashMap<String, Rule>,
 }
@@ -39,6 +40,9 @@ impl Rules {
         &self,
         command: &[String],
     ) -> Result<Option<ParseCommandResult>, anyhow::Error> {
+        if command.len() == 1 {
+            return Ok(None);
+        }
         let executable_stem: String = Path::new(command.first().unwrap())
             .file_stem()
             .unwrap()
@@ -55,11 +59,12 @@ impl Rules {
 
     fn set_defaults(&mut self) {
         [
-            "razel-test",
-            "cp <in> <out>",
+            "razel-self-test",
             "ar <out> <in>...",
             "c++ -MF <out> -o <out> <in>...",
             "cc  -MF <out> -o <out> <in>...",
+            "clang -o <out> <in>...",
+            "cp <in> <out>",
             "sox <in>... <out>",
             // TODO cmake -E copy <in> <out>
         ]
@@ -256,7 +261,7 @@ mod tests {
                         .collect_vec(),
                 )
                 .unwrap()
-                .unwrap();
+                .unwrap_or_default();
             check!(files.inputs == exp_inputs);
             check!(files.outputs == exp_outputs);
         }
@@ -273,14 +278,13 @@ mod tests {
     }
 
     #[test]
-    fn rules() {
+    fn rules_should_pass() {
         let rules = Rules::new();
         check!(rules
-            .parse_command(&["someNoneExistingExecutable".into()])
+            .parse_command(&["some-executable-without-rule".into()])
             .unwrap()
             .is_none());
-        rules.test_fail("cp");
-        rules.test_fail("cp a");
+        rules.test("some-executable-without-files", &[], &[]);
         rules.test("cp in out", &["in"], &["out"]);
         rules.test("c++ -MF out1 -o out2 in1", &["in1"], &["out1", "out2"]);
         rules.test(
@@ -288,7 +292,14 @@ mod tests {
             &["in1", "in2"],
             &["out1", "out2"],
         );
+        rules.test("clang -O3 -o out.a src.c", &["src.c"], &["out.a"]);
         rules.test("sox in1 out", &["in1"], &["out"]);
         rules.test("sox in1 in2 out", &["in1", "in2"], &["out"]);
+    }
+
+    #[test]
+    fn rules_should_fail() {
+        let rules = Rules::new();
+        rules.test_fail("cp a");
     }
 }
