@@ -347,11 +347,9 @@ impl Razel {
         let mut cache = Cache::new(cache_dir, self.out_dir.clone())?;
         debug!("sandbox directory: {:?}", sandbox_dir);
         debug!("worker threads:    {}", self.worker_threads);
-        if !remote_cache.is_empty() {
-            cache
-                .connect_remote_cache(&remote_cache, remote_cache_threshold)
-                .await?;
-        }
+        cache
+            .connect_remote_cache(&remote_cache, remote_cache_threshold)
+            .await?;
         TmpDirSandbox::cleanup(&sandbox_dir);
         self.cache = Some(cache);
         self.sandbox_dir = Some(sandbox_dir);

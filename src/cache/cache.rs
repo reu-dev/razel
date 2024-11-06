@@ -47,10 +47,10 @@ impl Cache {
 
     pub async fn connect_remote_cache(
         &mut self,
-        urls: &Vec<String>,
+        urls: &[String],
         remote_cache_threshold: Option<u32>,
     ) -> Result<(), anyhow::Error> {
-        for url in urls {
+        for url in urls.iter().filter(|x| !x.is_empty()) {
             let uri: Uri = url
                 .parse()
                 .with_context(|| format!("remote cache: {url}"))
