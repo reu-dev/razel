@@ -10,6 +10,6 @@ fn main() {
     tonic_build::configure()
         .build_client(true)
         .build_server(false)
-        .compile_with_config(config, &files, &["src/bazel_remote_exec/proto"])
+        .compile_protos_with_config(config, &files, &["src/bazel_remote_exec/proto"])
         .unwrap();
 }
