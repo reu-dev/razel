@@ -17,6 +17,13 @@ impl Razel {
         Ok(())
     }
 
+    pub fn filter_targets_regex_all(&mut self, patterns: &[String]) -> Result<()> {
+        self.exclude_all();
+        let regex = RegexSet::new(patterns)?;
+        self.include_matching(|x| regex.matches(x).matched_all());
+        Ok(())
+    }
+
     fn exclude_all(&mut self) {
         for x in self.commands.iter_mut() {
             x.is_excluded = true;

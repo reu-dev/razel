@@ -117,9 +117,12 @@ impl Default for RunArgs {
 pub struct FilterArgs {
     /// Filter commands by name or output file
     pub targets: Vec<String>,
-    /// Filter commands by name or output file using regex
+    /// Filter commands by name or output file, include commands matching any pattern
     #[clap(short = 'r', long, num_args = 1..)]
     pub filter_regex: Vec<String>,
+    /// Filter commands by name or output file, include commands matching all patterns
+    #[clap(short = 'a', long, num_args = 1..)]
+    pub filter_regex_all: Vec<String>,
     // TODO Filter commands by tags
     //#[clap(short = 't', long, num_args = 1..)]
     //pub filter_tags: Vec<String>,
@@ -409,6 +412,8 @@ fn apply_filter(razel: &mut Razel, filter: &FilterArgs) -> Result<(), anyhow::Er
         razel.filter_targets(&filter.targets);
     } else if !filter.filter_regex.is_empty() {
         razel.filter_targets_regex(&filter.filter_regex)?;
+    } else if !filter.filter_regex_all.is_empty() {
+        razel.filter_targets_regex_all(&filter.filter_regex_all)?;
     }
     Ok(())
 }
