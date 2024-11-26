@@ -35,7 +35,7 @@ class Razel:
         assert os.path.isabs(workspace_dir)
         self._workspace_dir = workspace_dir
         self.razel_file = os.path.join(self._workspace_dir, "razel.jsonl")
-        self._commands: list[Command] = []
+        self._commands: dict[str, Command] = {}
 
     @staticmethod
     def init(workspace_dir: str) -> Razel:
@@ -118,7 +118,7 @@ class Razel:
 
     def write_razel_file(self) -> None:
         with open(self.razel_file, "w", encoding="utf-8") as file:
-            for command in self._commands:
+            for command in self._commands.values():
                 json.dump(command.json(), file, separators=(',', ':'))
                 file.write("\n")
 
@@ -131,16 +131,17 @@ class Razel:
     _Command = TypeVar("_Command", bound="Command")
 
     def _add(self, command: _Command) -> _Command:
-        for existing in self._commands:
-            if existing.name == command.name:
-                existing_json = existing.json_for_comparing_to_existing_command()
-                command_son = command.json_for_comparing_to_existing_command()
-                assert command_son == existing_json, \
-                    f"conflicting command: {command.name}:\nexisting: {existing_json}\nto add:   {command_son}"
-                assert isinstance(existing, type(command))
-                return existing
+        new_name = command.name
+        if new_name in self._commands:
+            existing = self._commands[new_name]
+            existing_json = existing.json_for_comparing_to_existing_command()
+            command_json = command.json_for_comparing_to_existing_command()
+            assert command_json == existing_json, \
+                f"conflicting command: {new_name}:\nexisting: {existing_json}\nto add:   {command_json}"
+            assert isinstance(existing, type(command))
+            return existing
 
-        self._commands.append(command)
+        self._commands[new_name] = command
         return command
 
     @staticmethod
