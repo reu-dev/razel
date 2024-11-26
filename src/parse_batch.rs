@@ -3,6 +3,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
+use itertools::Itertools;
 use log::debug;
 
 use crate::{config, parse_cli_within_file, Razel, Rules};
@@ -59,17 +60,17 @@ fn create_command(
         parse_cli_within_file(razel, command_line, &name, vec![])?
     } else {
         let (stdout, stderr) = parse_redirects(&mut command_line)?;
-        let (inputs, outputs) = if let Some(files) = rules.parse_command(&command_line)? {
+        let mut i = command_line.into_iter();
+        let executable = i.next().unwrap();
+        let args = i.collect_vec();
+        let (inputs, outputs) = if let Some(files) = rules.eval_command(&executable, &args)? {
             (files.inputs, files.outputs)
         } else {
             (Default::default(), Default::default())
         };
-        let mut i = command_line.into_iter();
-        let program = i.next().unwrap();
-        let args = i.collect();
         razel.push_custom_command(
             name,
-            program,
+            executable,
             args,
             Default::default(),
             inputs,

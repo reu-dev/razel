@@ -36,21 +36,22 @@ impl Rules {
         Ok(())
     }
 
-    pub fn parse_command(
+    pub fn eval_command(
         &self,
-        command: &[String],
+        executable: &str,
+        args: &[String],
     ) -> Result<Option<ParseCommandResult>, anyhow::Error> {
-        if command.len() == 1 {
+        if args.is_empty() {
             return Ok(None);
         }
-        let executable_stem: String = Path::new(command.first().unwrap())
+        let executable_stem: String = Path::new(executable)
             .file_stem()
             .unwrap()
             .to_str()
             .unwrap()
             .into();
         if let Some(rule) = self.rules.get(&executable_stem) {
-            Ok(Some(rule.parse_command(command)?))
+            Ok(Some(rule.eval_args(args)?))
         } else {
             warn!("no rule for executable: {}", executable_stem);
             Ok(None)
@@ -148,8 +149,7 @@ impl Rule {
         })
     }
 
-    pub fn parse_command(&self, command: &[String]) -> Result<ParseCommandResult, anyhow::Error> {
-        let items = &command[1..];
+    pub fn eval_args(&self, items: &[String]) -> Result<ParseCommandResult, anyhow::Error> {
         if items.len() < self.options.len() * 2 + self.positional_args.len() {
             bail!(
                 "expected {} arguments, found only {}",
@@ -252,13 +252,13 @@ mod tests {
 
     impl Rules {
         fn test(&self, command: &str, exp_inputs: &[&str], exp_outputs: &[&str]) {
+            let command = command
+                .split_whitespace()
+                .map(|x| x.to_string())
+                .collect_vec();
+            let (executable, args) = command.split_first().unwrap();
             let files = self
-                .parse_command(
-                    &command
-                        .split_whitespace()
-                        .map(|x| x.to_string())
-                        .collect_vec(),
-                )
+                .eval_command(executable, args)
                 .unwrap()
                 .unwrap_or_default();
             check!(files.inputs == exp_inputs);
@@ -266,12 +266,12 @@ mod tests {
         }
 
         fn test_fail(&self, command: &str) {
-            let result = self.parse_command(
-                &command
-                    .split_whitespace()
-                    .map(|x| x.to_string())
-                    .collect_vec(),
-            );
+            let command = command
+                .split_whitespace()
+                .map(|x| x.to_string())
+                .collect_vec();
+            let (executable, args) = command.split_first().unwrap();
+            let result = self.eval_command(executable, args);
             check!(result.is_err());
         }
     }
@@ -280,7 +280,7 @@ mod tests {
     fn rules_should_pass() {
         let rules = Rules::new();
         check!(rules
-            .parse_command(&["some-executable-without-rule".into()])
+            .eval_command("some-executable-without-rule", &[])
             .unwrap()
             .is_none());
         rules.test("some-executable-without-files", &[], &[]);
