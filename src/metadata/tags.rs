@@ -1,24 +1,35 @@
 use serde::de::Error;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(untagged)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Tag {
-    #[serde(rename = "razel:quiet")]
     Quiet,
-    #[serde(rename = "razel:verbose")]
     Verbose,
-    #[serde(rename = "razel:condition")]
     Condition,
-    #[serde(rename = "razel:timeout")]
     Timeout(u16),
-    #[serde(rename = "razel:no-cache")]
     NoCache,
-    #[serde(rename = "razel:no-remote-cache")]
     NoRemoteCache,
-    #[serde(rename = "razel:no-sandbox")]
     NoSandbox,
     Custom(String),
+}
+
+impl Serialize for Tag {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let x = match self {
+            Tag::Quiet => "razel:quiet",
+            Tag::Verbose => "razel:verbose",
+            Tag::Condition => "razel:condition",
+            Tag::Timeout(x) => &format!("razel:timeout:{x}"),
+            Tag::NoCache => "razel:no-cache",
+            Tag::NoRemoteCache => "razel:no-remote-cache",
+            Tag::NoSandbox => "razel:no-sandbox",
+            Tag::Custom(x) => x,
+        };
+        serializer.serialize_str(x)
+    }
 }
 
 impl<'de> Deserialize<'de> for Tag {
