@@ -65,7 +65,6 @@ impl Rules {
             "cc  -MF <out> -o <out> <in>...",
             "clang -o <out> <in>...",
             "cp <in> <out>",
-            "sox <in>... <out>",
             // TODO cmake -E copy <in> <out>
         ]
         .iter()
@@ -293,8 +292,6 @@ mod tests {
             &["out1", "out2"],
         );
         rules.test("clang -O3 -o out.a src.c", &["src.c"], &["out.a"]);
-        rules.test("sox in1 out", &["in1"], &["out"]);
-        rules.test("sox in1 in2 out", &["in1", "in2"], &["out"]);
     }
 
     #[test]
