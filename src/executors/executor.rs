@@ -51,6 +51,16 @@ impl Executor {
         }
     }
 
+    pub fn args(&self) -> &Vec<String> {
+        match self {
+            Executor::CustomCommand(x) => &x.args,
+            Executor::Wasi(x) => &x.args,
+            Executor::AsyncTask(x) => &x.args,
+            Executor::BlockingTask(x) => &x.args,
+            Executor::HttpRemote(x) => &x.args,
+        }
+    }
+
     pub fn env(&self) -> Option<&HashMap<String, String>> {
         match self {
             Executor::CustomCommand(x) => Some(&x.env),
@@ -58,6 +68,22 @@ impl Executor {
             Executor::AsyncTask(_) => None,
             Executor::BlockingTask(_) => None,
             Executor::HttpRemote(_) => None,
+        }
+    }
+
+    pub fn stdout_file(&self) -> Option<&PathBuf> {
+        match self {
+            Executor::CustomCommand(x) => x.stdout_file.as_ref(),
+            Executor::Wasi(x) => x.stdout_file.as_ref(),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn stderr_file(&self) -> Option<&PathBuf> {
+        match self {
+            Executor::CustomCommand(x) => x.stderr_file.as_ref(),
+            Executor::Wasi(x) => x.stderr_file.as_ref(),
+            _ => unreachable!(),
         }
     }
 

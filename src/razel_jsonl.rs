@@ -30,7 +30,7 @@ pub fn parse_jsonl_file(razel: &mut Razel, file_name: &String) -> Result<(), any
             )
         })?;
         match json {
-            RazelJson::CustomCommand(c) => {
+            RazelJson::Command(c) => {
                 razel.push_custom_command(
                     c.name,
                     c.executable,
@@ -60,13 +60,13 @@ pub fn parse_jsonl_file(razel: &mut Razel, file_name: &String) -> Result<(), any
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, untagged)]
 pub enum RazelJson {
-    CustomCommand(RazelCustomCommandJson),
-    Task(RazelTaskJson),
+    Command(RazelJsonCommand),
+    Task(RazelJsonTask),
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct RazelCustomCommandJson {
+pub struct RazelJsonCommand {
     pub name: String,
     pub executable: String,
     pub args: Vec<String>,
@@ -88,7 +88,7 @@ pub struct RazelCustomCommandJson {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct RazelTaskJson {
+pub struct RazelJsonTask {
     pub name: String,
     pub task: String,
     pub args: Vec<String>,

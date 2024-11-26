@@ -418,7 +418,7 @@ fn apply_filter(razel: &mut Razel, filter: &FilterArgs) -> Result<(), anyhow::Er
     Ok(())
 }
 
-fn import(razel: &mut Razel, output: &PathBuf, files: Vec<String>) -> Result<(), anyhow::Error> {
+fn import(razel: &mut Razel, output: &Path, files: Vec<String>) -> Result<(), anyhow::Error> {
     for file in files {
         apply_file(razel, &file)?;
     }
