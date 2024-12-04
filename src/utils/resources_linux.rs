@@ -37,11 +37,7 @@ fn get_available_memory() -> Result<u64, anyhow::Error> {
     let memory_usage = cgroup.read::<u64>("memory", "memory.usage_in_bytes")?;
     let memory_total_inactive_file =
         cgroup.read_field::<u64>("memory", "memory.stat", "total_inactive_file")?;
-    let memory_working_set = if memory_usage < memory_total_inactive_file {
-        0
-    } else {
-        memory_usage - memory_total_inactive_file
-    };
+    let memory_working_set = memory_usage.saturating_sub(memory_total_inactive_file);
     let memory_available = memory_capacity - memory_working_set;
     Ok(memory_available)
 }
