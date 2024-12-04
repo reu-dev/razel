@@ -18,6 +18,8 @@ pub struct LogFileItem {
     pub tags: Vec<String>,
     pub status: ExecutionStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cache: Option<CacheHit>,
     /// original execution duration of the command/task - ignoring cache
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -77,6 +79,7 @@ impl LogFile {
             name: command.name.clone(),
             tags: custom_tags,
             status: execution_result.status,
+            error: execution_result.error.as_ref().map(|x| x.to_string()),
             cache: execution_result.cache_hit,
             exec: execution_result.exec_duration.map(|x| x.as_secs_f32()),
             total: execution_result.total_duration.map(|x| x.as_secs_f32()),
