@@ -340,7 +340,7 @@ mod tests {
         batch_update_blobs_request, ActionResult, BatchReadBlobsRequest, BatchUpdateBlobsRequest,
         Digest, GetActionResultRequest, GetCapabilitiesRequest, UpdateActionResultRequest,
     };
-    use tonic::Code;
+    use itertools::Itertools;
 
     const INSTANCE_NAME: &str = "main";
     const CACHE_URL: &str = "grpc://localhost:9092";
@@ -394,7 +394,7 @@ mod tests {
                 ..Default::default()
             }))
             .await;
-        assert_eq!(response.unwrap_err().code(), tonic::Code::NotFound);
+        assert_eq!(response.unwrap_err().code(), Code::NotFound);
         // upload it
         let response = client
             .update_action_result(tonic::Request::new(UpdateActionResultRequest {
@@ -486,5 +486,44 @@ mod tests {
         assert_eq!(response_0.status.as_ref().unwrap().code, Code::Ok as i32);
         assert_eq!(response_0.data, content.into_bytes());
         assert_eq!(response_0.compressor, 0);
+    }
+
+    #[tokio::test]
+    async fn grpc_server_ac_stresstest() {
+        let client = ActionCacheClient::connect(CACHE_URL).await.unwrap();
+        println!("connected to {CACHE_URL:?}");
+        let tasks = (0..1000)
+            .map(|_| {
+                let mut client = client.clone();
+                tokio::spawn(async move {
+                    let stdout = format!(
+                        "Hello pid {} at {:?}",
+                        std::process::id(),
+                        std::time::Instant::now()
+                    );
+                    let action_digest = Digest::for_message(&bazel_remote_exec::Action {
+                        command_digest: Some(Digest::for_message(&bazel_remote_exec::Command {
+                            arguments: vec!["echo".into(), stdout],
+                            ..Default::default()
+                        })),
+                        ..Default::default()
+                    });
+                    // download should fail because the Action is unique
+                    let response = client
+                        .get_action_result(tonic::Request::new(GetActionResultRequest {
+                            instance_name: INSTANCE_NAME.to_string(),
+                            action_digest: Some(action_digest.clone()),
+                            inline_stdout: true,
+                            ..Default::default()
+                        }))
+                        .await;
+                    let err = response.unwrap_err();
+                    assert_eq!(err.code(), Code::NotFound, "{err:?}");
+                })
+            })
+            .collect_vec();
+        for task in tasks {
+            task.await.unwrap();
+        }
     }
 }
