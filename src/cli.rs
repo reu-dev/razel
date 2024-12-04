@@ -50,6 +50,9 @@ enum CliCommands {
         #[clap(required = true)]
         files: Vec<String>,
     },
+    /// Subcommands for Razel system management
+    #[clap(subcommand)]
+    System(SystemCommand),
     // TODO add Debug subcommand
     // TODO add upgrade subcommand
 }
@@ -126,6 +129,16 @@ pub struct FilterArgs {
     // TODO Filter commands by tags
     //#[clap(short = 't', long, num_args = 1..)]
     //pub filter_tags: Vec<String>,
+}
+
+#[derive(Subcommand, Debug)]
+enum SystemCommand {
+    /// Check remote cache availability
+    CheckRemoteCache {
+        /// Comma seperated list of remote cache URLs
+        #[clap(env = "RAZEL_REMOTE_CACHE", value_delimiter = ',', required = true)]
+        urls: Vec<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -347,7 +360,10 @@ impl TaskBuilder for HttpRemoteExecTask {
     }
 }
 
-pub fn parse_cli(args: Vec<String>, razel: &mut Razel) -> Result<Option<RunArgs>, anyhow::Error> {
+pub async fn parse_cli(
+    args: Vec<String>,
+    razel: &mut Razel,
+) -> Result<Option<RunArgs>, anyhow::Error> {
     let cli = Cli::parse_from(args.iter());
     Ok(match cli.command {
         CliCommands::Command { command } => {
@@ -376,6 +392,12 @@ pub fn parse_cli(args: Vec<String>, razel: &mut Razel) -> Result<Option<RunArgs>
         }
         CliCommands::Import { output, files } => {
             import(razel, &output, files)?;
+            None
+        }
+        CliCommands::System(s) => {
+            match s {
+                SystemCommand::CheckRemoteCache { urls } => razel.check_remote_cache(urls).await?,
+            }
             None
         }
     })

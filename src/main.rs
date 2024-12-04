@@ -35,7 +35,8 @@ async fn main() -> Result<(), anyhow::Error> {
             .map(|x| x.into_string().unwrap())
             .collect(),
         &mut razel,
-    )?
+    )
+    .await?
     else {
         return Ok(());
     };
@@ -101,6 +102,7 @@ mod main {
             razel.read_cache = false;
             razel.clean();
             parse_cli(args.iter().map(|&x| x.into()).collect(), &mut razel)
+                .await
                 .unwrap()
                 .unwrap();
             if let Some((name, tag)) = additional_tag.clone() {
@@ -118,6 +120,7 @@ mod main {
             let mut razel = Razel::new();
             razel.clean();
             parse_cli(args.iter().map(|&x| x.into()).collect(), &mut razel)
+                .await
                 .unwrap()
                 .unwrap();
             if let Some((name, tag)) = additional_tag {

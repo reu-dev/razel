@@ -45,11 +45,12 @@ impl Cache {
         self.local_cache.cas_path(digest)
     }
 
+    /// Use the first available remote cache. Ignore connection failures because remote caching is optional.
     pub async fn connect_remote_cache(
         &mut self,
         urls: &[String],
         remote_cache_threshold: Option<u32>,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<bool, anyhow::Error> {
         for url in urls.iter().filter(|x| !x.is_empty()) {
             let uri: Uri = url
                 .parse()
@@ -63,7 +64,7 @@ impl Cache {
                         self.remote_cache = Some(x);
                         self.remote_cache_threshold = remote_cache_threshold;
                         info!("connected to remote cache: {url}");
-                        break;
+                        return Ok(true);
                     }
                     _ => {
                         info!("failed to connect to remote cache: {url}");
@@ -72,7 +73,7 @@ impl Cache {
                 _ => bail!("only grpc remote caches are supported: {url}"),
             }
         }
-        Ok(())
+        Ok(false)
     }
 
     pub async fn get_action_result(
