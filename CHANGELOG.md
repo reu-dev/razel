@@ -2,9 +2,21 @@
 
 ## Unreleased
 
+## [v0.5.2](https://github.com/reu-dev/razel/releases/tag/v0.5.2) - 2024-12-09
+
 ### Added
 
 - changelog
+- `system check-remote-cache` subcommand
+- error message in log file items [#48](https://github.com/reu-dev/razel/pull/48)
+
+### Changed
+
+- Python API speed up [#47](https://github.com/reu-dev/razel/pull/47) thanks [@phenyque](https://github.com/phenyque)
+- improve error message by parsing C/C++ assert and Rust panic from
+  stderr [#48](https://github.com/reu-dev/razel/pull/48)
+- improve rules to specify in/out files in batch files
+- update deps
 
 ## [v0.5.1](https://github.com/reu-dev/razel/releases/tag/v0.5.1) - 2024-11-07
 
