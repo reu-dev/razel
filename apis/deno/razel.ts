@@ -2,7 +2,7 @@ import {assert, assertEquals} from 'https://deno.land/std@0.135.0/testing/assert
 import * as path from 'https://deno.land/std@0.135.0/path/mod.ts';
 
 export class Razel {
-    static version = "0.5.1";
+    static version = "0.5.2";
     private static _instance: Razel;
     razelFile: string;
     private commands: Command[] = [];
