@@ -356,6 +356,7 @@ export interface LogFileItem {
     name: string,
     tags?: string[],
     status: string,
+    error?: string,
     cache?: string,
     // original execution duration of the command/task - ignoring cache
     exec?: number,

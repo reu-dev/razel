@@ -1,5 +1,5 @@
 use crate::CacheHit;
-use anyhow::Error;
+use anyhow::{anyhow, Error};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::time::Duration;
@@ -45,6 +45,35 @@ impl ExecutionResult {
 
     pub fn out_of_memory_killed(&self) -> bool {
         self.status == ExecutionStatus::Crashed && self.signal == Some(9)
+    }
+
+    pub fn improve_error_message(&mut self) {
+        let Ok(stderr) = std::str::from_utf8(&self.stderr).map(|x| x.lines()) else {
+            return;
+        };
+        let Some(last_line) = stderr.clone().next_back() else {
+            return;
+        };
+        if last_line.contains("Assertion") {
+            // C/C++ assertion failed
+            self.error = Some(anyhow!("{last_line}"));
+            return;
+        }
+        let mut iter = stderr;
+        let mut next = None;
+        while let Some(curr) = iter.next_back() {
+            if curr.contains("panicked at") {
+                // Rust panic
+                let error = if let Some(next) = next.filter(|_| curr.ends_with(":")) {
+                    format!("{curr} {next}")
+                } else {
+                    curr.to_string()
+                };
+                self.error = Some(anyhow!(error));
+                return;
+            }
+            next = Some(curr);
+        }
     }
 
     #[cfg(test)]

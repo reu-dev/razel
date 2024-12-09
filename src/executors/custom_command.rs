@@ -71,6 +71,9 @@ impl CustomCommandExecutor {
                 result.exit_code = output.status.code();
                 result.stdout = output.stdout;
                 result.stderr = output.stderr;
+                if !result.success() {
+                    result.improve_error_message();
+                }
             }
             Err(e) => {
                 result.status = ExecutionStatus::Failed;
