@@ -104,7 +104,12 @@ export class Razel {
             cmd.push(...args);
         }
         console.log(cmd.join(" "));
-        const status = await Deno.run({ cmd }).status();
+        const process = new Deno.Command(cmd[0], {
+            args: cmd.slice(1),
+            stdout: "inherit",
+            stderr: "inherit",
+        }).spawn();
+        const status = await process.status;
         if (!status.success) {
             Deno.exit(status.code);
         }
@@ -121,7 +126,12 @@ export class Razel {
             cmd.push(...args);
         }
         console.log(cmd.join(" "));
-        const status = await Deno.run({ cmd }).status();
+        const process = new Deno.Command(cmd[0], {
+            args: cmd.slice(1),
+            stdout: "inherit",
+            stderr: "inherit",
+        }).spawn();
+        const status = await process.status;
         return status.success;
     }
 
@@ -456,13 +466,17 @@ export async function findOrDownloadRazelBinary(version: string): Promise<string
 
 async function getRazelVersion(razelBinaryPath: string): Promise<string | null> {
     try {
-        const p = Deno.run({ cmd: [razelBinaryPath, "--version"], stdout: "piped" });
-        const [status, rawOutput] = await Promise.all([p.status(), p.output()]);
-        if (!status.success) {
+        const command = new Deno.Command(razelBinaryPath, {
+            args: ["--version"],
+            stdout: "piped",
+            stderr: "piped",
+        });
+        const { code, stdout } = await command.output();
+        if (code !== 0) {
             return null;
         }
-        const stdout = new TextDecoder().decode(rawOutput);
-        return stdout.trim().split(" ")[1];
+        const stdoutDecoded = new TextDecoder().decode(stdout);
+        return stdoutDecoded.trim().split(" ")[1];
     } catch {
         return null;
     }
