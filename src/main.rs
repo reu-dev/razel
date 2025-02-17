@@ -86,8 +86,9 @@ mod main {
         let _ = env_logger::builder()
             .filter_level(log::LevelFilter::Debug)
             .filter_module("cranelift_codegen", log::LevelFilter::Warn)
+            .filter_module("wasmtime", log::LevelFilter::Info)
             .filter_module("wasmtime_cranelift", log::LevelFilter::Info)
-            .filter_module("wasmtime_jit", log::LevelFilter::Info)
+            .filter_module("serial_test", log::LevelFilter::Info)
             .is_test(true)
             .try_init();
         // exit on panic in any thread

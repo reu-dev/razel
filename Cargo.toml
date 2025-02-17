@@ -12,7 +12,7 @@ license = "MIT"
 [workspace.dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
-itertools = "0.13"
+itertools = "0.14"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -35,14 +35,13 @@ anyhow = { workspace = true }
 async-trait = "0.1"
 base16ct = { version = "0.2", features = ["alloc"] }
 bstr = "1"
-cap-std = "3"
 clap = { workspace = true }
 crossterm = "0.28"
 csv = "1"
-directories = "5"
+directories = "6"
 dotenv-flow = "0.16"
 futures-util = "0.3"
-gethostname = "0.5"
+gethostname = "1"
 itertools = { workspace = true }
 log = { workspace = true }
 num_cpus = "1"  # TODO replace with std::thread::available_parallelism() once it works in docker: https://github.com/rust-lang/rust/pull/97925
@@ -57,12 +56,12 @@ simplelog = { workspace = true }
 tokio = { version = "1", features = ["full"] }
 tonic = "0.12"
 url = "2"
-wasmtime = { version = "19", default-features = false, features = ["async", "cranelift", "pooling-allocator", "runtime"] }
-wasmtime-wasi = "19"
+wasmtime = { version = "29", default-features = false, features = ["async", "cranelift", "pooling-allocator", "runtime"] }
+wasmtime-wasi = "29"
 which = "7"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-procfs = { version = "0.15", features = [] }
+procfs = { version = "0.17", default-features = false }
 
 [build-dependencies]
 prost-build = "0.13"
