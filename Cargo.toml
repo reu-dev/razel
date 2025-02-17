@@ -12,7 +12,7 @@ license = "MIT"
 [workspace.dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
-itertools = "0.13"
+itertools = "0.14"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -38,10 +38,10 @@ bstr = "1"
 clap = { workspace = true }
 crossterm = "0.28"
 csv = "1"
-directories = "5"
+directories = "6"
 dotenv-flow = "0.16"
 futures-util = "0.3"
-gethostname = "0.5"
+gethostname = "1"
 itertools = { workspace = true }
 log = { workspace = true }
 num_cpus = "1"  # TODO replace with std::thread::available_parallelism() once it works in docker: https://github.com/rust-lang/rust/pull/97925
