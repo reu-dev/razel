@@ -53,8 +53,8 @@ impl TUI {
         {
             return;
         }
-        let stdout = execution_result.stdout.to_str_lossy();
-        let stderr = execution_result.stderr.to_str_lossy();
+        let stdout = execution_result.stdout.to_str().unwrap_or_default();
+        let stderr = execution_result.stderr.to_str().unwrap_or_default();
         if !self.verbose && stdout.is_empty() && stderr.is_empty() {
             return;
         }
@@ -75,12 +75,12 @@ impl TUI {
         Self::field(
             if print_stream_name { "stdout:\n" } else { "" },
             Color::Blue,
-            &stdout,
+            stdout,
         );
         Self::field(
             if print_stream_name { "stderr:\n" } else { "" },
             Color::Blue,
-            &stderr,
+            stderr,
         );
     }
 
@@ -155,12 +155,12 @@ impl TUI {
         Self::field(
             "stderr:\n",
             Color::Blue,
-            execution_result.stderr.to_str_lossy(),
+            execution_result.stderr.to_str().unwrap_or_default(),
         );
         Self::field(
             "stdout:\n",
             Color::Blue,
-            execution_result.stdout.to_str_lossy(),
+            execution_result.stdout.to_str().unwrap_or_default(),
         );
         Self::line();
         println!();

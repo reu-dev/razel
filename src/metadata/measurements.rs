@@ -45,7 +45,10 @@ impl Measurements {
         command_name: &str,
         execution_result: &ExecutionResult,
     ) -> Map<String, Value> {
-        let (mut row, map) = self.capture(execution_result.stdout.to_str_lossy().as_ref());
+        let Ok(stdout) = execution_result.stdout.to_str() else {
+            return Default::default();
+        };
+        let (mut row, map) = self.capture(stdout);
         if !row.is_empty() {
             row[0] = command_name.to_owned();
             row[1] = format!("{:?}", execution_result.status);
