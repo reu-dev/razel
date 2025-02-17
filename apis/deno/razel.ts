@@ -1,5 +1,5 @@
-import {assert, assertEquals} from 'https://deno.land/std@0.135.0/testing/asserts.ts';
-import * as path from 'https://deno.land/std@0.135.0/path/mod.ts';
+import { assert, assertEquals } from "https://deno.land/std@0.135.0/testing/asserts.ts";
+import * as path from "https://deno.land/std@0.135.0/path/mod.ts";
 
 export class Razel {
     static version = "0.5.2";
@@ -9,7 +9,7 @@ export class Razel {
 
     private constructor(public readonly workspaceDir: string) {
         assert(path.isAbsolute(workspaceDir));
-        this.razelFile = path.join(this.workspaceDir, 'razel.jsonl');
+        this.razelFile = path.join(this.workspaceDir, "razel.jsonl");
     }
 
     static init(workspaceDir: string): Razel {
@@ -30,7 +30,12 @@ export class Razel {
         return new File(this.relPath(path), false, null);
     }
 
-    addCommand(name: string, executable: (string | File | Command), args: (string | File | Command)[], env?: any): CustomCommand {
+    addCommand(
+        name: string,
+        executable: string | File | Command,
+        args: (string | File | Command)[],
+        env?: any,
+    ): CustomCommand {
         name = this.sanitizeName(name);
         const executablePath = mapArgToOutputPath(executable);
         const command = new CustomCommand(name, executablePath, mapArgsToOutputFiles(args), env);
@@ -46,7 +51,11 @@ export class Razel {
     // Add a task to compare two files. In case of two commands, all output files will be compared.
     ensureEqual(arg1: File | Command, arg2: File | Command): void {
         if (arg1 instanceof Command && arg2 instanceof Command) {
-            assertEquals(arg1.outputs.length, arg2.outputs.length, "Commands to compare have different number of output files!");
+            assertEquals(
+                arg1.outputs.length,
+                arg2.outputs.length,
+                "Commands to compare have different number of output files!",
+            );
             for (let i = 0; i != arg1.outputs.length; ++i) {
                 this.ensureEqual(arg1.outputs[i], arg2.outputs[i]);
             }
@@ -54,14 +63,18 @@ export class Razel {
             const file1 = mapArgToOutputFile(arg1);
             const file2 = mapArgToOutputFile(arg2);
             const name = `${file1.basename}##shouldEqual##${file2.basename}`;
-            this.add(new Task(name, 'ensure-equal', [file1, file2]));
+            this.add(new Task(name, "ensure-equal", [file1, file2]));
         }
     }
 
     // Add a task to compare two files. In case of two commands, all output files will be compared.
     ensureNotEqual(arg1: File | Command, arg2: File | Command): void {
         if (arg1 instanceof Command && arg2 instanceof Command) {
-            assertEquals(arg1.outputs.length, arg2.outputs.length, "Commands to compare have different number of output files!");
+            assertEquals(
+                arg1.outputs.length,
+                arg2.outputs.length,
+                "Commands to compare have different number of output files!",
+            );
             for (let i = 0; i != arg1.outputs.length; ++i) {
                 this.ensureEqual(arg1.outputs[i], arg2.outputs[i]);
             }
@@ -69,7 +82,7 @@ export class Razel {
             const file1 = mapArgToOutputFile(arg1);
             const file2 = mapArgToOutputFile(arg2);
             const name = `${file1.basename}##shouldNotEqual##${file2.basename}`;
-            this.add(new Task(name, 'ensure-not-equal', [file1, file2]));
+            this.add(new Task(name, "ensure-not-equal", [file1, file2]));
         }
     }
 
@@ -84,14 +97,14 @@ export class Razel {
         await this.writeRazelFile();
         const razelBinaryPath = await findOrDownloadRazelBinary(Razel.version);
         const cmd = [razelBinaryPath];
-        if (args.length > 0 && args[0] === 'exec') {
+        if (args.length > 0 && args[0] === "exec") {
             const razelFileRel = path.relative(Deno.cwd(), this.razelFile);
-            cmd.push(args[0], '-f', razelFileRel, ...args.slice(1));
+            cmd.push(args[0], "-f", razelFileRel, ...args.slice(1));
         } else {
             cmd.push(...args);
         }
         console.log(cmd.join(" "));
-        const status = await Deno.run({cmd}).status();
+        const status = await Deno.run({ cmd }).status();
         if (!status.success) {
             Deno.exit(status.code);
         }
@@ -101,20 +114,20 @@ export class Razel {
         await this.writeRazelFile();
         const razelBinaryPath = await findOrDownloadRazelBinary(Razel.version);
         const cmd = [razelBinaryPath];
-        if (args.length > 0 && args[0] === 'exec') {
+        if (args.length > 0 && args[0] === "exec") {
             const razelFileRel = path.relative(Deno.cwd(), this.razelFile);
-            cmd.push(args[0], '-f', razelFileRel, ...args.slice(1));
+            cmd.push(args[0], "-f", razelFileRel, ...args.slice(1));
         } else {
             cmd.push(...args);
         }
         console.log(cmd.join(" "));
-        const status = await Deno.run({cmd}).status();
+        const status = await Deno.run({ cmd }).status();
         return status.success;
     }
 
     async writeRazelFile() {
-        const json = this.commands.map(x => JSON.stringify(x.json()));
-        await Deno.writeTextFile(this.razelFile, json.join('\n') + '\n');
+        const json = this.commands.map((x) => JSON.stringify(x.json()));
+        await Deno.writeTextFile(this.razelFile, json.join("\n") + "\n");
     }
 
     readLogFile(): LogFileItem[] {
@@ -128,14 +141,17 @@ export class Razel {
     }
 
     private add(command: Command): Command {
-        const existing = this.commands.find(x => x.name === command.name);
+        const existing = this.commands.find((x) => x.name === command.name);
         if (existing) {
             const existingJson = existing.jsonForComparingToExistingCommand();
             const commandJson = command.jsonForComparingToExistingCommand();
-            assertEquals(commandJson, existingJson,
+            assertEquals(
+                commandJson,
+                existingJson,
                 `conflicting command: ${command.name}:\n\
                 existing: ${JSON.stringify(existingJson)}\n\
-                to add:   ${JSON.stringify(commandJson)}`);
+                to add:   ${JSON.stringify(commandJson)}`,
+            );
             return existing;
         }
         this.commands.push(command);
@@ -143,7 +159,7 @@ export class Razel {
     }
 
     private sanitizeName(name: string): string {
-        return name.replaceAll(':', '.'); // target names may not contain ':'
+        return name.replaceAll(":", "."); // target names may not contain ':'
     }
 
     private relPath(fileName: string): string {
@@ -157,22 +173,26 @@ export class Razel {
 export namespace Razel {
     export enum Tag {
         // don't be verbose if command succeeded
-        Quiet = 'razel:quiet',
+        Quiet = "razel:quiet",
         // always show verbose output
-        Verbose = 'razel:verbose',
+        Verbose = "razel:verbose",
         // keep running and don't be verbose if command failed
-        Condition = 'razel:condition',
+        Condition = "razel:condition",
         // always execute a command without caching
-        NoCache = 'razel:no-cache',
+        NoCache = "razel:no-cache",
         // don't use remote cache
-        NoRemoteCache = 'razel:no-remote-cache',
+        NoRemoteCache = "razel:no-remote-cache",
         // disable sandbox and also cache - for commands with unspecified input/output files
-        NoSandbox = 'razel:no-sandbox',
+        NoSandbox = "razel:no-sandbox",
     }
 }
 
 export class File {
-    constructor(public readonly fileName: string, public readonly isData: boolean, public createdBy: Command | null) {
+    constructor(
+        public readonly fileName: string,
+        public readonly isData: boolean,
+        public createdBy: Command | null,
+    ) {
     }
 
     get basename(): string {
@@ -194,13 +214,20 @@ export abstract class Command {
     public readonly deps: Command[] = [];
     public readonly tags: (Razel.Tag | string)[] = [];
 
-    protected constructor(public readonly name: string, public readonly inputs: File[], public readonly outputs: File[]) {
-        this.outputs.forEach(x => x.createdBy = this);
+    protected constructor(
+        public readonly name: string,
+        public readonly inputs: File[],
+        public readonly outputs: File[],
+    ) {
+        this.outputs.forEach((x) => x.createdBy = this);
     }
 
     get output(): File {
-        assertEquals(this.outputs.length, 1,
-            `output() requires exactly one output file, but the command has ${this.outputs.length} outputs: ${this.name}`);
+        assertEquals(
+            this.outputs.length,
+            1,
+            `output() requires exactly one output file, but the command has ${this.outputs.length} outputs: ${this.name}`,
+        );
         return this.outputs[0];
     }
 
@@ -212,7 +239,7 @@ export abstract class Command {
     }
 
     addDependencies(dependencies: Command[]): this {
-        dependencies.forEach(x => this.addDependency(x));
+        dependencies.forEach((x) => this.addDependency(x));
         return this;
     }
 
@@ -224,7 +251,7 @@ export abstract class Command {
     }
 
     addTags(tags: (Razel.Tag | string)[]): this {
-        tags.forEach(x => this.addTag(x));
+        tags.forEach((x) => this.addTag(x));
         return this;
     }
 
@@ -242,8 +269,12 @@ export abstract class Command {
 }
 
 export class CustomCommand extends Command {
-    constructor(name: string, public readonly executable: string, public readonly args: (string | File)[],
-                public readonly env?: any) {
+    constructor(
+        name: string,
+        public readonly executable: string,
+        public readonly args: (string | File)[],
+        public readonly env?: any,
+    ) {
         const [inputs, outputs] = splitArgsInInputsAndOutputs(args);
         super(name, inputs, outputs);
     }
@@ -251,7 +282,7 @@ export class CustomCommand extends Command {
     // Add an input file which is not part of the command line.
     addInputFile(arg: string | File): CustomCommand {
         const file = arg instanceof File ? arg : Razel.instance().addDataFile(arg);
-        if (!this.inputs.some(x => x.fileName === file.fileName)) {
+        if (!this.inputs.some((x) => x.fileName === file.fileName)) {
             this.inputs.push(file);
         }
         return this;
@@ -259,14 +290,14 @@ export class CustomCommand extends Command {
 
     // Add input files which are not part of the command line.
     addInputFiles(args: (string | File)[]): CustomCommand {
-        args.forEach(x => this.addInputFile(x));
+        args.forEach((x) => this.addInputFile(x));
         return this;
     }
 
     // Add an output file which is not part of the command line.
     addOutputFile(arg: string | File): CustomCommand {
         const file = arg instanceof File ? arg : Razel.instance().addOutputFile(arg);
-        if (!this.outputs.some(x => x.fileName === file.fileName)) {
+        if (!this.outputs.some((x) => x.fileName === file.fileName)) {
             file.createdBy = this;
             this.outputs.push(file);
         }
@@ -301,13 +332,15 @@ export class CustomCommand extends Command {
         return {
             name: this.name,
             executable: this.executable,
-            args: this.args.map(x => x instanceof File ? x.fileName : x),
-            inputs: this.inputs.map(x => x.fileName),
-            outputs: this.outputs.filter(x => x !== this.stdout && x !== this.stderr).map(x => x.fileName),
+            args: this.args.map((x) => x instanceof File ? x.fileName : x),
+            inputs: this.inputs.map((x) => x.fileName),
+            outputs: this.outputs.filter((x) => x !== this.stdout && x !== this.stderr).map((x) =>
+                x.fileName
+            ),
             env: this.env,
             stdout: this.stdout?.fileName,
             stderr: this.stderr?.fileName,
-            deps: this.deps.length != 0 ? this.deps.map(x => x.name) : undefined,
+            deps: this.deps.length != 0 ? this.deps.map((x) => x.name) : undefined,
             tags: this.tags.length != 0 ? this.tags : undefined,
         };
     }
@@ -315,7 +348,7 @@ export class CustomCommand extends Command {
     jsonForComparingToExistingCommand(): any {
         return {
             executable: this.executable,
-            args: this.args.map(x => x instanceof File ? x.fileName : x),
+            args: this.args.map((x) => x instanceof File ? x.fileName : x),
             // additional input/output files might be added after constructor(), therefore not adding them here
             // additional env variables might be added after constructor(), therefore not adding them here
         };
@@ -325,7 +358,7 @@ export class CustomCommand extends Command {
 export class Task extends Command {
     static writeFile(path: string, lines: string[]): File {
         const file = Razel.instance().addOutputFile(path);
-        Razel.instance().addTask(path, 'write-file', [file, ...lines]);
+        Razel.instance().addTask(path, "write-file", [file, ...lines]);
         return file;
     }
 
@@ -338,8 +371,8 @@ export class Task extends Command {
         return {
             name: this.name,
             task: this.task,
-            args: this.args.map(x => x instanceof File ? x.fileName : x),
-            deps: this.deps.length != 0 ? this.deps.map(x => x.name) : undefined,
+            args: this.args.map((x) => x instanceof File ? x.fileName : x),
+            deps: this.deps.length != 0 ? this.deps.map((x) => x.name) : undefined,
             tags: this.tags.length != 0 ? this.tags : undefined,
         };
     }
@@ -347,24 +380,24 @@ export class Task extends Command {
     jsonForComparingToExistingCommand(): any {
         return {
             task: this.task,
-            args: this.args.map(x => x instanceof File ? x.fileName : x),
+            args: this.args.map((x) => x instanceof File ? x.fileName : x),
         };
     }
 }
 
 export interface LogFileItem {
-    name: string,
-    tags?: string[],
-    status: string,
-    error?: string,
-    cache?: string,
+    name: string;
+    tags?: string[];
+    status: string;
+    error?: string;
+    cache?: string;
     // original execution duration of the command/task - ignoring cache
-    exec?: number,
+    exec?: number;
     // actual duration of processing the command/task - including caching and overheads
-    total?: number,
+    total?: number;
     // total size of all output files and stdout/stderr [bytes]
-    output_size?: number,
-    measurements?: { [key: string]: string | number },
+    output_size?: number;
+    measurements?: { [key: string]: string | number };
 }
 
 function mapArgToOutputPath(arg: string | File | Command): string {
@@ -381,12 +414,16 @@ function mapArgToOutputFile(arg: File | Command): File {
 }
 
 function mapArgsToOutputFiles(args: (string | File | Command)[]): (string | File)[] {
-    return args.map(x => x instanceof Command ? x.output : x);
+    return args.map((x) => x instanceof Command ? x.output : x);
 }
 
 function splitArgsInInputsAndOutputs(args: (string | File)[]): [File[], File[]] {
-    const inputs = args.filter(x => (x instanceof File) && ((x as File).isData || (x as File).createdBy)) as File[];
-    const outputs = args.filter(x => (x instanceof File) && !(x as File).isData && !(x as File).createdBy) as File[];
+    const inputs = args.filter((x) =>
+        (x instanceof File) && ((x as File).isData || (x as File).createdBy)
+    ) as File[];
+    const outputs = args.filter((x) =>
+        (x instanceof File) && !(x as File).isData && !(x as File).createdBy
+    ) as File[];
     return [inputs, outputs];
 }
 
@@ -419,7 +456,7 @@ export async function findOrDownloadRazelBinary(version: string): Promise<string
 
 async function getRazelVersion(razelBinaryPath: string): Promise<string | null> {
     try {
-        const p = Deno.run({cmd: [razelBinaryPath, "--version"], stdout: "piped"});
+        const p = Deno.run({ cmd: [razelBinaryPath, "--version"], stdout: "piped" });
         const [status, rawOutput] = await Promise.all([p.status(), p.output()]);
         if (!status.success) {
             return null;
@@ -442,14 +479,14 @@ async function downloadRazelBinary(version: string | null, razelBinaryPath: stri
         buildTarget = "x86_64-unknown-linux-gnu";
     }
     const url = `https://github.com/reu-dev/razel/releases/${downloadTag}/razel-${buildTarget}.gz`;
-    console.log('Download razel binary from', url);
+    console.log("Download razel binary from", url);
     const response = await fetch(url);
     if (!response.body) {
         throw response.statusText;
     }
     console.log(`Extract razel binary to ${razelBinaryPath}`);
-    await Deno.mkdir(path.dirname(razelBinaryPath), {recursive: true});
-    const dest = await Deno.open(razelBinaryPath, {create: true, write: true});
+    await Deno.mkdir(path.dirname(razelBinaryPath), { recursive: true });
+    const dest = await Deno.open(razelBinaryPath, { create: true, write: true });
     await response.body
         .pipeThrough(new DecompressionStream("gzip"))
         .pipeTo(dest.writable);
@@ -458,6 +495,9 @@ async function downloadRazelBinary(version: string | null, razelBinaryPath: stri
         await Deno.chmod(razelBinaryPath, mode | 0o700);
     }
     const actualVersion = await getRazelVersion(razelBinaryPath);
-    assert(actualVersion, "Failed to download razel binary. To build it from source, run: cargo install razel");
+    assert(
+        actualVersion,
+        "Failed to download razel binary. To build it from source, run: cargo install razel",
+    );
     console.log(`Downloaded razel ${actualVersion}`);
 }
