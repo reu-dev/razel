@@ -2,40 +2,13 @@ use crate::config::OUT_DIR;
 use crate::executors::{ExecutionResult, ExecutionStatus};
 use crate::{config, FileId};
 use anyhow::{Context, Result};
-use cap_std::ambient_authority;
-use cap_std::fs::Dir;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use wasmtime::component::ResourceTable;
 use wasmtime::{Config, Engine, Linker, Module, Store};
 use wasmtime_wasi::pipe::MemoryOutputPipe;
-use wasmtime_wasi::preview1::{add_to_linker_async, WasiPreview1Adapter, WasiPreview1View};
-use wasmtime_wasi::{DirPerms, FilePerms, I32Exit, WasiCtx, WasiCtxBuilder, WasiView};
-
-struct Ctx {
-    table: ResourceTable,
-    wasi: WasiCtx,
-    adapter: WasiPreview1Adapter,
-}
-
-impl WasiView for Ctx {
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.table
-    }
-    fn ctx(&mut self) -> &mut WasiCtx {
-        &mut self.wasi
-    }
-}
-
-impl WasiPreview1View for Ctx {
-    fn adapter(&self) -> &WasiPreview1Adapter {
-        &self.adapter
-    }
-    fn adapter_mut(&mut self) -> &mut WasiPreview1Adapter {
-        &mut self.adapter
-    }
-}
+use wasmtime_wasi::preview1::{add_to_linker_async, WasiP1Ctx};
+use wasmtime_wasi::{DirPerms, FilePerms, I32Exit, WasiCtxBuilder};
 
 /// WASI filesystem:
 /// - preopen sandbox_dir for reading
@@ -169,7 +142,7 @@ impl WasiExecutor {
         &self,
         cwd: &Path,
         sandbox_dir: &Path,
-    ) -> Result<(Ctx, MemoryOutputPipe, MemoryOutputPipe)> {
+    ) -> Result<(WasiP1Ctx, MemoryOutputPipe, MemoryOutputPipe)> {
         let stdout = MemoryOutputPipe::new(4096);
         let stderr = MemoryOutputPipe::new(4096);
         let mut builder = WasiCtxBuilder::new();
@@ -192,11 +165,7 @@ impl WasiExecutor {
         if self.write_dir {
             preopen_dir_for_write(&mut builder, &sandbox_dir.join(OUT_DIR), OUT_DIR)?;
         }
-        let ctx = Ctx {
-            table: ResourceTable::new(),
-            wasi: builder.build(),
-            adapter: WasiPreview1Adapter::new(),
-        };
+        let ctx = builder.build_p1();
         Ok((ctx, stdout, stderr))
     }
 }
@@ -217,10 +186,11 @@ fn preopen_dir_for_read(
     guest_dir: &str,
 ) -> Result<()> {
     log::debug!("preopen_dir_for_read() host: {host_dir:?}, guest: {guest_dir:?}");
-    let cap_dir = Dir::open_ambient_dir(host_dir, ambient_authority()).with_context(|| {
-        format!("preopen_dir_for_read() host: {host_dir:?}, guest: {guest_dir:?}")
-    })?;
-    builder.preopened_dir(cap_dir, DirPerms::READ, FilePerms::READ, guest_dir);
+    builder
+        .preopened_dir(host_dir, guest_dir, DirPerms::READ, FilePerms::READ)
+        .with_context(|| {
+            format!("preopen_dir_for_read() host: {host_dir:?}, guest: {guest_dir:?}")
+        })?;
     Ok(())
 }
 
@@ -229,11 +199,12 @@ fn preopen_dir_for_write(
     host_dir: &Path,
     guest_dir: &str,
 ) -> Result<()> {
-    log::debug!("preopen_dir_for_write() host: {host_dir:?}");
-    let cap_dir = Dir::open_ambient_dir(host_dir, ambient_authority()).with_context(|| {
-        format!("preopen_dir_for_write() host: {host_dir:?}, guest: {guest_dir:?}")
-    })?;
-    builder.preopened_dir(cap_dir, DirPerms::all(), FilePerms::all(), guest_dir);
+    log::debug!("preopen_dir_for_write() host: {host_dir:?}, guest: {guest_dir:?}");
+    builder
+        .preopened_dir(host_dir, guest_dir, DirPerms::all(), FilePerms::all())
+        .with_context(|| {
+            format!("preopen_dir_for_write() host: {host_dir:?}, guest: {guest_dir:?}")
+        })?;
     Ok(())
 }
 
