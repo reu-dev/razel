@@ -8,12 +8,10 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-razel = {path = ".."}
+razel = { path = ".." }
 anyhow = { workspace = true }
 clap = { workspace = true }
-glob = "0.3"
-itertools = { workspace = true }
-reqwest = { version = "0.11", default-features = false, features = ["blocking", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = "0.1"
