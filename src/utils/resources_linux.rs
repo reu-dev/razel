@@ -1,6 +1,7 @@
 use crate::config;
 use anyhow::{bail, Context};
 use log::debug;
+use procfs::{Current, Meminfo};
 use std::fs;
 use std::fs::{read_to_string, File};
 use std::io::{BufRead, BufReader};
@@ -32,7 +33,7 @@ pub fn create_cgroup() -> Result<Option<CGroup>, anyhow::Error> {
 ///
 /// see https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/
 fn get_available_memory() -> Result<u64, anyhow::Error> {
-    let memory_capacity = procfs::Meminfo::new()?.mem_total;
+    let memory_capacity = Meminfo::current()?.mem_total;
     let cgroup = CGroup::new("".into());
     let memory_usage = cgroup.read::<u64>("memory", "memory.usage_in_bytes")?;
     let memory_total_inactive_file =
