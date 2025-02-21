@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## [v0.5.3](https://github.com/reu-dev/razel/releases/tag/v0.5.3) - 2025-02-21
+
+### Fixed
+
+- handling of non UTF-8 stdout/stderr
+
+### Changed
+
+- deno api: replace deprecated Deno.run() with Deno.Command()
+- deno api: use deno fmt
+- update deps [#49](https://github.com/reu-dev/razel/pull/49)
+
 ## [v0.5.2](https://github.com/reu-dev/razel/releases/tag/v0.5.2) - 2024-12-09
 
 ### Added
