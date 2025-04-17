@@ -4,6 +4,10 @@
 
 ## [v0.5.4](https://github.com/reu-dev/razel/releases/tag/v0.5.4) - 2025-04-17
 
+### Fixed
+
+- api: use full paths in ensureEqual/ensureNotEqual to fix command filtering
+
 ### Changed
 
 - update Linux release to Ubuntu 22.04

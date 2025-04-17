@@ -1,11 +1,11 @@
-{"name":"a.csv##shouldNotEqual##f.csv","task":"ensure-not-equal","args":["data/a.csv","data/f.csv"]}
+{"name":"data/a.csv##shouldNotEqual##data/f.csv","task":"ensure-not-equal","args":["data/a.csv","data/f.csv"]}
 {"name":"b.csv","task":"write-file","args":["b.csv","a,b,xyz","3,4,56","7,8,9"]}
 {"name":"c.csv","task":"csv-concat","args":["data/a.csv","b.csv","c.csv"]}
 {"name":"filtered.csv","task":"csv-filter","args":["-i","c.csv","-o","filtered.csv","-c","a","xyz"]}
-{"name":"filtered.csv##shouldEqual##f.csv","task":"ensure-equal","args":["filtered.csv","data/f.csv"]}
+{"name":"filtered.csv##shouldEqual##data/f.csv","task":"ensure-equal","args":["filtered.csv","data/f.csv"]}
 {"name":"d.csv","executable":"cp","args":["data/a.csv","d.csv"],"inputs":["data/a.csv"],"outputs":["d.csv"],"tags":["copy"]}
-{"name":"d.csv##shouldEqual##a.csv","task":"ensure-equal","args":["d.csv","data/a.csv"]}
+{"name":"d.csv##shouldEqual##data/a.csv","task":"ensure-equal","args":["d.csv","data/a.csv"]}
 {"name":"e.csv","executable":"bin/wasm32-wasi/cp.wasm","args":["d.csv","e.csv"],"inputs":["d.csv"],"outputs":["e.csv"],"tags":["copy"]}
-{"name":"e.csv##shouldEqual##a.csv","task":"ensure-equal","args":["e.csv","data/a.csv"]}
+{"name":"e.csv##shouldEqual##data/a.csv","task":"ensure-equal","args":["e.csv","data/a.csv"]}
 {"name":"cmake-sleep","executable":"cmake","args":["-E","sleep","0.010"],"inputs":[],"outputs":[],"tags":["razel:no-cache","razel:timeout:2"]}
 {"name":"cmake-touch-files","executable":"cmake","args":["-E","touch","razel-out/cmake-touch-1","razel-out/cmake-touch-2"],"inputs":[],"outputs":[],"tags":["razel:no-sandbox"]}

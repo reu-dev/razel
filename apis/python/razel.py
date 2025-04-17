@@ -80,7 +80,7 @@ class Razel:
         else:
             file1 = _map_arg_to_output_file(arg1)
             file2 = _map_arg_to_output_file(arg2)
-            name = f"{file1.basename}##shouldEqual##{file2.basename}"
+            name = f"{file1.file_name}##shouldEqual##{file2.file_name}"
             self._add(Task(name, "ensure-equal", [file1, file2]))
 
     def ensure_not_equal(self, arg1: File | Command, arg2: File | Command) -> None:
@@ -92,7 +92,7 @@ class Razel:
         else:
             file1 = _map_arg_to_output_file(arg1)
             file2 = _map_arg_to_output_file(arg2)
-            name = f"{file1.basename}##shouldNotEqual##{file2.basename}"
+            name = f"{file1.file_name}##shouldNotEqual##{file2.file_name}"
             self._add(Task(name, "ensure-not-equal", [file1, file2]))
 
     def run(self, args: list[str] = ["exec"]):

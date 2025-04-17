@@ -62,7 +62,7 @@ export class Razel {
         } else {
             const file1 = mapArgToOutputFile(arg1);
             const file2 = mapArgToOutputFile(arg2);
-            const name = `${file1.basename}##shouldEqual##${file2.basename}`;
+            const name = `${file1.fileName}##shouldEqual##${file2.fileName}`;
             this.add(new Task(name, "ensure-equal", [file1, file2]));
         }
     }
@@ -81,7 +81,7 @@ export class Razel {
         } else {
             const file1 = mapArgToOutputFile(arg1);
             const file2 = mapArgToOutputFile(arg2);
-            const name = `${file1.basename}##shouldNotEqual##${file2.basename}`;
+            const name = `${file1.fileName}##shouldNotEqual##${file2.fileName}`;
             this.add(new Task(name, "ensure-not-equal", [file1, file2]));
         }
     }
