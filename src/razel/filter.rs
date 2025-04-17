@@ -36,7 +36,7 @@ impl Razel {
     fn include_matching(&mut self, is_match: impl Fn(&str) -> bool) {
         let mut matching_len: usize = 0;
         let mut to_include = vec![];
-        for command in self.commands.iter_mut().filter(|c| {
+        for command in self.commands.iter().filter(|c| {
             is_match(&c.name)
                 || c.outputs.iter().any(|x| {
                     let path = &self.files[*x].path;

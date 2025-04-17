@@ -565,7 +565,7 @@ impl Razel {
                 continue;
             }
             command.unfinished_deps.reserve(command.deps.len());
-            for input_id in chain(command.executables.iter(), command.inputs.iter()) {
+            for input_id in chain!(&command.executables, &command.inputs) {
                 if let Some(dep) = self.files[*input_id].creating_command {
                     command.unfinished_deps.push(dep);
                     rdeps.push((dep, command.id));
