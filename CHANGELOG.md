@@ -7,6 +7,7 @@
 ### Fixed
 
 - api: use full paths in ensureEqual/ensureNotEqual to fix command filtering
+- fix filtering commands with explicit deps
 
 ### Changed
 

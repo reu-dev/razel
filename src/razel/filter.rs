@@ -63,6 +63,9 @@ impl Razel {
                     to_include.push(dep);
                 }
             }
+            for dep in &command.deps {
+                to_include.push(*dep);
+            }
         }
         let deps_len = included - matching_len;
         log::info!("included {matching_len} commands with {deps_len} dependencies");
