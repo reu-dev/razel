@@ -36,7 +36,7 @@ async-trait = "0.1"
 base16ct = { version = "0.2", features = ["alloc"] }
 bstr = "1"
 clap = { workspace = true }
-crossterm = "0.28"
+crossterm = "0.29"
 csv = "1"
 directories = "6"
 dotenv-flow = "0.16"
@@ -54,10 +54,10 @@ serde_json = { workspace = true }
 sha2 = "0.10"
 simplelog = { workspace = true }
 tokio = { version = "1", features = ["full"] }
-tonic = "0.12"
+tonic = "0.13"
 url = "2"
-wasmtime = { version = "29", default-features = false, features = ["async", "cranelift", "pooling-allocator", "runtime"] }
-wasmtime-wasi = "29"
+wasmtime = { version = "31", default-features = false, features = ["async", "cranelift", "pooling-allocator", "runtime"] }
+wasmtime-wasi = "31"
 which = "7"
 
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -65,7 +65,7 @@ procfs = { version = "0.17", default-features = false }
 
 [build-dependencies]
 prost-build = "0.13"
-tonic-build = "0.12"
+tonic-build = "0.13"
 
 [dev-dependencies]
 approx = "0.5"

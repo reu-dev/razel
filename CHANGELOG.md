@@ -1,7 +1,5 @@
 # Changelog
 
-## Unreleased
-
 ## [v0.5.4](https://github.com/reu-dev/razel/releases/tag/v0.5.4) - 2025-04-17
 
 ### Fixed
@@ -12,6 +10,7 @@
 ### Changed
 
 - update Linux release to Ubuntu 22.04
+- update deps
 
 ## [v0.5.3](https://github.com/reu-dev/razel/releases/tag/v0.5.3) - 2025-02-21
 
