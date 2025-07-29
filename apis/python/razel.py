@@ -63,7 +63,7 @@ class Razel:
     ) -> CustomCommand:
         name = self._sanitize_name(name)
         executable_path = _map_arg_to_output_path(executable)
-        command = CustomCommand(name, executable_path, _map_args_to_output_files(args), env)
+        command = CustomCommand(name, executable_path, _map_args_to_output_files(args), env if env is not None else {})
         return self._add(command)
 
     def add_task(self, name: str, task: str, args: Sequence[str | File | Command]) -> Task:
@@ -265,7 +265,7 @@ class Command(abc.ABC):
 
 class CustomCommand(Command):
     def __init__(
-            self, name: str, executable: str, args: Sequence[str | File], env: Optional[Mapping[str, str]] = None
+            self, name: str, executable: str, args: Sequence[str | File], env: Mapping[str, str]
     ) -> None:
         (inputs, outputs) = _split_args_in_inputs_and_outputs(args)
         super().__init__(name, inputs, outputs)
@@ -282,8 +282,12 @@ class CustomCommand(Command):
         return self._args
 
     @property
-    def env(self) -> Optional[Mapping[str, str]]:
+    def env(self) -> Mapping[str, str]:
         return self._env
+
+    def add_env(self, key: str, value: str) -> CustomCommand:
+        self._env[key] = value
+        return self
 
     def add_input_file(self, arg: str | File) -> CustomCommand:
         """Add an input file which is not part of the command line."""
@@ -334,7 +338,7 @@ class CustomCommand(Command):
             "inputs": [x.file_name for x in self._inputs],
             "outputs": [x.file_name for x in self._outputs if x != self._stdout and x != self._stderr],
         }
-        if self.env:
+        if self.env != {}:
             j["env"] = self.env
         if self._stdout:
             j["stdout"] = self._stdout.file_name

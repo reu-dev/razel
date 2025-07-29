@@ -9,3 +9,4 @@
 {"name":"e.csv##shouldEqual##data/a.csv","task":"ensure-equal","args":["e.csv","data/a.csv"]}
 {"name":"cmake-sleep","executable":"cmake","args":["-E","sleep","0.010"],"inputs":[],"outputs":[],"tags":["razel:no-cache","razel:timeout:2"]}
 {"name":"cmake-touch-files","executable":"cmake","args":["-E","touch","razel-out/cmake-touch-1","razel-out/cmake-touch-2"],"inputs":[],"outputs":[],"tags":["razel:no-sandbox"]}
+{"name":"cmake-env","executable":"cmake","args":["-E","environment"],"inputs":[],"outputs":[],"env":{"ONLY_ENV_VAR":"which is set"},"tags":["razel:verbose"]}

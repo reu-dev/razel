@@ -38,7 +38,7 @@ export class Razel {
     ): CustomCommand {
         name = this.sanitizeName(name);
         const executablePath = mapArgToOutputPath(executable);
-        const command = new CustomCommand(name, executablePath, mapArgsToOutputFiles(args), env);
+        const command = new CustomCommand(name, executablePath, mapArgsToOutputFiles(args), env || {});
         return this.add(command) as CustomCommand;
     }
 
@@ -283,10 +283,15 @@ export class CustomCommand extends Command {
         name: string,
         public readonly executable: string,
         public readonly args: (string | File)[],
-        public readonly env?: any,
+        public readonly env: any,
     ) {
         const [inputs, outputs] = splitArgsInInputsAndOutputs(args);
         super(name, inputs, outputs);
+    }
+
+    addEnv(key: string, value: string): CustomCommand {
+        this.env[key] = value;
+        return this;
     }
 
     // Add an input file which is not part of the command line.
@@ -347,7 +352,7 @@ export class CustomCommand extends Command {
             outputs: this.outputs.filter((x) => x !== this.stdout && x !== this.stderr).map((x) =>
                 x.fileName
             ),
-            env: this.env,
+            env: Object.keys(this.env).length !== 0 ? this.env : undefined,
             stdout: this.stdout?.fileName,
             stderr: this.stderr?.fileName,
             deps: this.deps.length != 0 ? this.deps.map((x) => x.name) : undefined,

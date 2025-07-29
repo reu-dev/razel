@@ -34,6 +34,11 @@ razel.add_command('cmake-sleep', 'cmake', ['-E', 'sleep', '0.010']) \
 razel.add_command('cmake-touch-files', 'cmake', ['-E', 'touch', 'razel-out/cmake-touch-1', 'razel-out/cmake-touch-2']) \
     .add_tag(Razel.Tag.NO_SANDBOX)
 
+# razel executes all commands with clean environment
+razel.add_command("cmake-env", "cmake", ["-E", "environment"]) \
+    .add_env("ONLY_ENV_VAR", "which is set") \
+    .add_tag(Razel.Tag.VERBOSE)
+
 if False:  # requires clang
     # compile an executable from a c file
     say_hi = razel.add_command('say_hi', 'clang',

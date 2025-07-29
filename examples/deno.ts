@@ -44,6 +44,11 @@ razel.addCommand("cmake-touch-files", "cmake", [
 ])
     .addTag(Razel.Tag.NoSandbox);
 
+// razel executes all commands with clean environment
+razel.addCommand("cmake-env", "cmake", ["-E", "environment"])
+    .addEnv("ONLY_ENV_VAR", "which is set")
+    .addTag(Razel.Tag.Verbose);
+
 if (false) { // requires clang
     // compile an executable from a c file
     const say_hi = razel.addCommand("say_hi", "clang", [
