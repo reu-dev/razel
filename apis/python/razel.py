@@ -8,7 +8,7 @@ import platform
 import subprocess
 import sys
 from enum import Enum
-from typing import ClassVar, Optional, Any, Tuple, TypeVar
+from typing import ClassVar, Optional, Any, Tuple, TypeVar, Dict
 from collections.abc import Mapping, Sequence
 
 
@@ -59,7 +59,7 @@ class Razel:
 
     def add_command(
             self, name: str, executable: str | File | Command, args: Sequence[str | File | Command],
-            env: Optional[Mapping[str, str]] = None
+            env: Optional[Dict[str, str]] = None
     ) -> CustomCommand:
         name = self._sanitize_name(name)
         executable_path = _map_arg_to_output_path(executable)
@@ -265,7 +265,7 @@ class Command(abc.ABC):
 
 class CustomCommand(Command):
     def __init__(
-            self, name: str, executable: str, args: Sequence[str | File], env: Mapping[str, str]
+            self, name: str, executable: str, args: Sequence[str | File], env: Dict[str, str]
     ) -> None:
         (inputs, outputs) = _split_args_in_inputs_and_outputs(args)
         super().__init__(name, inputs, outputs)
@@ -282,7 +282,7 @@ class CustomCommand(Command):
         return self._args
 
     @property
-    def env(self) -> Mapping[str, str]:
+    def env(self) -> Dict[str, str]:
         return self._env
 
     def add_env(self, key: str, value: str) -> CustomCommand:
