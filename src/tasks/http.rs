@@ -15,7 +15,10 @@ pub struct DownloadFileTask {
 #[async_trait]
 impl AsyncTask for DownloadFileTask {
     async fn exec(&self, sandbox_dir: Option<PathBuf>) -> Result<(), anyhow::Error> {
-        let mut stream = reqwest::get(&self.url).await?.bytes_stream();
+        let mut stream = reqwest::get(&self.url)
+            .await?
+            .error_for_status()?
+            .bytes_stream();
         let mut file = File::create(
             sandbox_dir
                 .map(|x| x.join(&self.output))
