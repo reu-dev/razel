@@ -223,8 +223,8 @@ mod main {
         .await;
     }
 
-    const RAZEL_JSONL_EXP_SUCCEEDED: usize = 11;
-    const RAZEL_JSONL_EXP_CACHED: usize = 9;
+    const RAZEL_JSONL_EXP_SUCCEEDED: usize = 12;
+    const RAZEL_JSONL_EXP_CACHED: usize = 10;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
     #[serial]
