@@ -137,7 +137,7 @@ impl GrpcRemoteCache {
                     Ok(_) => {}
                     Err(x) => {
                         if x.code() != Code::Ok {
-                            warn!("Remote cache error in update_action_result(): {:?}", x);
+                            warn!("Remote cache error in update_action_result(): {x:?}");
                             break;
                         }
                     }
@@ -157,7 +157,7 @@ impl GrpcRemoteCache {
             while let Some((digest, path)) = rx.recv().await {
                 let data = tokio::fs::read(&path)
                     .await
-                    .with_context(|| format!("Read file from local cache: {:?}", path))
+                    .with_context(|| format!("Read file from local cache: {path:?}"))
                     .unwrap();
                 match client
                     .batch_update_blobs(tonic::Request::new(BatchUpdateBlobsRequest {
@@ -173,7 +173,7 @@ impl GrpcRemoteCache {
                     Ok(_) => {}
                     Err(x) => {
                         if x.code() != Code::Ok {
-                            warn!("Remote cache error in batch_update_blobs(): {:?}", x);
+                            warn!("Remote cache error in batch_update_blobs(): {x:?}");
                             break;
                         }
                     }
@@ -198,7 +198,7 @@ impl GrpcRemoteCache {
             Ok(x) => Some(x.into_inner()),
             Err(x) => {
                 if x.code() != Code::NotFound {
-                    warn!("Remote cache error in get_action_result(): {:?}", x);
+                    warn!("Remote cache error in get_action_result(): {x:?}");
                 }
                 None
             }
@@ -222,7 +222,7 @@ impl GrpcRemoteCache {
         {
             Ok(x) => Some(x.into_inner().responses.first().unwrap().data.clone()),
             Err(x) => {
-                warn!("Remote cache error in batch_read_blobs(): {:?}", x);
+                warn!("Remote cache error in batch_read_blobs(): {x:?}");
                 None
             }
         }
@@ -353,7 +353,7 @@ mod tests {
                 instance_name: INSTANCE_NAME.to_string(),
             }))
             .await;
-        println!("{:?}", response);
+        println!("{response:?}");
         let capabilities = response.unwrap().into_inner();
         assert!(
             capabilities

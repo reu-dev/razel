@@ -41,7 +41,7 @@ impl LocalCache {
         match Self::try_read_pb_file(&path).await {
             Ok(x) => x,
             Err(x) => {
-                warn!("{:?}", x);
+                warn!("{x:?}");
                 force_remove_file(path).await.ok();
                 None
             }
@@ -70,10 +70,7 @@ impl LocalCache {
             let act_size = metadata.len();
             let exp_size = digest.size_bytes as u64;
             if act_size != exp_size {
-                warn!(
-                    "OutputFile has wrong size (act: {act_size}, exp:{exp_size}): {:?}",
-                    path
-                );
+                warn!("OutputFile has wrong size (act: {act_size}, exp:{exp_size}): {path:?}");
                 force_remove_file(path).await.ok();
                 return false;
             }

@@ -318,12 +318,12 @@ impl Razel {
     pub fn show_info(&self, cache_dir: Option<PathBuf>) -> Result<(), anyhow::Error> {
         let output_directory = self.current_dir.join(&self.out_dir);
         println!("workspace dir:     {:?}", self.workspace_dir);
-        println!("output directory:  {:?}", output_directory);
+        println!("output directory:  {output_directory:?}");
         let cache_dir = match cache_dir {
             Some(x) => x,
             _ => select_cache_dir(&self.workspace_dir)?,
         };
-        println!("cache directory:   {:?}", cache_dir);
+        println!("cache directory:   {cache_dir:?}");
         println!("sandbox directory: {:?}", select_sandbox_dir(&cache_dir)?);
         println!("worker threads:    {}", self.worker_threads);
         Ok(())
@@ -337,15 +337,15 @@ impl Razel {
     ) -> Result<(), anyhow::Error> {
         let output_directory = self.current_dir.join(&self.out_dir);
         debug!("workspace dir:     {:?}", self.workspace_dir);
-        debug!("output directory:  {:?}", output_directory);
+        debug!("output directory:  {output_directory:?}");
         let cache_dir = match cache_dir {
             Some(x) => x,
             _ => select_cache_dir(&self.workspace_dir)?,
         };
-        debug!("cache directory:   {:?}", cache_dir);
+        debug!("cache directory:   {cache_dir:?}");
         let sandbox_dir = select_sandbox_dir(&cache_dir)?;
         let mut cache = Cache::new(cache_dir, self.out_dir.clone())?;
-        debug!("sandbox directory: {:?}", sandbox_dir);
+        debug!("sandbox directory: {sandbox_dir:?}");
         debug!("worker threads:    {}", self.worker_threads);
         cache
             .connect_remote_cache(&remote_cache, remote_cache_threshold)
@@ -462,7 +462,7 @@ impl Razel {
         } else {
             let path =
                 which(&arg).with_context(|| format!("executable not found: {:?}", arg.clone()))?;
-            debug!("which({}) => {:?}", arg, path);
+            debug!("which({arg}) => {path:?}");
             let id = self
                 .input_file_for_rel_path(arg.clone(), file_type, path.to_str().unwrap().into())?
                 .id;
@@ -642,7 +642,7 @@ impl Razel {
                     self.files[id].digest = Some(digest);
                 }
                 Err(x) => {
-                    warn!("{}", x);
+                    warn!("{x}");
                     missing_files += 1;
                 }
             };

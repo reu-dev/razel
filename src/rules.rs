@@ -53,7 +53,7 @@ impl Rules {
         if let Some(rule) = self.rules.get(&executable_stem) {
             Ok(Some(rule.eval_args(args)?))
         } else {
-            warn!("no rule for executable: {}", executable_stem);
+            warn!("no rule for executable: {executable_stem}");
             Ok(None)
         }
     }
