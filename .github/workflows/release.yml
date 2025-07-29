@@ -58,7 +58,7 @@ jobs:
             target: x86_64-apple-darwin
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-          - os: windows-2019
+          - os: windows-2022
             target: x86_64-pc-windows-msvc
     steps:
       - run: echo ${{needs.bump-version-and-create-tag.outputs.TAG}}
