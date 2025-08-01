@@ -105,7 +105,7 @@ struct HttpRemoteExecHost {
     client: Client,
     available_slots: usize,
     used_slots: AtomicUsize,
-    /// to ignore host after connection error
+    /// to ignore host after connection or server error
     is_ok: AtomicBool,
 }
 
@@ -191,6 +191,9 @@ impl HttpRemoteExecutor {
         let form = self.build_form().await?;
         let response = client.post(url).multipart(form).send().await?;
         let status = response.status();
+        if status.is_server_error() {
+            response.error_for_status_ref()?;
+        }
         let text = response.text().await?;
         Ok(ExecutionResult {
             status: if status.is_success() {
