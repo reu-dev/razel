@@ -161,7 +161,7 @@ impl HttpRemoteExecutor {
                     domain
                         .available_slots
                         .fetch_sub(host.available_slots, Ordering::Relaxed);
-                    warn!("{err}");
+                    warn!("{:?} failed on host {:?}: {err}", domain.domain, host.host);
                 }
             };
             host.used_slots.fetch_sub(1, Ordering::Relaxed);
