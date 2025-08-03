@@ -4,7 +4,7 @@
     "indentWidth": 4
   },
   "imports": {
-    "https://deno.land/x/razel@v0.5.4/": "./apis/deno/"
+    "https://deno.land/x/razel@v0.5.5/": "./apis/deno/"
   },
   "lock": false
 }
