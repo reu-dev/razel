@@ -1,5 +1,17 @@
 # Changelog
 
+## [v0.5.5](https://github.com/reu-dev/razel/releases/tag/v0.5.5) - 2025-08-03
+
+### Fixed
+
+- error handling for download-file task
+- http-remote-exec: disable host after server error
+
+### Changed
+
+- api: improve env handling
+- update Windows release to windows-2022
+
 ## [v0.5.4](https://github.com/reu-dev/razel/releases/tag/v0.5.4) - 2025-04-17
 
 ### Fixed
