@@ -9,7 +9,10 @@ impl Razel {
         let cache_dir = select_cache_dir(&self.workspace_dir)?;
         let mut cache = Cache::new(cache_dir, self.out_dir.clone())?;
         for url in urls.iter().filter(|x| !x.is_empty()) {
-            match cache.connect_remote_cache(&[url.clone()], None).await {
+            match cache
+                .connect_remote_cache(std::slice::from_ref(url), None)
+                .await
+            {
                 Ok(true) => println!("{url} ok"),
                 Ok(_) => {
                     println!("{url} failed");

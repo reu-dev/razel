@@ -177,7 +177,7 @@ mod tests {
     async fn test_sandbox(base_dir: &Path, input: PathBuf, output: PathBuf) {
         let command_id = "0";
         let sandbox = TmpDirSandbox::new(base_dir, command_id, vec![input.clone()]);
-        let sandbox_dir = sandbox.create(&[output.clone()]).await.unwrap();
+        let sandbox_dir = sandbox.create(std::slice::from_ref(&output)).await.unwrap();
         let sandbox_input = sandbox_dir.join(&input);
         let sandbox_output = sandbox_dir.join(&output);
         // check input file
