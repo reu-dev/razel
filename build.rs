@@ -6,10 +6,9 @@ fn main() {
     for x in &files {
         println!("cargo:rerun-if-changed={x}");
     }
-    let config = prost_build::Config::new();
-    tonic_build::configure()
+    tonic_prost_build::configure()
         .build_client(true)
         .build_server(false)
-        .compile_protos_with_config(config, &files, &["src/bazel_remote_exec/proto"])
+        .compile_protos(&files, &["src/bazel_remote_exec/proto"])
         .unwrap();
 }

@@ -111,6 +111,7 @@ impl GrpcRemoteCache {
                 data,
                 compressor: 0,
             }],
+            digest_function: digest_function::Value::Sha256.into(),
         }
         .encoded_len();
         assert!(encoded_len > max_batch_total_size_bytes);
@@ -167,6 +168,7 @@ impl GrpcRemoteCache {
                             data,
                             compressor: 0,
                         }],
+                        digest_function: digest_function::Value::Sha256.into(),
                     }))
                     .await
                 {
@@ -462,6 +464,7 @@ mod tests {
                     data: content.clone().into_bytes(),
                     compressor: 0,
                 }],
+                digest_function: digest_function::Value::Sha256.into(),
             }))
             .await
             .unwrap()
