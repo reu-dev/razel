@@ -38,10 +38,12 @@ jobs:
             target: x86_64-apple-darwin
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-          - os: ubuntu-24.04-arm64
+          - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
           - os: windows-2022
             target: x86_64-pc-windows-msvc
+    env:
+      CARGO_BUILD_TARGET: x86_64-apple-darwin
     steps:
       - uses: actions/checkout@v4
         with:
@@ -68,7 +70,7 @@ jobs:
       - run: protoc --version
 
       - run: rustup show
-      - run: rustup default stable-${{matrix.target}}
+      - run: rustup target add ${{matrix.target}}
 
       - run: cargo build
 
