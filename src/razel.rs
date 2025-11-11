@@ -407,8 +407,6 @@ impl Razel {
         self.remove_outputs_of_not_run_actions_from_out_dir();
         TmpDirSandbox::cleanup(self.sandbox_dir.as_ref().unwrap());
         self.push_logs_for_not_started_commands();
-        self.write_metadata(group_by_tag)
-            .context("Failed to write metadata")?;
         let stats = SchedulerStats {
             exec: SchedulerExecStats {
                 succeeded: self.succeeded.len(),
@@ -421,6 +419,8 @@ impl Razel {
             execution_duration: execution_start.elapsed(),
         };
         self.tui.finished(&stats);
+        self.write_metadata(group_by_tag)
+            .context("Failed to write metadata")?;
         Ok(stats)
     }
 
