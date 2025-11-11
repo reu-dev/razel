@@ -454,7 +454,9 @@ def download_razel_binary(version: Optional[str], path: str):
     import pathlib
     import urllib.request
     download_tag = f"download/v{version}" if version else "latest/download"
-    if platform.system() == "Darwin":
+    if platform.system() == "Darwin" and platform.machine() == "arm64":
+        build_target = "aarch64-apple-darwin"
+    elif platform.system() == "Darwin" and platform.machine() == "x86_64":
         build_target = "x86_64-apple-darwin"
     elif platform.system() == "Windows" or platform.system().startswith("CYGWIN"):
         build_target = "x86_64-pc-windows-msvc"
