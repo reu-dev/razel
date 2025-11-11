@@ -89,7 +89,7 @@ impl Executor {
 
     /// Returns if a sandbox should be used.
     ///
-    /// Internally implemented tasks have well defined inputs and outputs. This might not be true
+    /// Internally implemented tasks have well-defined inputs and outputs. This might not be true
     /// for other commands, therefore the sandbox must be used to make caching reliable.
     pub fn use_sandbox(&self) -> bool {
         match self {
