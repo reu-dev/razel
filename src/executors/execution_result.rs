@@ -108,8 +108,9 @@ impl fmt::Debug for ExecutionResult {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub enum ExecutionStatus {
+    #[default]
     NotStarted,
     /// Command could not be started because it depends on a failed condition
     Skipped,
@@ -124,10 +125,4 @@ pub enum ExecutionStatus {
     Success,
     /// not command related error, e.g. cache, sandbox
     SystemError,
-}
-
-impl Default for ExecutionStatus {
-    fn default() -> Self {
-        Self::NotStarted
-    }
 }
