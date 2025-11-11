@@ -5,6 +5,12 @@
 ### Added
 
 - apis: main function to download/run native binary
+- binary for macos-14 aarch64
+- binary for ubuntu-24.04 aarch64
+
+### Changed
+
+- update macos x86_64 binary from macos-13 to macos-14
 
 ## [v0.5.5](https://github.com/reu-dev/razel/releases/tag/v0.5.5) - 2025-08-03
 

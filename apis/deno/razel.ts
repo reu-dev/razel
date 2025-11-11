@@ -470,10 +470,14 @@ async function getRazelVersion(razelBinaryPath: string): Promise<string | null> 
 async function downloadRazelBinary(version: string | null, razelBinaryPath: string) {
     const downloadTag = version ? `download/v${version}` : "latest/download";
     let buildTarget;
-    if (Deno.build.os === "darwin") {
+    if (Deno.build.os === "darwin" && Deno.build.arch === "aarch64") {
+        buildTarget = "aarch64-apple-darwin";
+    } else if (Deno.build.os === "darwin" && Deno.build.arch === "x86_64") {
         buildTarget = "x86_64-apple-darwin";
     } else if (Deno.build.os === "windows") {
         buildTarget = "x86_64-pc-windows-msvc";
+    } else if (Deno.build.arch === "aarch64") {
+        buildTarget = "aarch64-unknown-linux-gnu";
     } else {
         buildTarget = "x86_64-unknown-linux-gnu";
     }
