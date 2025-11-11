@@ -25,7 +25,7 @@ jobs:
       - run: mypy apis/python/razel.py
 
   tests:
-    name: Test ${{ matrix.os }}
+    name: Test ${{ matrix.os }} ${{matrix.target}}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -76,7 +76,7 @@ jobs:
 
       - run: cargo run -- exec --info -f examples/razel.jsonl
 
-      - run: cargo test -- --nocapture --skip real_time_test --skip grpc_server
+      - run: cargo test -- --skip real_time_test --skip grpc_server
 
       # install binary, to be used by following API tests
       - run: cargo install --force --locked --path .
