@@ -48,18 +48,22 @@ impl ExecutionResult {
     }
 
     pub fn improve_error_message(&mut self) {
-        let Ok(stderr) = std::str::from_utf8(&self.stderr).map(|x| x.lines()) else {
-            return;
-        };
-        let Some(last_line) = stderr.clone().next_back() else {
-            return;
-        };
-        if last_line.contains("Assertion") {
-            // C/C++ assertion failed
-            self.error = Some(anyhow!("{last_line}"));
-            return;
+        if let Some(error) = self
+            .improve_error_message_stderr()
+            .or_else(|| self.improve_error_message_stdout())
+        {
+            self.error = Some(anyhow!(error));
         }
-        let mut iter = stderr;
+    }
+
+    fn improve_error_message_stderr(&self) -> Option<String> {
+        let lines = std::str::from_utf8(&self.stderr).map(|x| x.lines()).ok()?;
+        let last_line = lines.clone().next_back()?;
+        let last_line_lc = last_line.to_lowercase();
+        if last_line_lc.contains("assertion") || last_line_lc.contains("error") {
+            return Some(last_line.to_string());
+        }
+        let mut iter = lines;
         let mut next = None;
         while let Some(curr) = iter.next_back() {
             if curr.contains("panicked at") {
@@ -69,11 +73,21 @@ impl ExecutionResult {
                 } else {
                     curr.to_string()
                 };
-                self.error = Some(anyhow!(error));
-                return;
+                return Some(error);
             }
             next = Some(curr);
         }
+        None
+    }
+
+    fn improve_error_message_stdout(&self) -> Option<String> {
+        let lines = std::str::from_utf8(&self.stdout).map(|x| x.lines()).ok()?;
+        let last_line = lines.clone().next_back()?;
+        let last_line_lc = last_line.to_lowercase();
+        if last_line_lc.contains("error") {
+            return Some(last_line.to_string());
+        }
+        None
     }
 
     #[cfg(test)]
