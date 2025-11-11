@@ -1,6 +1,6 @@
 # Changelog
 
-## next
+## [v0.5.6](https://github.com/reu-dev/razel/releases/tag/v0.5.6) - 2025-11-11
 
 ### Added
 
@@ -8,9 +8,14 @@
 - binary for macos-14 aarch64
 - binary for ubuntu-24.04 aarch64
 
+### Fixed
+
+- finish tui status before printing report
+
 ### Changed
 
 - update macos x86_64 binary from macos-13 to macos-14
+- also use stdout for improving error message
 
 ## [v0.5.5](https://github.com/reu-dev/razel/releases/tag/v0.5.5) - 2025-08-03
 
