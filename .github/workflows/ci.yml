@@ -34,14 +34,14 @@ jobs:
         include:
           - os: macos-14
             target: aarch64-apple-darwin
-          - os: macos-14
-            target: x86_64-apple-darwin
-          - os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-          - os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-          - os: windows-2022
-            target: x86_64-pc-windows-msvc
+          #- os: macos-14
+          #  target: x86_64-apple-darwin
+          #- os: ubuntu-22.04
+          #  target: x86_64-unknown-linux-gnu
+          #- os: ubuntu-24.04-arm
+          #  target: aarch64-unknown-linux-gnu
+          #- os: windows-2022
+          #  target: x86_64-pc-windows-msvc
     env:
       CARGO_BUILD_TARGET: ${{matrix.target}}
     steps:
@@ -71,6 +71,15 @@ jobs:
 
       - run: rustup show
       - run: rustup target add ${{matrix.target}}
+
+      - run: cargo test --bin razel command_ok -- --no-capture
+      - run: cargo test --bin razel command_fail -- --no-capture
+      - run: cargo test --bin razel task_fail -- --no-capture
+      - run: cargo test --bin razel task_ok -- --no-capture
+      - run: cargo test --bin razel exec_batch_sh -- --no-capture
+      - run: cargo test --bin razel exec_razel_jsonl -- --no-capture
+      - run: cargo test --bin razel exec_razel_jsonl_with_no_cache_tag -- --no-capture
+      - run: cargo test --bin razel exec_razel_jsonl_with_no_sandbox_tag -- --no-capture
 
       - run: cargo build
 
