@@ -95,21 +95,11 @@ export class Razel {
      */
     async run(args: string[] = ["exec"]) {
         await this.writeRazelFile();
-        const razelBinaryPath = await findOrDownloadRazelBinary(Razel.version);
-        const cmd = [razelBinaryPath];
         if (args.length > 0 && args[0] === "exec") {
             const razelFileRel = path.relative(Deno.cwd(), this.razelFile);
-            cmd.push(args[0], "-f", razelFileRel, ...args.slice(1));
-        } else {
-            cmd.push(...args);
+            args = [args[0], "-f", razelFileRel, ...args.slice(1)];
         }
-        console.log(cmd.join(" "));
-        const process = new Deno.Command(cmd[0], {
-            args: cmd.slice(1),
-            stdout: "inherit",
-            stderr: "inherit",
-        }).spawn();
-        const status = await process.status;
+        const status = await runRazelBinary(args);
         if (!status.success) {
             Deno.exit(status.code);
         }
@@ -117,21 +107,11 @@ export class Razel {
 
     async tryRun(args: string[] = ["exec"]): Promise<boolean> {
         await this.writeRazelFile();
-        const razelBinaryPath = await findOrDownloadRazelBinary(Razel.version);
-        const cmd = [razelBinaryPath];
         if (args.length > 0 && args[0] === "exec") {
             const razelFileRel = path.relative(Deno.cwd(), this.razelFile);
-            cmd.push(args[0], "-f", razelFileRel, ...args.slice(1));
-        } else {
-            cmd.push(...args);
+            args = [args[0], "-f", razelFileRel, ...args.slice(1)];
         }
-        console.log(cmd.join(" "));
-        const process = new Deno.Command(cmd[0], {
-            args: cmd.slice(1),
-            stdout: "inherit",
-            stderr: "inherit",
-        }).spawn();
-        const status = await process.status;
+        const status = await runRazelBinary(args);
         return status.success;
     }
 
@@ -519,4 +499,26 @@ async function downloadRazelBinary(version: string | null, razelBinaryPath: stri
         "Failed to download razel binary. To build it from source, run: cargo install razel",
     );
     console.log(`Downloaded razel ${actualVersion}`);
+}
+
+// Run the native razel binary. If not available, it will be downloaded. Returns the exit code.
+export async function runRazelBinary(args: string[]): Promise<Deno.CommandStatus> {
+    const razelBinaryPath = await findOrDownloadRazelBinary(Razel.version);
+    const cmd = [razelBinaryPath, ...args];
+    console.log(cmd.join(" "));
+    const process = new Deno.Command(cmd[0], {
+        args: cmd.slice(1),
+        stdout: "inherit",
+        stderr: "inherit",
+    }).spawn();
+    return await process.status;
+}
+
+if (import.meta.main) {
+    if (Deno.args.length === 0) {
+        await findOrDownloadRazelBinary(Razel.version);
+        Deno.exit(0);
+    }
+    const status = await runRazelBinary(Deno.args);
+    Deno.exit(status.code);
 }

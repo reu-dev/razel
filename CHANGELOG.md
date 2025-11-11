@@ -1,5 +1,11 @@
 # Changelog
 
+## next
+
+### Added
+
+- apis: main function to download/run native binary
+
 ## [v0.5.5](https://github.com/reu-dev/razel/releases/tag/v0.5.5) - 2025-08-03
 
 ### Fixed

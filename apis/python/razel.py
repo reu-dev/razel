@@ -104,15 +104,10 @@ class Razel:
         Output files are created in `<cwd>/razel-out`.
         """
         self.write_razel_file()
-        razel_binary_path = find_or_download_razel_binary(Razel.version)
-        cmd = [razel_binary_path]
         if len(args) > 0 and args[0] == "exec":
             razel_file_rel = os.path.relpath(self.razel_file, os.curdir)
-            cmd.extend([args[0]] + ['-f', razel_file_rel] + args[1:])
-        else:
-            cmd.extend(args)
-        print(" ".join(cmd))
-        status = subprocess.run(cmd).returncode
+            args = [args[0]] + ['-f', razel_file_rel] + args[1:]
+        status = run_razel_binary(args)
         if status != 0:
             sys.exit(status)
 
@@ -479,3 +474,19 @@ def download_razel_binary(version: Optional[str], path: str):
     actual_version = get_razel_version(path)
     assert actual_version, "Failed to download razel binary. To build it from source, run: cargo install razel"
     print(f"Downloaded razel {actual_version}")
+
+
+def run_razel_binary(args: list[str]) -> int:
+    """Run the native razel binary. If not available, it will be downloaded. Returns the exit code."""
+    razel_binary_path = find_or_download_razel_binary(Razel.version)
+    cmd = [razel_binary_path] + args
+    print(" ".join(cmd))
+    return subprocess.run(cmd).returncode
+
+
+if __name__ == "__main__":
+    if len(sys.argv) == 1:
+        find_or_download_razel_binary(Razel.version)
+        exit(0)
+    status = run_razel_binary(sys.argv[1:])
+    exit(status)
