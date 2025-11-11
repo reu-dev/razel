@@ -117,16 +117,11 @@ impl TUI {
             color,
             command.name.as_str(),
         );
-        if let Some(x) = &execution_result.error {
+        if let Some(e) = &execution_result.error.as_ref().map(|x| x.to_string()) {
             if will_retry {
-                Self::field_with_hint(
-                    "error:     ",
-                    color,
-                    format!("{x:?}").as_str(),
-                    "(will retry)",
-                );
+                Self::field_with_hint("error:     ", color, e, "(will retry)");
             } else {
-                Self::field("error:     ", color, format!("{x:?}").as_str());
+                Self::field("error:     ", color, e);
             }
         } else if let Some(x) = execution_result.exit_code {
             Self::field("exit code: ", color, x.to_string().as_str());
