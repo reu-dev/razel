@@ -460,6 +460,8 @@ def download_razel_binary(version: Optional[str], path: str):
         build_target = "x86_64-apple-darwin"
     elif platform.system() == "Windows" or platform.system().startswith("CYGWIN"):
         build_target = "x86_64-pc-windows-msvc"
+    elif platform.machine() == "arm64":
+        build_target = "aarch64-unknown-linux-gnu"
     else:
         build_target = "x86_64-unknown-linux-gnu"
     url = f"https://github.com/reu-dev/razel/releases/{download_tag}/razel-{build_target}.gz"

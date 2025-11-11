@@ -476,6 +476,8 @@ async function downloadRazelBinary(version: string | null, razelBinaryPath: stri
         buildTarget = "x86_64-apple-darwin";
     } else if (Deno.build.os === "windows") {
         buildTarget = "x86_64-pc-windows-msvc";
+    } else if (Deno.build.arch === "aarch64") {
+        buildTarget = "aarch64-unknown-linux-gnu";
     } else {
         buildTarget = "x86_64-unknown-linux-gnu";
     }
