@@ -1,5 +1,6 @@
 [workspace]
-members = [".", "razel-bench", "razel-self-test"]
+members = ["razel", "razel-bench", "razel-self-test"]
+resolver = "3"
 
 [workspace.package]
 version = "0.5.6"
@@ -17,62 +18,6 @@ log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 simplelog = "0.12"
-
-[package]
-name = "razel"
-authors = ["Stefan Reuschl <stefan@reu-dev.de>"]
-description = "a command executor with caching for data processing pipelines"
-categories = ["caching", "concurrency", "command-line-utilities", "development-tools::testing", "filesystem"]
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-homepage.workspace = true
-repository.workspace = true
-license.workspace = true
-
-[dependencies]
-anyhow = { workspace = true }
-async-trait = "0.1"
-base16ct = { version = "0.2", features = ["alloc"] }
-bstr = "1"
-clap = { workspace = true }
-crossterm = "0.29"
-csv = "1"
-directories = "6"
-dotenv-flow = "0.16"
-futures-util = "0.3"
-gethostname = "1"
-itertools = { workspace = true }
-log = { workspace = true }
-num_cpus = "1"  # TODO replace with std::thread::available_parallelism() once it works in docker: https://github.com/rust-lang/rust/pull/97925
-prost = "0.14"
-prost-types = "0.14"
-regex = "1"
-reqwest = { version = "0.12", default-features = false, features = ["multipart", "rustls-tls", "stream"] }
-serde = { workspace = true }
-serde_json = { workspace = true }
-sha2 = "0.10"
-simplelog = { workspace = true }
-tokio = { version = "1", features = ["full"] }
-tonic = "0.14"
-tonic-prost = "0.14"
-url = "2"
-wasmtime = { version = "31", default-features = false, features = ["async", "cranelift", "pooling-allocator", "runtime"] }
-wasmtime-wasi = "31"
-which = "7"
-
-[target.'cfg(target_os = "linux")'.dependencies]
-procfs = { version = "0.17", default-features = false }
-
-[build-dependencies]
-tonic-prost-build = "0.14"
-
-[dev-dependencies]
-approx = "0.5"
-assert2 = "0.3"
-env_logger = "0.11"
-serial_test = "3"
-
 
 # optimize some dependencies also for dev profile
 [profile.dev.package.sha2]

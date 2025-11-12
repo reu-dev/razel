@@ -83,7 +83,7 @@ mod tests {
 
     #[tokio::test]
     async fn digest_for_small_file() {
-        let path = "examples/data/a.csv";
+        let path = "../examples/data/a.csv";
         let act = super::Digest::for_path(&path).await.unwrap();
         let exp = digest_file_sha256_simple(path).unwrap();
         assert_eq!(act, exp);
@@ -111,7 +111,7 @@ mod tests {
 
     #[tokio::test]
     async fn digest_for_bigger_file() {
-        let path = "Cargo.lock";
+        let path = "../Cargo.lock";
         let act = super::Digest::for_path(&path).await.unwrap();
         let exp = digest_file_sha256_simple(path).unwrap();
         assert_eq!(act, exp);

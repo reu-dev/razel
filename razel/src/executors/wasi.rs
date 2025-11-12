@@ -215,7 +215,7 @@ mod tests {
     use crate::tasks::ensure_equal;
     use std::fs;
 
-    static CP_MODULE_PATH: &str = "examples/bin/wasm32-wasi/cp.wasm";
+    static CP_MODULE_PATH: &str = "../examples/bin/wasm32-wasi/cp.wasm";
     static SRC_PATH: &str = "src-file";
     static DST_PATH: &str = "dst-file";
     const SOURCE_CONTENTS: &str = "SOURCE_CONTENTS";
@@ -294,7 +294,7 @@ mod tests {
         let workspace_dir = new_tmp_dir!();
         let sandbox_dir = new_tmp_dir!();
         let out_file = format!("{OUT_DIR}/{DST_PATH}");
-        let file_outside_sandbox = fs::canonicalize("README.md").unwrap();
+        let file_outside_sandbox = fs::canonicalize("Cargo.toml").unwrap();
         let _dst = sandbox_dir.join_and_create_parent(&out_file);
         assert!(file_outside_sandbox.exists());
         let x = WasiExecutor {

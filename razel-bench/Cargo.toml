@@ -6,9 +6,10 @@ rust-version.workspace = true
 homepage.workspace = true
 repository.workspace = true
 license.workspace = true
+publish = false
 
 [dependencies]
-razel = { path = ".." }
+razel = { path = "../razel" }
 anyhow = { workspace = true }
 clap = { workspace = true }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json"] }

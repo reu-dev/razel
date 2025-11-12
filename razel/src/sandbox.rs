@@ -160,7 +160,7 @@ mod tests {
     #[tokio::test]
     async fn no_parent() {
         let base_dir = new_tmp_dir!();
-        test_sandbox(base_dir.dir(), "README.md".into(), "output-file.txt".into()).await;
+        test_sandbox(base_dir.dir(), "Cargo.toml".into(), "output-file.txt".into()).await;
     }
 
     #[tokio::test]
@@ -168,8 +168,8 @@ mod tests {
         let base_dir = new_tmp_dir!();
         test_sandbox(
             base_dir.dir(),
-            "examples/data/a.csv".into(),
-            "examples/data/output-file.txt".into(),
+            "src/utils/tui.rs".into(),
+            "src/utils/output.rs".into(),
         )
         .await;
     }
