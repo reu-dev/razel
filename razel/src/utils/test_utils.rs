@@ -1,5 +1,5 @@
-use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::{env, fs};
 
 /// Returns a unique test name to be used for temp file/directories
 #[macro_export]
@@ -23,6 +23,25 @@ macro_rules! unique_test_name {
 
 #[allow(unused_imports)]
 pub(crate) use unique_test_name;
+
+/// Changes the current directory when created and restores the original one when dropped.
+pub struct ChangeDir {
+    original_dir: PathBuf,
+}
+
+impl ChangeDir {
+    pub fn new(path: &Path) -> Self {
+        let original_dir = env::current_dir().unwrap();
+        env::set_current_dir(path).unwrap();
+        Self { original_dir }
+    }
+}
+
+impl Drop for ChangeDir {
+    fn drop(&mut self) {
+        env::set_current_dir(&self.original_dir).unwrap();
+    }
+}
 
 /// Creates a <TempDir> with unique relative path
 #[macro_export]

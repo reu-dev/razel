@@ -71,10 +71,11 @@ async fn main() -> Result<(), anyhow::Error> {
 
 #[cfg(test)]
 mod main {
-    use serial_test::serial;
-
     use razel::metadata::Tag;
+    use razel::test_utils::ChangeDir;
     use razel::{config, parse_cli, Razel, SchedulerExecStats};
+    use serial_test::serial;
+    use std::path::Path;
 
     /// For simplification all tests use the same binary directory and therefore need to be run in serial
     async fn test_main(
@@ -83,6 +84,11 @@ mod main {
         exp_cache_hits: usize,
         additional_tag: Option<(&str, Tag)>,
     ) {
+        let cargo_workspaces_dir = Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap())
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        let _change_dir = ChangeDir::new(&cargo_workspaces_dir);
         let _ = env_logger::builder()
             .filter_level(log::LevelFilter::Debug)
             .filter_module("cranelift_codegen", log::LevelFilter::Warn)
