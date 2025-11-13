@@ -79,7 +79,7 @@ jobs:
       - run: cargo test -- --nocapture --skip real_time_test --skip grpc_server
 
       # install binary, to be used by following API tests
-      - run: cargo install --force --locked --path .
+      - run: cargo install --force --locked --path razel
 
       # test local version of Deno API
       - run: deno run -A --check examples/deno.ts
