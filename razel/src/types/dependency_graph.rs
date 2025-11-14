@@ -121,7 +121,14 @@ impl CommandLine for Target {
     fn command_line_with_redirects(&self) -> Vec<String> {
         match &self.kind {
             TargetKind::Command(x) => x.command_line_with_redirects(),
-            TargetKind::Wasi(x) => x.command_line_with_redirects(),
+            TargetKind::Wasi(x) => [
+                config::EXECUTABLE.to_string(),
+                "command".into(),
+                "--".into(),
+            ]
+            .into_iter()
+            .chain(x.command_line_with_redirects())
+            .collect(),
             TargetKind::Task(x) => x.command_line_with_redirects(),
             TargetKind::Service(x) => x.command_line_with_redirects(),
         }
@@ -148,35 +155,6 @@ impl CommandLine for CommandTarget {
             )
             .cloned()
             .collect()
-    }
-}
-
-impl CommandLine for WasiTarget {
-    fn command_line_with_redirects(&self) -> Vec<String> {
-        [
-            config::EXECUTABLE.into(),
-            "command".into(),
-            "--".into(),
-            self.executable.clone(),
-        ]
-        .iter()
-        .chain(self.args.iter())
-        .chain(
-            self.stdout_file
-                .as_ref()
-                .map(|x| [">".into(), x.to_str().unwrap().into()])
-                .iter()
-                .flatten(),
-        )
-        .chain(
-            self.stderr_file
-                .as_ref()
-                .map(|x| ["2>".into(), x.to_str().unwrap().into()])
-                .iter()
-                .flatten(),
-        )
-        .cloned()
-        .collect()
     }
 }
 

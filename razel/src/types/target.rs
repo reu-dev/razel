@@ -49,22 +49,13 @@ pub struct Target {
 #[derive(Serialize, Deserialize)]
 pub enum TargetKind {
     Command(CommandTarget),
-    Wasi(WasiTarget),
+    Wasi(CommandTarget),
     Task(TaskTarget),
     Service(ServiceTarget),
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct CommandTarget {
-    pub executable: String,
-    pub args: Vec<String>,
-    pub env: HashMap<String, String>,
-    pub stdout_file: Option<PathBuf>,
-    pub stderr_file: Option<PathBuf>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct WasiTarget {
     pub executable: String,
     pub args: Vec<String>,
     pub env: HashMap<String, String>,

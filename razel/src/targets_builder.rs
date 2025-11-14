@@ -17,6 +17,8 @@ pub struct TargetsBuilder {
     pub current_dir: PathBuf,
     /// absolute directory to resolve relative paths of files
     pub workspace_dir: PathBuf,
+    /// directory of output files - relative to current_dir
+    pub out_dir: PathBuf,
     pub targets: Vec<Target>,
     pub files: Vec<File>,
     /// maps paths relative to current_dir (without out_dir prefix) to FileId
@@ -35,6 +37,7 @@ impl TargetsBuilder {
         Self {
             current_dir,
             workspace_dir,
+            out_dir: PathBuf::from(config::OUT_DIR),
             targets: vec![],
             files: vec![],
             file_by_path: Default::default(),
@@ -53,12 +56,12 @@ impl TargetsBuilder {
         let inputs = command
             .inputs
             .into_iter()
-            .map(|x| self.push_input_file(&x, &mut args))
+            .map(|mut x| self.push_input_file(&mut x, &mut args))
             .collect::<Result<Vec<_>>>()?;
         let outputs = command
             .outputs
             .into_iter()
-            .map(|x| self.push_output_file(&x, &mut args))
+            .map(|mut x| self.push_output_file(&mut x, &mut args))
             .collect::<Result<Vec<_>>>()?;
         let deps = command
             .deps
@@ -70,16 +73,21 @@ impl TargetsBuilder {
                     .ok_or_else(|| anyhow!("no such target: {x:?}"))
             })
             .collect::<Result<Vec<_>>>()?;
+        let command_target = CommandTarget {
+            executable: self.files[executable_id].path.to_str().unwrap().into(),
+            args,
+            env: command.env,
+            stdout_file: command.stdout.map(|x| x.into()),
+            stderr_file: command.stderr.map(|x| x.into()),
+        };
         let target = Target {
             id: self.targets.len(),
             name: command.name,
-            kind: TargetKind::Command(CommandTarget {
-                executable: self.files[executable_id].path.to_str().unwrap().into(),
-                args,
-                env: command.env,
-                stdout_file: command.stdout.map(|x| x.into()),
-                stderr_file: command.stderr.map(|x| x.into()),
-            }),
+            kind: if command_target.executable.ends_with(".wasm") {
+                TargetKind::Wasi(command_target)
+            } else {
+                TargetKind::Command(command_target)
+            },
             executables: vec![executable_id],
             inputs,
             outputs,
@@ -90,7 +98,7 @@ impl TargetsBuilder {
         Ok(())
     }
 
-    pub fn push_task(&mut self, json: RazelJsonTask, task: CliTask) -> Result<()> {
+    pub fn push_task(&mut self, json: RazelJsonTask, mut task: CliTask) -> Result<()> {
         if self.target_by_name.contains_key(&json.name) {
             bail!("target already exists: {:?}", json.name);
         }
@@ -99,55 +107,55 @@ impl TargetsBuilder {
         let mut outputs = vec![];
         macro_rules! input {
             ($arg:expr) => {{
-                let id = self.push_input_file(&$arg, &mut args)?;
+                let id = self.push_input_file(&mut $arg, &mut args)?;
                 inputs.push(id);
                 id
             }};
         }
         macro_rules! output {
             ($arg:expr) => {{
-                let id = self.push_output_file(&$arg, &mut args)?;
+                let id = self.push_output_file(&mut $arg, &mut args)?;
                 outputs.push(id);
                 id
             }};
         }
-        match &task {
-            CliTask::CaptureRegex(t) => {
-                input!(&t.input);
-                output!(&t.output);
+        match task {
+            CliTask::CaptureRegex(ref mut t) => {
+                input!(&mut t.input);
+                output!(&mut t.output);
             }
-            CliTask::CsvConcat(t) => {
+            CliTask::CsvConcat(ref mut t) => {
                 inputs.reserve(t.input.len());
-                for x in &t.input {
-                    input!(&x);
+                for x in t.input.iter_mut() {
+                    input!(*x);
                 }
-                output!(&t.output);
+                output!(&mut t.output);
             }
-            CliTask::CsvFilter(t) => {
-                input!(&t.input);
-                output!(&t.output);
+            CliTask::CsvFilter(ref mut t) => {
+                input!(&mut t.input);
+                output!(&mut t.output);
             }
-            CliTask::WriteFile(t) => {
-                output!(&t.file);
+            CliTask::WriteFile(ref mut t) => {
+                output!(&mut t.file);
             }
-            CliTask::DownloadFile(t) => {
-                let file = output!(&t.output);
+            CliTask::DownloadFile(ref mut t) => {
+                let file_id = output!(&mut t.output);
                 if t.executable {
-                    self.files[file].executable = Some(ExecutableType::ExecutableInWorkspace);
+                    self.files[file_id].executable = Some(ExecutableType::ExecutableInWorkspace);
                 }
             }
-            CliTask::EnsureEqual(t) => {
-                input!(&t.file1);
-                input!(&t.file2);
+            CliTask::EnsureEqual(ref mut t) => {
+                input!(&mut t.file1);
+                input!(&mut t.file2);
             }
-            CliTask::EnsureNotEqual(t) => {
-                input!(&t.file1);
-                input!(&t.file2);
+            CliTask::EnsureNotEqual(ref mut t) => {
+                input!(&mut t.file1);
+                input!(&mut t.file2);
             }
-            CliTask::HttpRemoteExec(t) => {
+            CliTask::HttpRemoteExec(ref mut t) => {
                 inputs.reserve(t.files.len());
-                for x in &t.files {
-                    input!(x);
+                for x in t.files.iter_mut() {
+                    input!(*x);
                 }
             }
         }
@@ -177,8 +185,12 @@ impl TargetsBuilder {
 
     fn push_executable_file(&mut self, arg: &str) -> Result<FileId> {
         let path = Path::new(&arg);
-        if let Some(id) = self.file_by_path.get(path) {
-            return Ok(*id);
+        if path.is_relative() {
+            let abs = self.workspace_dir.join(path);
+            let cwd_path = abs.strip_prefix(&self.current_dir).unwrap().to_path_buf();
+            if let Some(id) = self.file_by_path.get(&cwd_path) {
+                return Ok(*id);
+            }
         }
         let Some(file_name) = path.file_name().and_then(|x| x.to_str()) else {
             bail!(format!("executable is not a valid filename: {arg:?}"));
@@ -209,13 +221,10 @@ impl TargetsBuilder {
             (ExecutableType::ExecutableOutsideWorkspace, path.into())
         };
         let path = match executable_type {
-            ExecutableType::ExecutableInWorkspace => {
-                abs_path.strip_prefix(&self.workspace_dir)?.into()
-            }
-            ExecutableType::ExecutableOutsideWorkspace
-            | ExecutableType::WasiModule
-            | ExecutableType::SystemExecutable
-            | ExecutableType::RazelExecutable => abs_path,
+            ExecutableType::ExecutableInWorkspace
+            | ExecutableType::ExecutableOutsideWorkspace
+            | ExecutableType::WasiModule => abs_path.strip_prefix(&self.current_dir)?.into(),
+            ExecutableType::SystemExecutable | ExecutableType::RazelExecutable => abs_path,
         };
         if let Some(id) = self.file_by_path.get(&path) {
             return Ok(*id);
@@ -237,17 +246,24 @@ impl TargetsBuilder {
         Ok(id)
     }
 
-    fn push_input_file(&mut self, arg: &str, args: &mut [String]) -> Result<FileId> {
-        let id = self.push_file_with_relative_path(arg)?;
+    fn push_input_file(&mut self, arg: &mut String, args: &mut [String]) -> Result<FileId> {
+        let id = self.push_input_file_with_relative_path(arg)?;
         let file = &self.files[id];
+        let path = file.path.to_str().unwrap().to_string();
         for x in args.iter_mut().filter(|x| *x == arg) {
-            *x = file.path.to_str().unwrap().into();
+            *x = path.clone();
         }
+        *arg = path;
         Ok(file.id)
     }
 
-    fn push_output_file(&mut self, arg: &str, args: &mut [String]) -> Result<FileId> {
-        let id = self.push_file_with_relative_path(arg)?;
+    fn push_input_file_with_relative_path(&mut self, arg: &str) -> Result<FileId> {
+        let path = self.rel_path(arg)?;
+        Ok(self.push_file(path, None))
+    }
+
+    fn push_output_file(&mut self, arg: &mut String, args: &mut [String]) -> Result<FileId> {
+        let id = self.push_output_file_with_relative_path(arg)?;
         let file = &self.files[id];
         if let Some(target_id) = self.creator_for_file.get(&id) {
             bail!(
@@ -256,10 +272,25 @@ impl TargetsBuilder {
                 self.targets[*target_id].name
             );
         }
+        let path = file.path.to_str().unwrap().to_string();
         for x in args.iter_mut().filter(|x| *x == arg) {
-            *x = file.path.to_str().unwrap().into();
+            *x = path.clone();
         }
+        *arg = path;
         Ok(file.id)
+    }
+
+    fn push_output_file_with_relative_path(&mut self, arg: &str) -> Result<FileId> {
+        let path = self.rel_path(arg)?;
+        if let Some(id) = self.file_by_path.get(&path) {
+            return Ok(*id);
+        }
+        let id = self.files.len();
+        let path_with_out_dir = self.out_dir.join(&path);
+        self.files.push(File::new(id, path_with_out_dir, None));
+        let old = self.file_by_path.insert(path, id);
+        assert!(old.is_none());
+        Ok(id)
     }
 
     fn push_file(&mut self, path: PathBuf, executable: Option<ExecutableType>) -> FileId {
@@ -271,11 +302,6 @@ impl TargetsBuilder {
         let old = self.file_by_path.insert(path, id);
         assert!(old.is_none());
         id
-    }
-
-    fn push_file_with_relative_path(&mut self, arg: &str) -> Result<FileId> {
-        let path = self.rel_path(arg)?;
-        Ok(self.push_file(path, None))
     }
 
     /// Maps a relative path from workspace dir to cwd, allow absolute path

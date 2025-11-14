@@ -60,6 +60,7 @@ pub struct File {
     /// argument from original command line
     pub arg: String,
     pub file_type: FileType,
+    /// includes OUT_DIR
     pub path: PathBuf,
     /// files without creating_command are input files (data or executable) which must exist before running any commands
     pub creating_command: Option<CommandId>,
