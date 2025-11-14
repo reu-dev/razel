@@ -22,6 +22,7 @@ mod razel_jsonl;
 mod rules;
 mod sandbox;
 mod scheduler;
+pub mod targets_builder;
 
 pub mod cache {
     pub use cache::*;
@@ -98,9 +99,13 @@ pub mod tasks {
 }
 
 pub mod types {
+    pub use dependency_graph::*;
     pub use result::*;
     pub use tags::*;
+    pub use target::*;
 
+    mod dependency_graph;
     mod result;
     mod tags;
+    mod target;
 }

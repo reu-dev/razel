@@ -2,9 +2,12 @@ use crate::executors::HttpRemoteExecConfig;
 use crate::razel_jsonl::parse_jsonl_file;
 use crate::tasks::DownloadFileTask;
 use crate::types::Tag;
-use crate::{parse_batch_file, parse_command, tasks, CommandBuilder, FileType, Razel};
+use crate::{
+    config, parse_batch_file, parse_command, tasks, CommandBuilder, FileType, Razel, RazelJsonTask,
+};
 use anyhow::bail;
 use clap::{Args, Parser, Subcommand};
+use itertools::chain;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -141,7 +144,7 @@ enum SystemCommand {
 }
 
 #[derive(Subcommand, Debug)]
-enum CliTasks {
+pub enum CliTasks {
     /// Write a value captured with a regex to a file
     CaptureRegex(CaptureRegexTask),
     /// Concatenate multiple csv files - headers must match
@@ -189,13 +192,13 @@ trait TaskBuilder {
 }
 
 #[derive(Args, Debug)]
-struct CaptureRegexTask {
+pub struct CaptureRegexTask {
     /// Input file to read
-    input: String,
+    pub input: String,
     /// File to write the captured value to
-    output: String,
+    pub output: String,
     /// Regex containing a single capturing group
-    regex: String,
+    pub regex: String,
 }
 
 impl TaskBuilder for CaptureRegexTask {
@@ -210,12 +213,12 @@ impl TaskBuilder for CaptureRegexTask {
 }
 
 #[derive(Args, Debug)]
-struct CsvConcatTask {
+pub struct CsvConcatTask {
     /// Input csv files
     #[clap(required = true)]
-    input: Vec<String>,
+    pub input: Vec<String>,
     /// Concatenated file to create
-    output: String,
+    pub output: String,
 }
 
 impl TaskBuilder for CsvConcatTask {
@@ -230,14 +233,14 @@ impl TaskBuilder for CsvConcatTask {
 }
 
 #[derive(Args, Debug)]
-struct CsvFilterTask {
+pub struct CsvFilterTask {
     #[clap(short, long)]
-    input: String,
+    pub input: String,
     #[clap(short, long)]
-    output: String,
+    pub output: String,
     /// Col names to keep - all other cols are dropped
     #[clap(short, long = "col", num_args = 0..)]
-    cols: Vec<String>,
+    pub cols: Vec<String>,
 }
 
 impl TaskBuilder for CsvFilterTask {
@@ -252,11 +255,11 @@ impl TaskBuilder for CsvFilterTask {
 }
 
 #[derive(Args, Debug)]
-struct WriteFileTask {
+pub struct WriteFileTask {
     /// File to create
-    file: String,
+    pub file: String,
     /// Lines to write
-    lines: Vec<String>,
+    pub lines: Vec<String>,
 }
 
 impl TaskBuilder for WriteFileTask {
@@ -270,13 +273,13 @@ impl TaskBuilder for WriteFileTask {
 }
 
 #[derive(Args, Debug)]
-struct DownloadFileTaskBuilder {
+pub struct DownloadFileTaskBuilder {
     #[clap(short, long)]
-    url: String,
+    pub url: String,
     #[clap(short, long)]
-    output: String,
+    pub output: String,
     #[clap(short, long)]
-    executable: bool,
+    pub executable: bool,
 }
 
 impl TaskBuilder for DownloadFileTaskBuilder {
@@ -297,9 +300,9 @@ impl TaskBuilder for DownloadFileTaskBuilder {
 }
 
 #[derive(Args, Debug)]
-struct EnsureEqualTask {
-    file1: String,
-    file2: String,
+pub struct EnsureEqualTask {
+    pub file1: String,
+    pub file2: String,
 }
 
 impl TaskBuilder for EnsureEqualTask {
@@ -314,9 +317,9 @@ impl TaskBuilder for EnsureEqualTask {
 }
 
 #[derive(Args, Debug)]
-struct EnsureNotEqualTask {
-    file1: String,
-    file2: String,
+pub struct EnsureNotEqualTask {
+    pub file1: String,
+    pub file2: String,
 }
 
 impl TaskBuilder for EnsureNotEqualTask {
@@ -331,16 +334,16 @@ impl TaskBuilder for EnsureNotEqualTask {
 }
 
 #[derive(Args, Debug)]
-struct HttpRemoteExecTask {
+pub struct HttpRemoteExecTask {
     /// url for HTTP multipart form POST
     #[clap(short, long)]
-    url: Url,
+    pub url: Url,
     /// files to attach to the form
     #[clap(short, long)]
-    files: Vec<String>,
+    pub files: Vec<String>,
     /// file names to use in the form
     #[clap(short = 'n', long)]
-    file_names: Vec<String>,
+    pub file_names: Vec<String>,
 }
 
 impl TaskBuilder for HttpRemoteExecTask {
@@ -419,6 +422,22 @@ pub fn parse_cli_within_file(
         _ => bail!("Razel subcommand not allowed within files"),
     }
     Ok(())
+}
+
+pub fn parse_task(task: &RazelJsonTask) -> Result<CliTasks, anyhow::Error> {
+    let args = chain!(
+        [
+            config::EXECUTABLE.to_string(),
+            "task".to_string(),
+            task.task.clone()
+        ],
+        task.args.iter().cloned()
+    );
+    let cli = Cli::try_parse_from(args)?;
+    let CliCommands::Task(task) = cli.command else {
+        unreachable!()
+    };
+    Ok(task)
 }
 
 fn apply_file(razel: &mut Razel, file: &String) -> Result<(), anyhow::Error> {
