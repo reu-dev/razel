@@ -1,5 +1,5 @@
 use crate::executors::ExecutionResult;
-use crate::metadata::Tag;
+use crate::types::Tag;
 use crate::{config, Command, SchedulerStats};
 use bstr::ByteSlice;
 use crossterm::cursor::{RestorePosition, SavePosition};

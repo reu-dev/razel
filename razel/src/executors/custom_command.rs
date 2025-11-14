@@ -270,7 +270,7 @@ impl CustomCommandExecutor {
 #[cfg(test)]
 mod tests {
     use crate::executors::{CustomCommandExecutor, ExecutionStatus};
-    use crate::metadata::Tag;
+    use crate::types::Tag;
     use crate::Razel;
     use std::path::Path;
 

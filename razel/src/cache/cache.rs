@@ -1,6 +1,6 @@
 use crate::bazel_remote_exec::{ActionResult, OutputFile};
 use crate::cache::{BlobDigest, GrpcRemoteCache, LocalCache, MessageDigest};
-use crate::CacheHit;
+use crate::types::CacheHit;
 use anyhow::{bail, Context, Error};
 use itertools::Itertools;
 use log::info;

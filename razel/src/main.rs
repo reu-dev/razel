@@ -71,8 +71,8 @@ async fn main() -> Result<(), anyhow::Error> {
 
 #[cfg(test)]
 mod main {
-    use razel::metadata::Tag;
     use razel::test_utils::ChangeDir;
+    use razel::types::Tag;
     use razel::{config, parse_cli, Razel, SchedulerExecStats};
     use serial_test::serial;
     use std::path::Path;

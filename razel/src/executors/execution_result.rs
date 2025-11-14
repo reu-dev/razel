@@ -1,4 +1,4 @@
-use crate::CacheHit;
+use crate::types::CacheHit;
 use anyhow::{anyhow, Error};
 use serde::{Deserialize, Serialize};
 use std::fmt;

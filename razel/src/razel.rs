@@ -6,8 +6,9 @@ use crate::executors::{
     ExecutionResult, ExecutionStatus, Executor, HttpRemoteExecConfig, HttpRemoteExecDomain,
     HttpRemoteExecState, WasiExecutor,
 };
-use crate::metadata::{write_graphs_html, LogFile, Measurements, Profile, Report, Tag};
+use crate::metadata::{write_graphs_html, LogFile, Measurements, Profile, Report};
 use crate::tui::TUI;
+use crate::types::Tag;
 use crate::{
     bazel_remote_exec, config, create_cgroup, force_remove_file, is_file_executable,
     write_gitignore, Arena, BoxedSandbox, CGroup, Command, CommandBuilder, CommandId, File, FileId,

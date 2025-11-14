@@ -9,7 +9,6 @@ pub use razel_jsonl::*;
 pub use rules::*;
 pub use sandbox::*;
 pub use scheduler::*;
-pub use types::*;
 pub use utils::*;
 
 mod bazel_remote_exec;
@@ -23,7 +22,6 @@ mod razel_jsonl;
 mod rules;
 mod sandbox;
 mod scheduler;
-mod types;
 
 pub mod cache {
     pub use cache::*;
@@ -60,14 +58,12 @@ pub mod metadata {
     pub use measurements::*;
     pub use profile::*;
     pub use report::*;
-    pub use tags::*;
 
     mod graphs;
     mod log_file;
     mod measurements;
     mod profile;
     mod report;
-    mod tags;
 }
 
 pub mod utils {
@@ -99,4 +95,12 @@ pub mod tasks {
     mod csv;
     mod http;
     mod tools;
+}
+
+pub mod types {
+    pub use result::*;
+    pub use tags::*;
+
+    mod result;
+    mod tags;
 }

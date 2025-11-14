@@ -1,14 +1,12 @@
+use crate::types::Tag;
+use crate::{config, parse_cli_within_file, Razel};
+use anyhow::Context;
+use log::debug;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-
-use anyhow::Context;
-use log::debug;
-use serde::{Deserialize, Serialize};
-
-use crate::metadata::Tag;
-use crate::{config, parse_cli_within_file, Razel};
 
 pub fn parse_jsonl_file(razel: &mut Razel, file_name: &String) -> Result<(), anyhow::Error> {
     razel.set_workspace_dir(Path::new(file_name).parent().unwrap())?;

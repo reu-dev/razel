@@ -8,7 +8,7 @@ use crate::executors::{
     AsyncTask, AsyncTaskExecutor, BlockingTaskExecutor, CustomCommandExecutor, Executor,
     HttpRemoteExecDomain, HttpRemoteExecutor, TaskFn, WasiExecutor,
 };
-use crate::metadata::Tag;
+use crate::types::Tag;
 use crate::{ArenaId, FileId, FileType, Razel, ScheduleState};
 
 pub struct Command {

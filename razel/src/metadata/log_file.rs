@@ -1,6 +1,6 @@
 use crate::executors::{ExecutionResult, ExecutionStatus};
-use crate::metadata::Tag;
-use crate::{CacheHit, Command};
+use crate::types::{CacheHit, Tag};
+use crate::Command;
 use anyhow::{Context, Result};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
