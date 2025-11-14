@@ -1,31 +1,15 @@
 use crate::executors::{ExecutionResult, ExecutionStatus};
+use crate::HttpRemoteExecConfig;
 use anyhow::anyhow;
 use itertools::Itertools;
 use log::warn;
 use reqwest::{multipart, Client, Url};
-use serde::Deserialize;
-use std::collections::HashMap;
 use std::ops::Not;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::fs;
-
-type Domain = String;
-type Host = String;
-type Slots = usize;
-
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct HttpRemoteExecConfig(pub HashMap<Domain, HashMap<Host, Slots>>);
-
-impl std::str::FromStr for HttpRemoteExecConfig {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        serde_json::from_str(s).map_err(|e| e.to_string())
-    }
-}
 
 #[derive(Default)]
 pub struct HttpRemoteExecState {

@@ -3,8 +3,8 @@ use crate::bazel_remote_exec::{ActionResult, Digest, ExecutedActionMetadata, Out
 use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::config::{select_cache_dir, select_sandbox_dir};
 use crate::executors::{
-    ExecutionResult, ExecutionStatus, Executor, HttpRemoteExecConfig, HttpRemoteExecDomain,
-    HttpRemoteExecState, WasiExecutor,
+    ExecutionResult, ExecutionStatus, Executor, HttpRemoteExecDomain, HttpRemoteExecState,
+    WasiExecutor,
 };
 use crate::metadata::{write_graphs_html, LogFile, Measurements, Profile, Report};
 use crate::tui::TUI;
@@ -12,7 +12,7 @@ use crate::types::Tag;
 use crate::{
     bazel_remote_exec, config, create_cgroup, force_remove_file, is_file_executable,
     write_gitignore, Arena, BoxedSandbox, CGroup, Command, CommandBuilder, CommandId, File, FileId,
-    FileType, Scheduler, TmpDirSandbox, WasiSandbox, GITIGNORE_FILENAME,
+    FileType, HttpRemoteExecConfig, Scheduler, TmpDirSandbox, WasiSandbox, GITIGNORE_FILENAME,
 };
 use anyhow::{anyhow, bail, Context};
 use itertools::{chain, Itertools};

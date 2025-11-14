@@ -1,4 +1,3 @@
-use crate::executors::HttpRemoteExecConfig;
 use crate::razel_jsonl::parse_jsonl_file;
 use crate::tasks::DownloadFileTask;
 use crate::types::Tag;
@@ -10,6 +9,9 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use url::Url;
+
+mod http_remote_exec_config;
+pub use http_remote_exec_config::*;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
