@@ -31,6 +31,7 @@ pub struct Digest {
     pub size_bytes: i64,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Target {
     pub id: TargetId,
     pub name: String,
@@ -45,6 +46,7 @@ pub struct Target {
     pub tags: Vec<Tag>,
 }
 
+#[derive(Serialize, Deserialize)]
 pub enum TargetKind {
     Command(CommandTarget),
     Wasi(WasiTarget),
@@ -52,6 +54,7 @@ pub enum TargetKind {
     Service(ServiceTarget),
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct CommandTarget {
     pub executable: String,
     pub args: Vec<String>,
@@ -60,6 +63,7 @@ pub struct CommandTarget {
     pub stderr_file: Option<PathBuf>,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct WasiTarget {
     pub executable: String,
     pub args: Vec<String>,
@@ -69,12 +73,14 @@ pub struct WasiTarget {
 }
 
 /// A razel builtin task, see `razel task`
+#[derive(Serialize, Deserialize)]
 pub struct TaskTarget {
     pub args: Vec<String>,
     pub task: CliTasks,
 }
 
 /// A service provided by a worker.
+#[derive(Serialize, Deserialize)]
 pub struct ServiceTarget {
     pub name: String,
     pub version: String,

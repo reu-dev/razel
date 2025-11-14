@@ -1,9 +1,9 @@
 use crate::types::{
     CommandTarget, ExecutableType, File, FileId, Target, TargetId, TargetKind, TaskTarget,
 };
-use crate::{cli, CliTasks, RazelJson, RazelJsonCommand, RazelJsonTask};
+use crate::{cli, config, CliTasks, RazelJson, RazelJsonCommand, RazelJsonTask};
 use anyhow::{anyhow, bail, Context, Result};
-use itertools::Itertools;
+use itertools::{chain, Itertools};
 use log::debug;
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -131,10 +131,9 @@ impl TargetsBuilder {
                 output!(&t.file);
             }
             CliTasks::DownloadFile(t) => {
-                output!(&t.output);
+                let file = output!(&t.output);
                 if t.executable {
-                    let id = outputs[0];
-                    self.files[id].executable = Some(ExecutableType::ExecutableInWorkspace);
+                    self.files[file].executable = Some(ExecutableType::ExecutableInWorkspace);
                 }
             }
             CliTasks::EnsureEqual(t) => {
@@ -312,7 +311,7 @@ impl File {
     }
 }
 
-pub fn parse_jsonl_file(path: &str) -> Result<()> {
+pub fn parse_jsonl_file(path: &str) -> Result<TargetsBuilder> {
     let mut builder = TargetsBuilder::new(Path::new(path).parent().unwrap().into());
     let file =
         BufReader::new(fs::File::open(path).with_context(|| anyhow!("failed to open {path:?}"))?);
@@ -335,13 +334,22 @@ pub fn parse_jsonl_file(path: &str) -> Result<()> {
             RazelJson::Command(command) => {
                 builder.push_command(command)?;
             }
-            RazelJson::Task(json) => {
-                let task = cli::parse_task(&json)?;
+            RazelJson::Task(mut json) => {
+                json.args = chain!(
+                    [
+                        config::EXECUTABLE.to_string(),
+                        "task".to_string(),
+                        json.task.clone()
+                    ],
+                    json.args.into_iter()
+                )
+                .collect();
+                let task = cli::parse_task(&json.args)?;
                 builder.push_task(json, task)?;
             }
         }
         len += 1;
     }
     debug!("Added {len} commands from {path}");
-    Ok(())
+    Ok(builder)
 }

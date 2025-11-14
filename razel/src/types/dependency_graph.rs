@@ -1,49 +1,193 @@
+use crate::config;
 use crate::targets_builder::TargetsBuilder;
-use crate::types::{FileId, Target, TargetId};
-use itertools::chain;
+use crate::types::*;
+use anyhow::{bail, Result};
+use itertools::{chain, Itertools};
 use std::collections::{HashMap, HashSet};
+use std::iter::once;
 
 #[derive(Default)]
 pub struct DependencyGraph {
+    pub targets: Vec<Target>,
+    pub files: Vec<File>,
+    pub creator_for_file: HashMap<FileId, TargetId>,
+    pub target_by_name: HashMap<String, TargetId>,
+    deps: Vec<Vec<TargetId>>,
     reverse_deps: HashMap<TargetId, Vec<TargetId>>,
     ready: Vec<TargetId>,
     waiting: HashSet<TargetId>,
-    unfinished_deps: Vec<Vec<TargetId>>,
 }
 
 impl DependencyGraph {
-    pub fn from_builder(builder: &TargetsBuilder) -> Self {
-        let mut instance = Self::default();
-        instance.create(&builder.targets, &builder.creator_for_file);
+    pub fn from_builder(builder: TargetsBuilder) -> Self {
+        let mut instance = Self {
+            targets: builder.targets,
+            files: builder.files,
+            creator_for_file: builder.creator_for_file,
+            target_by_name: builder.target_by_name,
+            deps: vec![],
+            reverse_deps: Default::default(),
+            ready: vec![],
+            waiting: Default::default(),
+        };
+        instance.create();
         instance
     }
 
-    fn create(&mut self, targets: &Vec<Target>, creator_for_file: &HashMap<FileId, TargetId>) {
-        self.waiting.reserve(targets.len());
-        for target in targets {
-            assert_eq!(target.id, self.unfinished_deps.len());
-            let mut unfinished_deps = vec![];
+    pub fn get_target_with_deps(&self, name: &str) -> Result<Vec<TargetId>> {
+        let Some(target_id) = self.target_by_name.get(name).cloned() else {
+            bail!("no such target: {name:?}")
+        };
+        let mut targets = vec![];
+        let mut included = HashSet::new();
+        self.get_target_with_deps_impl(target_id, &mut targets, &mut included);
+        Ok(targets)
+    }
+
+    fn get_target_with_deps_impl(
+        &self,
+        target_id: TargetId,
+        cmds: &mut Vec<TargetId>,
+        included: &mut HashSet<TargetId>,
+    ) {
+        included.insert(target_id);
+        for dep in self.deps[target_id].iter().cloned() {
+            if !included.contains(&dep) {
+                self.get_target_with_deps_impl(dep, cmds, included);
+            }
+        }
+        cmds.push(target_id);
+    }
+
+    pub fn get_command_line_for_target(&self, target_id: TargetId) -> Vec<String> {
+        let target = &self.targets[target_id];
+        target.command_line_with_redirects()
+    }
+
+    pub fn get_command_lines_for_target_with_deps(&self, name: &str) -> Result<Vec<String>> {
+        self.get_target_with_deps(name).map(|t| {
+            t.into_iter()
+                .map(|id| {
+                    self.get_command_line_for_target(id)
+                        .iter()
+                        .map(|x| {
+                            if x.contains(" ") {
+                                format!("{x:?}")
+                            } else {
+                                x.clone()
+                            }
+                        })
+                        .join(" ")
+                })
+                .collect()
+        })
+    }
+
+    fn create(&mut self) {
+        self.waiting.reserve(self.targets.len());
+        for target in &self.targets {
+            assert_eq!(target.id, self.deps.len());
+            let mut target_deps = vec![];
             for input_id in chain!(&target.executables, &target.inputs) {
-                if let Some(dep) = creator_for_file.get(input_id).cloned() {
-                    unfinished_deps.push(dep);
+                if let Some(dep) = self.creator_for_file.get(input_id).cloned() {
+                    target_deps.push(dep);
                     self.reverse_deps.entry(dep).or_default().push(target.id);
                 }
             }
             for dep in target.deps.iter().cloned() {
-                unfinished_deps.push(dep);
+                target_deps.push(dep);
                 self.reverse_deps.entry(dep).or_default().push(target.id);
             }
-            if unfinished_deps.is_empty() {
+            if target_deps.is_empty() {
                 self.ready.push(target.id);
             } else {
                 self.waiting.insert(target.id);
             }
-            self.unfinished_deps.push(unfinished_deps);
+            self.deps.push(target_deps);
         }
         self.check_for_circular_dependencies();
     }
 
     fn check_for_circular_dependencies(&self) {
         // TODO
+    }
+}
+
+trait CommandLine {
+    fn command_line_with_redirects(&self) -> Vec<String>;
+}
+
+impl CommandLine for Target {
+    fn command_line_with_redirects(&self) -> Vec<String> {
+        match &self.kind {
+            TargetKind::Command(x) => x.command_line_with_redirects(),
+            TargetKind::Wasi(x) => x.command_line_with_redirects(),
+            TargetKind::Task(x) => x.command_line_with_redirects(),
+            TargetKind::Service(x) => x.command_line_with_redirects(),
+        }
+    }
+}
+
+impl CommandLine for CommandTarget {
+    fn command_line_with_redirects(&self) -> Vec<String> {
+        once(&self.executable)
+            .chain(self.args.iter())
+            .chain(
+                self.stdout_file
+                    .as_ref()
+                    .map(|x| [">".into(), x.to_str().unwrap().into()])
+                    .iter()
+                    .flatten(),
+            )
+            .chain(
+                self.stderr_file
+                    .as_ref()
+                    .map(|x| ["2>".into(), x.to_str().unwrap().into()])
+                    .iter()
+                    .flatten(),
+            )
+            .cloned()
+            .collect()
+    }
+}
+
+impl CommandLine for WasiTarget {
+    fn command_line_with_redirects(&self) -> Vec<String> {
+        [
+            config::EXECUTABLE.into(),
+            "command".into(),
+            "--".into(),
+            self.executable.clone(),
+        ]
+        .iter()
+        .chain(self.args.iter())
+        .chain(
+            self.stdout_file
+                .as_ref()
+                .map(|x| [">".into(), x.to_str().unwrap().into()])
+                .iter()
+                .flatten(),
+        )
+        .chain(
+            self.stderr_file
+                .as_ref()
+                .map(|x| ["2>".into(), x.to_str().unwrap().into()])
+                .iter()
+                .flatten(),
+        )
+        .cloned()
+        .collect()
+    }
+}
+
+impl CommandLine for TaskTarget {
+    fn command_line_with_redirects(&self) -> Vec<String> {
+        self.args.clone()
+    }
+}
+
+impl CommandLine for ServiceTarget {
+    fn command_line_with_redirects(&self) -> Vec<String> {
+        todo!()
     }
 }
