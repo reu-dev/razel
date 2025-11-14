@@ -1,5 +1,5 @@
 use crate::types::Tag;
-use crate::CliTasks;
+use crate::CliTask;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -76,7 +76,7 @@ pub struct WasiTarget {
 #[derive(Serialize, Deserialize)]
 pub struct TaskTarget {
     pub args: Vec<String>,
-    pub task: CliTasks,
+    pub task: CliTask,
 }
 
 /// A service provided by a worker.

@@ -28,7 +28,7 @@ enum CliCommands {
     },
     /// Execute a single task
     #[clap(subcommand)]
-    Task(CliTasks),
+    Task(CliTask),
     /// Execute commands from a razel.jsonl or batch file
     #[clap(visible_alias = "build", visible_alias = "test")]
     Exec(Exec),
@@ -142,7 +142,7 @@ enum SystemCommand {
 }
 
 #[derive(Subcommand, Serialize, Deserialize)]
-pub enum CliTasks {
+pub enum CliTask {
     /// Write a value captured with a regex to a file
     CaptureRegex(CaptureRegexTask),
     /// Concatenate multiple csv files - headers must match
@@ -161,7 +161,7 @@ pub enum CliTasks {
     HttpRemoteExec(HttpRemoteExecTask),
 }
 
-impl CliTasks {
+impl CliTask {
     pub fn build_command(
         self,
         razel: &mut Razel,
@@ -171,14 +171,14 @@ impl CliTasks {
     ) -> Result<(), anyhow::Error> {
         let mut builder = CommandBuilder::new(name, args, tags);
         match self {
-            CliTasks::CaptureRegex(x) => x.build(&mut builder, razel),
-            CliTasks::CsvConcat(x) => x.build(&mut builder, razel),
-            CliTasks::CsvFilter(x) => x.build(&mut builder, razel),
-            CliTasks::WriteFile(x) => x.build(&mut builder, razel),
-            CliTasks::DownloadFile(x) => x.build(&mut builder, razel),
-            CliTasks::EnsureEqual(x) => x.build(&mut builder, razel),
-            CliTasks::EnsureNotEqual(x) => x.build(&mut builder, razel),
-            CliTasks::HttpRemoteExec(x) => x.build(&mut builder, razel),
+            CliTask::CaptureRegex(x) => x.build(&mut builder, razel),
+            CliTask::CsvConcat(x) => x.build(&mut builder, razel),
+            CliTask::CsvFilter(x) => x.build(&mut builder, razel),
+            CliTask::WriteFile(x) => x.build(&mut builder, razel),
+            CliTask::DownloadFile(x) => x.build(&mut builder, razel),
+            CliTask::EnsureEqual(x) => x.build(&mut builder, razel),
+            CliTask::EnsureNotEqual(x) => x.build(&mut builder, razel),
+            CliTask::HttpRemoteExec(x) => x.build(&mut builder, razel),
         }?;
         razel.push(builder)?;
         Ok(())
@@ -422,7 +422,7 @@ pub fn parse_cli_within_file(
     Ok(())
 }
 
-pub fn parse_task(args: &Vec<String>) -> Result<CliTasks, anyhow::Error> {
+pub fn parse_task(args: &Vec<String>) -> Result<CliTask, anyhow::Error> {
     let cli = Cli::try_parse_from(args)?;
     let CliCommands::Task(task) = cli.command else {
         unreachable!()

@@ -1,7 +1,7 @@
 use crate::types::{
     CommandTarget, ExecutableType, File, FileId, Target, TargetId, TargetKind, TaskTarget,
 };
-use crate::{cli, config, CliTasks, RazelJson, RazelJsonCommand, RazelJsonTask};
+use crate::{cli, config, CliTask, RazelJson, RazelJsonCommand, RazelJsonTask};
 use anyhow::{anyhow, bail, Context, Result};
 use itertools::{chain, Itertools};
 use log::debug;
@@ -90,7 +90,7 @@ impl TargetsBuilder {
         Ok(())
     }
 
-    pub fn push_task(&mut self, json: RazelJsonTask, task: CliTasks) -> Result<()> {
+    pub fn push_task(&mut self, json: RazelJsonTask, task: CliTask) -> Result<()> {
         if self.target_by_name.contains_key(&json.name) {
             bail!("target already exists: {:?}", json.name);
         }
@@ -112,39 +112,39 @@ impl TargetsBuilder {
             }};
         }
         match &task {
-            CliTasks::CaptureRegex(t) => {
+            CliTask::CaptureRegex(t) => {
                 input!(&t.input);
                 output!(&t.output);
             }
-            CliTasks::CsvConcat(t) => {
+            CliTask::CsvConcat(t) => {
                 inputs.reserve(t.input.len());
                 for x in &t.input {
                     input!(&x);
                 }
                 output!(&t.output);
             }
-            CliTasks::CsvFilter(t) => {
+            CliTask::CsvFilter(t) => {
                 input!(&t.input);
                 output!(&t.output);
             }
-            CliTasks::WriteFile(t) => {
+            CliTask::WriteFile(t) => {
                 output!(&t.file);
             }
-            CliTasks::DownloadFile(t) => {
+            CliTask::DownloadFile(t) => {
                 let file = output!(&t.output);
                 if t.executable {
                     self.files[file].executable = Some(ExecutableType::ExecutableInWorkspace);
                 }
             }
-            CliTasks::EnsureEqual(t) => {
+            CliTask::EnsureEqual(t) => {
                 input!(&t.file1);
                 input!(&t.file2);
             }
-            CliTasks::EnsureNotEqual(t) => {
+            CliTask::EnsureNotEqual(t) => {
                 input!(&t.file1);
                 input!(&t.file2);
             }
-            CliTasks::HttpRemoteExec(t) => {
+            CliTask::HttpRemoteExec(t) => {
                 inputs.reserve(t.files.len());
                 for x in &t.files {
                     input!(x);
