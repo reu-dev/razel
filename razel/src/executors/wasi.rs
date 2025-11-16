@@ -212,7 +212,7 @@ fn preopen_dir_for_write(
 mod tests {
     use super::*;
     use crate::new_tmp_dir;
-    use crate::tasks::ensure_equal;
+    use crate::test_utils::ensure_files_are_equal;
     use std::fs;
 
     static CP_MODULE_PATH: &str = "../examples/bin/wasm32-wasi/cp.wasm";
@@ -261,7 +261,7 @@ mod tests {
         .await;
         println!("{x:?}");
         x.assert_success();
-        ensure_equal(src, dst).unwrap();
+        ensure_files_are_equal(src, dst).unwrap();
     }
 
     #[tokio::test]

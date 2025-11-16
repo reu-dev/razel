@@ -1,16 +1,12 @@
-use crate::razel_jsonl::parse_jsonl_file;
-use crate::tasks::DownloadFileTask;
-use crate::types::Tag;
-use crate::{parse_batch_file, parse_command, tasks, CommandBuilder, FileType, Razel};
+use crate::types::{Tag, Task};
+use crate::{parse_batch_file, parse_command, Razel};
 use anyhow::bail;
 use clap::{Args, Parser, Subcommand};
-use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use url::Url;
 
 mod http_remote_exec_config;
+use crate::targets_builder::parse_jsonl_file;
 pub use http_remote_exec_config::*;
 
 #[derive(Parser)]
@@ -30,7 +26,7 @@ enum CliCommands {
     },
     /// Execute a single task
     #[clap(subcommand)]
-    Task(CliTask),
+    Task(Task),
     /// Execute commands from a razel.jsonl or batch file
     #[clap(visible_alias = "build", visible_alias = "test")]
     Exec(Exec),
@@ -143,225 +139,6 @@ enum SystemCommand {
     },
 }
 
-#[derive(Subcommand, Serialize, Deserialize)]
-pub enum CliTask {
-    /// Write a value captured with a regex to a file
-    CaptureRegex(CaptureRegexTask),
-    /// Concatenate multiple csv files - headers must match
-    CsvConcat(CsvConcatTask),
-    /// Filter a csv file - keeping only the specified cols
-    CsvFilter(CsvFilterTask),
-    /// Write a text file
-    WriteFile(WriteFileTask),
-    /// Download a file
-    DownloadFile(DownloadFileTaskBuilder),
-    /// Ensure that two files are equal
-    EnsureEqual(EnsureEqualTask),
-    /// Ensure that two files are not equal
-    EnsureNotEqual(EnsureNotEqualTask),
-    /// Post a HTTP multipart form for remote execution
-    HttpRemoteExec(HttpRemoteExecTask),
-}
-
-impl CliTask {
-    pub fn build_command(
-        self,
-        razel: &mut Razel,
-        name: String,
-        args: Vec<String>,
-        tags: Vec<Tag>,
-    ) -> Result<(), anyhow::Error> {
-        let mut builder = CommandBuilder::new(name, args, tags);
-        match self {
-            CliTask::CaptureRegex(x) => x.build(&mut builder, razel),
-            CliTask::CsvConcat(x) => x.build(&mut builder, razel),
-            CliTask::CsvFilter(x) => x.build(&mut builder, razel),
-            CliTask::WriteFile(x) => x.build(&mut builder, razel),
-            CliTask::DownloadFile(x) => x.build(&mut builder, razel),
-            CliTask::EnsureEqual(x) => x.build(&mut builder, razel),
-            CliTask::EnsureNotEqual(x) => x.build(&mut builder, razel),
-            CliTask::HttpRemoteExec(x) => x.build(&mut builder, razel),
-        }?;
-        razel.push(builder)?;
-        Ok(())
-    }
-}
-
-trait TaskBuilder {
-    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error>;
-}
-
-#[derive(Args, Serialize, Deserialize)]
-pub struct CaptureRegexTask {
-    /// Input file to read
-    pub input: String,
-    /// File to write the captured value to
-    pub output: String,
-    /// Regex containing a single capturing group
-    pub regex: String,
-}
-
-impl TaskBuilder for CaptureRegexTask {
-    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
-        let input = builder.input(&self.input, razel)?;
-        let output = builder.output(&self.output, FileType::OutputFile, razel)?;
-        builder.blocking_task_executor(Arc::new(move || {
-            tasks::capture_regex(input.clone(), output.clone(), self.regex.clone())
-        }));
-        Ok(())
-    }
-}
-
-#[derive(Args, Serialize, Deserialize)]
-pub struct CsvConcatTask {
-    /// Input csv files
-    #[clap(required = true)]
-    pub input: Vec<String>,
-    /// Concatenated file to create
-    pub output: String,
-}
-
-impl TaskBuilder for CsvConcatTask {
-    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
-        let inputs = builder.inputs(&self.input, razel)?;
-        let output = builder.output(&self.output, FileType::OutputFile, razel)?;
-        builder.blocking_task_executor(Arc::new(move || {
-            tasks::csv_concat(inputs.clone(), output.clone())
-        }));
-        Ok(())
-    }
-}
-
-#[derive(Args, Serialize, Deserialize)]
-pub struct CsvFilterTask {
-    #[clap(short, long)]
-    pub input: String,
-    #[clap(short, long)]
-    pub output: String,
-    /// Col names to keep - all other cols are dropped
-    #[clap(short, long = "col", num_args = 0..)]
-    pub cols: Vec<String>,
-}
-
-impl TaskBuilder for CsvFilterTask {
-    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
-        let input = builder.input(&self.input, razel)?;
-        let output = builder.output(&self.output, FileType::OutputFile, razel)?;
-        builder.blocking_task_executor(Arc::new(move || {
-            tasks::csv_filter(input.clone(), output.clone(), self.cols.clone())
-        }));
-        Ok(())
-    }
-}
-
-#[derive(Args, Serialize, Deserialize)]
-pub struct WriteFileTask {
-    /// File to create
-    pub file: String,
-    /// Lines to write
-    pub lines: Vec<String>,
-}
-
-impl TaskBuilder for WriteFileTask {
-    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
-        let output = builder.output(&self.file, FileType::OutputFile, razel)?;
-        builder.blocking_task_executor(Arc::new(move || {
-            tasks::write_file(output.clone(), self.lines.clone())
-        }));
-        Ok(())
-    }
-}
-
-#[derive(Args, Serialize, Deserialize)]
-pub struct DownloadFileTaskBuilder {
-    #[clap(short, long)]
-    pub url: String,
-    #[clap(short, long)]
-    pub output: String,
-    #[clap(short, long)]
-    pub executable: bool,
-}
-
-impl TaskBuilder for DownloadFileTaskBuilder {
-    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
-        let file_type = if self.executable {
-            FileType::ExecutableInWorkspace
-        } else {
-            FileType::OutputFile
-        };
-        let output = builder.output(&self.output, file_type, razel)?;
-        builder.async_task_executor(DownloadFileTask {
-            url: self.url,
-            output,
-            executable: self.executable,
-        });
-        Ok(())
-    }
-}
-
-#[derive(Args, Serialize, Deserialize)]
-pub struct EnsureEqualTask {
-    pub file1: String,
-    pub file2: String,
-}
-
-impl TaskBuilder for EnsureEqualTask {
-    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
-        let file1 = builder.input(&self.file1, razel)?;
-        let file2 = builder.input(&self.file2, razel)?;
-        builder.blocking_task_executor(Arc::new(move || {
-            tasks::ensure_equal(file1.clone(), file2.clone())
-        }));
-        Ok(())
-    }
-}
-
-#[derive(Args, Serialize, Deserialize)]
-pub struct EnsureNotEqualTask {
-    pub file1: String,
-    pub file2: String,
-}
-
-impl TaskBuilder for EnsureNotEqualTask {
-    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
-        let file1 = builder.input(&self.file1, razel)?;
-        let file2 = builder.input(&self.file2, razel)?;
-        builder.blocking_task_executor(Arc::new(move || {
-            tasks::ensure_not_equal(file1.clone(), file2.clone())
-        }));
-        Ok(())
-    }
-}
-
-#[derive(Args, Serialize, Deserialize)]
-pub struct HttpRemoteExecTask {
-    /// url for HTTP multipart form POST
-    #[clap(short, long)]
-    pub url: Url,
-    /// files to attach to the form
-    #[clap(short, long)]
-    pub files: Vec<String>,
-    /// file names to use in the form
-    #[clap(short = 'n', long)]
-    pub file_names: Vec<String>,
-}
-
-impl TaskBuilder for HttpRemoteExecTask {
-    fn build(self, builder: &mut CommandBuilder, razel: &mut Razel) -> Result<(), anyhow::Error> {
-        if self.file_names.len() != self.files.len() {
-            bail!("number of file names and files must be equal");
-        }
-        let state = razel.http_remote_exec(&self.url);
-        let mut files = Vec::with_capacity(self.files.len());
-        for (i, name) in self.file_names.into_iter().enumerate() {
-            let file = builder.input(&self.files[i], razel)?;
-            files.push((name, file));
-        }
-        builder.http_remote_executor(state, self.url, files);
-        Ok(())
-    }
-}
-
 pub async fn parse_cli(
     args: Vec<String>,
     razel: &mut Razel,
@@ -373,7 +150,7 @@ pub async fn parse_cli(
             Some(Default::default())
         }
         CliCommands::Task(task) => {
-            task.build_command(razel, "task".to_string(), args, vec![])?;
+            razel.push_task("task".to_string(), args, task, vec![])?;
             Some(Default::default())
         }
         CliCommands::Exec(exec) => {
@@ -408,7 +185,7 @@ pub async fn parse_cli(
 pub fn parse_cli_within_file(
     razel: &mut Razel,
     args: Vec<String>,
-    name: &str,
+    name: String,
     tags: Vec<Tag>,
 ) -> Result<(), anyhow::Error> {
     let cli = Cli::try_parse_from(args.iter())?;
@@ -417,19 +194,11 @@ pub fn parse_cli_within_file(
             parse_command(razel, command)?;
         }
         CliCommands::Task(task) => {
-            task.build_command(razel, name.to_owned(), args, tags)?;
+            razel.push_task(name, args, task, tags)?;
         }
         _ => bail!("Razel subcommand not allowed within files"),
     }
     Ok(())
-}
-
-pub fn parse_task(args: &Vec<String>) -> Result<CliTask, anyhow::Error> {
-    let cli = Cli::try_parse_from(args)?;
-    let CliCommands::Task(task) = cli.command else {
-        unreachable!()
-    };
-    Ok(task)
 }
 
 fn apply_file(razel: &mut Razel, file: &String) -> Result<(), anyhow::Error> {

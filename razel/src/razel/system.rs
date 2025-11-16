@@ -1,6 +1,6 @@
 use super::Razel;
 use crate::cache::Cache;
-use crate::config::select_cache_dir;
+use crate::select_cache_dir;
 use anyhow::{bail, Result};
 
 impl Razel {

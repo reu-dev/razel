@@ -1,7 +1,8 @@
+use crate::cli::HttpRemoteExecConfig;
 use crate::executors::{ExecutionResult, ExecutionStatus};
-use crate::HttpRemoteExecConfig;
-use anyhow::anyhow;
-use itertools::Itertools;
+use crate::types::HttpRemoteExecTask;
+use anyhow::{anyhow, bail, Result};
+use itertools::{zip_eq, Itertools};
 use log::warn;
 use reqwest::{multipart, Client, Url};
 use std::ops::Not;
@@ -95,13 +96,29 @@ struct HttpRemoteExecHost {
 
 #[derive(Clone)]
 pub struct HttpRemoteExecutor {
-    pub args: Vec<String>,
     pub state: Option<Arc<HttpRemoteExecDomain>>,
     pub url: Url,
     pub files: Vec<(String, PathBuf)>,
 }
 
 impl HttpRemoteExecutor {
+    pub fn new(state: &HttpRemoteExecState, task: HttpRemoteExecTask) -> Result<Self> {
+        if task.file_names.len() != task.files.len() {
+            bail!("number of file names and files must be equal");
+        }
+        let state = state.for_url(&task.url);
+        let files = zip_eq(
+            task.file_names.into_iter(),
+            task.files.into_iter().map_into(),
+        )
+        .collect();
+        Ok(HttpRemoteExecutor {
+            state,
+            url: task.url,
+            files,
+        })
+    }
+
     pub async fn exec(&self) -> ExecutionResult {
         let result = if let Some(domain) = &self.state {
             self.exec_on_some_host_of_domain(domain).await
@@ -115,14 +132,10 @@ impl HttpRemoteExecutor {
         })
     }
 
-    pub fn args_with_executable(&self) -> Vec<String> {
-        self.args.clone()
-    }
-
     async fn exec_on_some_host_of_domain(
         &self,
         domain: &Arc<HttpRemoteExecDomain>,
-    ) -> anyhow::Result<ExecutionResult> {
+    ) -> Result<ExecutionResult> {
         assert!(!domain.hosts.is_empty());
         for host in domain
             .hosts
@@ -160,7 +173,7 @@ impl HttpRemoteExecutor {
         ))
     }
 
-    async fn build_form(&self) -> Result<multipart::Form, anyhow::Error> {
+    async fn build_form(&self) -> Result<multipart::Form> {
         let mut form = multipart::Form::new();
         for (name, path) in &self.files {
             let bytes = fs::read(path).await?;
@@ -170,7 +183,7 @@ impl HttpRemoteExecutor {
         Ok(form)
     }
 
-    async fn request(&self, client: &Client, url: Url) -> anyhow::Result<ExecutionResult> {
+    async fn request(&self, client: &Client, url: Url) -> Result<ExecutionResult> {
         let execution_start = Instant::now();
         let form = self.build_form().await?;
         let response = client.post(url).multipart(form).send().await?;

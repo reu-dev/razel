@@ -2,6 +2,7 @@ use crate::config::LinkType;
 use anyhow::bail;
 use anyhow::{Context, Error};
 use async_trait::async_trait;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use tokio::fs;
 
@@ -148,11 +149,28 @@ impl Sandbox for WasiSandbox {
     }
 }
 
+pub struct SandboxDir {
+    pub dir: Option<PathBuf>,
+}
+
+impl SandboxDir {
+    pub fn new(dir: Option<PathBuf>) -> Self {
+        Self { dir }
+    }
+
+    pub fn join<S: AsRef<OsStr>>(&self, path: &S) -> PathBuf {
+        let path = Path::new(&path);
+        self.dir
+            .as_ref()
+            .map_or_else(|| PathBuf::from(path), |s| s.join(path))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::new_tmp_dir;
-    use crate::tasks::ensure_equal;
+    use crate::test_utils::ensure_files_are_equal;
     use std::fs;
 
     const OUTPUT_FILE_CONTENT: &str = "OUTPUT_FILE_CONTENT";
@@ -181,7 +199,7 @@ mod tests {
         let sandbox_input = sandbox_dir.join(&input);
         let sandbox_output = sandbox_dir.join(&output);
         // check input file
-        ensure_equal(input, sandbox_input).unwrap();
+        ensure_files_are_equal(input, sandbox_input).unwrap();
         // check output file
         assert!(!sandbox_output.exists());
         fs::write(&sandbox_output, OUTPUT_FILE_CONTENT).unwrap();

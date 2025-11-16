@@ -87,6 +87,11 @@ impl DependencyGraph {
         self.waiting.reserve(self.targets.len());
         for target in &self.targets {
             assert_eq!(target.id, self.deps.len());
+            /* TODO
+            if excluded.contains(target.id) {
+                continue;
+            }
+             */
             let mut target_deps = vec![];
             for input_id in chain!(&target.executables, &target.inputs) {
                 if let Some(dep) = self.creator_for_file.get(input_id).cloned() {

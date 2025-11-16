@@ -1,6 +1,6 @@
 use super::Razel;
 use crate::executors::Executor;
-use crate::{RazelJson, RazelJsonCommand, RazelJsonTask};
+use crate::types::{RazelJson, RazelJsonCommand, RazelJsonTask};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;

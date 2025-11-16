@@ -1,8 +1,10 @@
+use crate::config;
 use crate::types::{
-    CommandTarget, ExecutableType, File, FileId, Target, TargetId, TargetKind, TaskTarget,
+    CommandTarget, ExecutableType, File, FileId, RazelJson, RazelJsonCommand, RazelJsonTask, Tag,
+    Target, TargetId, TargetKind, Task, TaskTarget,
 };
-use crate::{cli, config, CliTask, RazelJson, RazelJsonCommand, RazelJsonTask};
 use anyhow::{anyhow, bail, Context, Result};
+use clap::Parser;
 use itertools::{chain, Itertools};
 use log::debug;
 use std::collections::HashMap;
@@ -47,7 +49,7 @@ impl TargetsBuilder {
         }
     }
 
-    pub fn push_command(&mut self, command: RazelJsonCommand) -> Result<()> {
+    pub fn push_json_command(&mut self, command: RazelJsonCommand) -> Result<TargetId> {
         if self.target_by_name.contains_key(&command.name) {
             bail!("target already exists: {:?}", command.name);
         }
@@ -80,8 +82,9 @@ impl TargetsBuilder {
             stdout_file: command.stdout.map(|x| x.into()),
             stderr_file: command.stderr.map(|x| x.into()),
         };
+        let id = self.targets.len();
         let target = Target {
-            id: self.targets.len(),
+            id,
             name: command.name,
             kind: if command_target.executable.ends_with(".wasm") {
                 TargetKind::Wasi(command_target)
@@ -95,14 +98,29 @@ impl TargetsBuilder {
             tags: command.tags,
         };
         self.push_target(target);
-        Ok(())
+        Ok(id)
     }
 
-    pub fn push_task(&mut self, json: RazelJsonTask, mut task: CliTask) -> Result<()> {
-        if self.target_by_name.contains_key(&json.name) {
-            bail!("target already exists: {:?}", json.name);
+    pub fn push_json_task(&mut self, json: RazelJsonTask) -> Result<TargetId> {
+        let args = chain!(
+            ["task".to_string(), json.task.clone()],
+            json.args.into_iter()
+        )
+        .collect();
+        let task = TaskParser::try_parse_from(&args)?.task;
+        self.push_task(json.name, args, task, json.tags)
+    }
+
+    pub fn push_task(
+        &mut self,
+        name: String,
+        mut args: Vec<String>,
+        mut task: Task,
+        tags: Vec<Tag>,
+    ) -> Result<TargetId> {
+        if self.target_by_name.contains_key(&name) {
+            bail!("target already exists: {name:?}");
         }
-        let mut args = json.args;
         let mut inputs = vec![];
         let mut outputs = vec![];
         macro_rules! input {
@@ -120,57 +138,58 @@ impl TargetsBuilder {
             }};
         }
         match task {
-            CliTask::CaptureRegex(ref mut t) => {
+            Task::CaptureRegex(ref mut t) => {
                 input!(&mut t.input);
                 output!(&mut t.output);
             }
-            CliTask::CsvConcat(ref mut t) => {
+            Task::CsvConcat(ref mut t) => {
                 inputs.reserve(t.input.len());
                 for x in t.input.iter_mut() {
                     input!(*x);
                 }
                 output!(&mut t.output);
             }
-            CliTask::CsvFilter(ref mut t) => {
+            Task::CsvFilter(ref mut t) => {
                 input!(&mut t.input);
                 output!(&mut t.output);
             }
-            CliTask::WriteFile(ref mut t) => {
+            Task::WriteFile(ref mut t) => {
                 output!(&mut t.file);
             }
-            CliTask::DownloadFile(ref mut t) => {
+            Task::DownloadFile(ref mut t) => {
                 let file_id = output!(&mut t.output);
                 if t.executable {
                     self.files[file_id].executable = Some(ExecutableType::ExecutableInWorkspace);
                 }
             }
-            CliTask::EnsureEqual(ref mut t) => {
+            Task::EnsureEqual(ref mut t) => {
                 input!(&mut t.file1);
                 input!(&mut t.file2);
             }
-            CliTask::EnsureNotEqual(ref mut t) => {
+            Task::EnsureNotEqual(ref mut t) => {
                 input!(&mut t.file1);
                 input!(&mut t.file2);
             }
-            CliTask::HttpRemoteExec(ref mut t) => {
+            Task::HttpRemoteExec(ref mut t) => {
                 inputs.reserve(t.files.len());
                 for x in t.files.iter_mut() {
                     input!(*x);
                 }
             }
         }
+        let id = self.targets.len();
         let target = Target {
-            id: self.targets.len(),
-            name: json.name,
+            id,
+            name,
             kind: TargetKind::Task(TaskTarget { args, task }),
             executables: vec![],
             inputs,
             outputs,
             deps: vec![],
-            tags: json.tags,
+            tags,
         };
         self.push_target(target);
-        Ok(())
+        Ok(id)
     }
 
     fn push_target(&mut self, target: Target) {
@@ -358,24 +377,37 @@ pub fn parse_jsonl_file(path: &str) -> Result<TargetsBuilder> {
         })?;
         match json {
             RazelJson::Command(command) => {
-                builder.push_command(command)?;
+                builder.push_json_command(command)?;
             }
-            RazelJson::Task(mut json) => {
-                json.args = chain!(
-                    [
-                        config::EXECUTABLE.to_string(),
-                        "task".to_string(),
-                        json.task.clone()
-                    ],
-                    json.args.into_iter()
-                )
-                .collect();
-                let task = cli::parse_task(&json.args)?;
-                builder.push_task(json, task)?;
+            RazelJson::Task(json) => {
+                builder.push_json_task(json)?;
             }
         }
         len += 1;
     }
     debug!("Added {len} commands from {path}");
     Ok(builder)
+}
+
+#[derive(Parser)]
+struct TaskParser {
+    #[clap(subcommand)]
+    task: Task,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn task_parser() {
+        let task = TaskParser::parse_from(["task", "write-file", "out.txt", "line1", "line2"]).task;
+        match task {
+            Task::WriteFile(t) => {
+                assert_eq!(t.file, "out.txt");
+                assert_eq!(t.lines, vec!["line1", "line2"]);
+            }
+            _ => panic!(),
+        }
+    }
 }

@@ -1,18 +1,19 @@
 use crate::bazel_remote_exec::command::EnvironmentVariable;
 use crate::bazel_remote_exec::{ActionResult, Digest, ExecutedActionMetadata, OutputFile};
 use crate::cache::{BlobDigest, Cache, MessageDigest};
-use crate::config::{select_cache_dir, select_sandbox_dir};
+use crate::cli::HttpRemoteExecConfig;
 use crate::executors::{
     ExecutionResult, ExecutionStatus, Executor, HttpRemoteExecDomain, HttpRemoteExecState,
     WasiExecutor,
 };
 use crate::metadata::{write_graphs_html, LogFile, Measurements, Profile, Report};
+use crate::targets_builder::TargetsBuilder;
 use crate::tui::TUI;
-use crate::types::Tag;
+use crate::types::{RazelJsonCommand, RazelJsonTask, Tag, Target, TargetId, Task};
 use crate::{
     bazel_remote_exec, config, create_cgroup, force_remove_file, is_file_executable,
-    write_gitignore, Arena, BoxedSandbox, CGroup, Command, CommandBuilder, CommandId, File, FileId,
-    FileType, HttpRemoteExecConfig, Scheduler, TmpDirSandbox, WasiSandbox, GITIGNORE_FILENAME,
+    select_cache_dir, select_sandbox_dir, write_gitignore, Arena, BoxedSandbox, CGroup, File,
+    FileId, FileType, Scheduler, TmpDirSandbox, WasiSandbox, GITIGNORE_FILENAME,
 };
 use anyhow::{anyhow, bail, Context};
 use itertools::{chain, Itertools};
@@ -20,13 +21,13 @@ use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::{hash_map, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{env, fs};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
-use url::Url;
-use which::which;
+
+pub type Command = Target; // TODO cleanup
+pub type CommandId = TargetId; // TODO cleanup
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ScheduleState {
@@ -106,6 +107,7 @@ pub struct Razel {
     measurements: Measurements,
     profile: Profile,
     log_file: LogFile,
+    targets_builder: TargetsBuilder,
 }
 
 impl Razel {
@@ -115,6 +117,7 @@ impl Razel {
         let current_dir = env::current_dir().unwrap();
         let workspace_dir = current_dir.clone();
         let out_dir = PathBuf::from(config::OUT_DIR);
+        let targets_builder = TargetsBuilder::new(workspace_dir.clone());
         Razel {
             read_cache: true,
             worker_threads,
@@ -142,6 +145,7 @@ impl Razel {
             measurements: Measurements::new(),
             profile: Profile::new(),
             log_file: Default::default(),
+            targets_builder,
         }
     }
 
@@ -164,6 +168,12 @@ impl Razel {
         self.http_remote_exec_state = HttpRemoteExecState::new(config);
     }
 
+    pub fn push_json_command(&mut self, json: RazelJsonCommand) -> anyhow::Result<TargetId> {
+        self.targets_builder.push_json_command(json)
+    }
+
+    // TODO cleanup tests
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub fn push_custom_command(
         &mut self,
@@ -178,26 +188,35 @@ impl Razel {
         deps: Vec<String>,
         tags: Vec<Tag>,
     ) -> Result<CommandId, anyhow::Error> {
-        let mut builder = CommandBuilder::new(name, args, tags);
-        builder.inputs(&inputs, self)?;
-        builder.outputs(&outputs, self)?;
-        if let Some(x) = stdout {
-            builder.stdout(&x, self)?;
-        }
-        if let Some(x) = stderr {
-            builder.stderr(&x, self)?;
-        }
-        for dep in &deps {
-            builder.dep(dep, self)?;
-        }
-        if executable.ends_with(".wasm") {
-            builder.wasi_executor(executable, env, self)?;
-        } else {
-            builder.custom_command_executor(executable, env, self)?;
-        }
-        self.push(builder)
+        self.targets_builder.push_json_command(RazelJsonCommand {
+            name,
+            executable,
+            args,
+            env,
+            inputs,
+            outputs,
+            stdout,
+            stderr,
+            deps,
+            tags,
+        })
     }
 
+    pub fn push_json_task(&mut self, json: RazelJsonTask) -> anyhow::Result<TargetId> {
+        self.targets_builder.push_json_task(json)
+    }
+
+    pub fn push_task(
+        &mut self,
+        name: String,
+        args: Vec<String>,
+        task: Task,
+        tags: Vec<Tag>,
+    ) -> anyhow::Result<TargetId> {
+        self.targets_builder.push_task(name, args, task, tags)
+    }
+
+    /*
     pub fn push(&mut self, builder: CommandBuilder) -> Result<CommandId, anyhow::Error> {
         // TODO check if name is unique
         let id = self.commands.alloc_with_id(|id| builder.build(id));
@@ -238,6 +257,8 @@ impl Razel {
         }
         Ok(())
     }
+
+     */
 
     fn lazy_self_file_id(&mut self) -> Result<FileId, anyhow::Error> {
         if let Some(x) = self.self_file_id {
@@ -429,6 +450,7 @@ impl Razel {
         &self.files[id].path
     }
 
+    /*
     /// Register an executable file
     pub fn executable(&mut self, arg: String) -> Result<&File, anyhow::Error> {
         let path = Path::new(&arg);
@@ -593,6 +615,7 @@ impl Razel {
     fn check_for_circular_dependencies(&self) {
         // TODO
     }
+     */
 
     fn remove_unknown_or_excluded_files_from_out_dir(
         &self,

@@ -1,4 +1,5 @@
 use crate::executors::ExecutionResult;
+use crate::SandboxDir;
 use async_trait::async_trait;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -33,7 +34,7 @@ pub struct AsyncTaskExecutor {
 impl AsyncTaskExecutor {
     pub async fn exec(&self, sandbox_dir: Option<PathBuf>) -> ExecutionResult {
         let execution_start = Instant::now();
-        let result = self.task.exec(sandbox_dir).await;
+        let result = self.task.exec(SandboxDir::new(sandbox_dir)).await;
         ExecutionResult::for_task(result, execution_start)
     }
 
@@ -44,5 +45,5 @@ impl AsyncTaskExecutor {
 
 #[async_trait]
 pub trait AsyncTask {
-    async fn exec(&self, sandbox_dir: Option<PathBuf>) -> Result<(), anyhow::Error>;
+    async fn exec(&self, sandbox_dir: SandboxDir) -> Result<(), anyhow::Error>;
 }
