@@ -147,8 +147,7 @@ fn executable(command: &Command) -> String {
     match &command.executor {
         Executor::CustomCommand(x) => x.executable.clone(),
         Executor::Wasi(x) => x.executable.clone(),
-        Executor::AsyncTask(x) => x.args.iter().take(3).join(" "),
-        Executor::BlockingTask(x) => x.args.iter().take(3).join(" "),
+        Executor::Task(x) => x.args.iter().take(3).join(" "),
         Executor::HttpRemote(x) => x.args.iter().take(3).join(" "),
     }
 }

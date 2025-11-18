@@ -1,4 +1,5 @@
 use crate::executors::{Executor, HttpRemoteExecDomain};
+use crate::types::Target;
 use crate::{Command, CommandId};
 use itertools::Itertools;
 use std::collections::{HashMap, VecDeque};
@@ -84,8 +85,8 @@ impl Scheduler {
         });
     }
 
-    fn push_ready_for_remote_exec(&mut self, command: &Command) -> bool {
-        let Executor::HttpRemote(executor) = &command.executor else {
+    fn push_ready_for_remote_exec(&mut self, target: &Target) -> bool {
+        let Executor::HttpRemote(executor) = &target.kind else {
             return false;
         };
         let Some(domain) = &executor.state else {
@@ -103,7 +104,7 @@ impl Scheduler {
                 &mut self.ready_for_remote_exec.last_mut().unwrap().1
             }
         };
-        ready.push_back(command.id);
+        ready.push_back(target.id);
         self.ready_for_remote_exec_len += 1;
         true
     }
@@ -206,8 +207,7 @@ impl Scheduler {
         match &command.executor {
             Executor::CustomCommand(c) => c.executable.clone(),
             Executor::Wasi(x) => x.executable.clone(),
-            Executor::AsyncTask(_) => String::new(),
-            Executor::BlockingTask(_) => String::new(),
+            Executor::Task(_) => String::new(),
             Executor::HttpRemote(_) => String::new(),
         }
     }

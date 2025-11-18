@@ -1,6 +1,7 @@
 use crate::bazel_remote_exec::{ActionResult, OutputFile};
 use crate::cache::{BlobDigest, GrpcRemoteCache, LocalCache, MessageDigest};
 use crate::types::CacheHit;
+use crate::SandboxDir;
 use anyhow::{bail, Context, Error};
 use itertools::Itertools;
 use log::info;
@@ -163,7 +164,7 @@ impl Cache {
         &mut self,
         message_digest: &MessageDigest,
         action_result: &ActionResult,
-        sandbox_dir: Option<&PathBuf>,
+        sandbox_dir: &SandboxDir,
         use_remote_cache: bool,
     ) -> Result<(), anyhow::Error> {
         let files = self
@@ -194,16 +195,14 @@ impl Cache {
     async fn prepare_files_to_push(
         &self,
         action_result: &ActionResult,
-        sandbox_dir: Option<&PathBuf>,
+        sandbox_dir: &SandboxDir,
     ) -> Result<Vec<PushFileData>, anyhow::Error> {
         let files = action_result
             .output_files
             .iter()
             .map(|file| PushFileData {
                 digest: file.digest.as_ref().unwrap().clone(),
-                out_path: sandbox_dir
-                    .map(|x| x.join(&self.out_dir).join(&file.path))
-                    .unwrap_or_else(|| self.out_dir.join(&file.path)),
+                out_path: sandbox_dir.join(&self.out_dir).join(&file.path),
                 cas_path: self.local_cache.cas_path(file.digest.as_ref().unwrap()),
             })
             .collect_vec();

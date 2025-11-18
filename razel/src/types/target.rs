@@ -1,6 +1,8 @@
+use crate::config;
 use crate::types::{Tag, Task};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::iter::once;
 use std::path::PathBuf;
 
 pub type TargetId = usize;
@@ -50,7 +52,38 @@ pub enum TargetKind {
     Command(CommandTarget),
     Wasi(CommandTarget),
     Task(TaskTarget),
-    Service(ServiceTarget),
+}
+
+impl TargetKind {
+    pub fn args_with_executable(&self) -> Vec<String> {
+        match self {
+            TargetKind::Command(x) => x.args_with_executable(),
+            TargetKind::Wasi(x) => [
+                config::EXECUTABLE.to_string(),
+                "command".into(),
+                "--".into(),
+            ]
+            .into_iter()
+            .chain(x.args_with_executable())
+            .collect(),
+            TargetKind::Task(x) => x.command_line_with_redirects(),
+        }
+    }
+
+    pub fn command_line_with_redirects(&self) -> Vec<String> {
+        match self {
+            TargetKind::Command(x) => x.command_line_with_redirects(),
+            TargetKind::Wasi(x) => [
+                config::EXECUTABLE.to_string(),
+                "command".into(),
+                "--".into(),
+            ]
+            .into_iter()
+            .chain(x.command_line_with_redirects())
+            .collect(),
+            TargetKind::Task(x) => x.command_line_with_redirects(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -62,6 +95,36 @@ pub struct CommandTarget {
     pub stderr_file: Option<PathBuf>,
 }
 
+impl CommandTarget {
+    pub fn args_with_executable(&self) -> Vec<String> {
+        once(&self.executable)
+            .chain(self.args.iter())
+            .cloned()
+            .collect()
+    }
+
+    pub fn command_line_with_redirects(&self) -> Vec<String> {
+        once(&self.executable)
+            .chain(self.args.iter())
+            .chain(
+                self.stdout_file
+                    .as_ref()
+                    .map(|x| [">".into(), x.to_str().unwrap().into()])
+                    .iter()
+                    .flatten(),
+            )
+            .chain(
+                self.stderr_file
+                    .as_ref()
+                    .map(|x| ["2>".into(), x.to_str().unwrap().into()])
+                    .iter()
+                    .flatten(),
+            )
+            .cloned()
+            .collect()
+    }
+}
+
 /// A razel builtin task, see `razel task`
 #[derive(Serialize, Deserialize)]
 pub struct TaskTarget {
@@ -69,10 +132,12 @@ pub struct TaskTarget {
     pub task: Task,
 }
 
-/// A service provided by a worker.
-#[derive(Serialize, Deserialize)]
-pub struct ServiceTarget {
-    pub name: String,
-    pub version: String,
-    pub args: Vec<String>,
+impl TaskTarget {
+    pub fn args_with_executable(&self) -> Vec<String> {
+        self.args.clone()
+    }
+
+    pub fn command_line_with_redirects(&self) -> Vec<String> {
+        self.args.clone()
+    }
 }

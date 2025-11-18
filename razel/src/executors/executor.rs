@@ -1,8 +1,8 @@
 use crate::executors::{
-    AsyncTaskExecutor, BlockingTaskExecutor, CustomCommandExecutor, ExecutionResult,
-    HttpRemoteExecutor, WasiExecutor,
+    CustomCommandExecutor, ExecutionResult, HttpRemoteExecutor, TaskExecutor, WasiExecutor,
 };
-use crate::CGroup;
+use crate::types::{Tag, Target, TargetKind, Task, TaskTarget};
+use crate::{CGroup, SandboxDir};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -10,44 +10,41 @@ use std::path::{Path, PathBuf};
 pub enum Executor {
     CustomCommand(CustomCommandExecutor),
     Wasi(WasiExecutor),
-    AsyncTask(AsyncTaskExecutor),
-    BlockingTask(BlockingTaskExecutor),
+    Task(TaskExecutor),
     HttpRemote(HttpRemoteExecutor),
 }
 
 impl Executor {
     pub async fn exec(
         &self,
+        target: &Target,
         cwd: &Path,
-        sandbox_dir: Option<PathBuf>,
+        sandbox_dir: &SandboxDir,
         cgroup: Option<CGroup>,
     ) -> ExecutionResult {
-        match self {
-            Executor::CustomCommand(c) => c.exec(sandbox_dir, cgroup).await,
-            Executor::Wasi(x) => x.exec(cwd, sandbox_dir.as_ref().unwrap()).await,
-            Executor::AsyncTask(x) => x.exec(sandbox_dir).await,
-            Executor::BlockingTask(t) => t.exec().await,
-            Executor::HttpRemote(x) => x.exec().await,
-        }
-    }
-
-    pub fn args_with_executable(&self) -> Vec<String> {
-        match self {
-            Executor::CustomCommand(c) => c.args_with_executable(),
-            Executor::Wasi(x) => x.args_with_executable(),
-            Executor::AsyncTask(x) => x.args_with_executable(),
-            Executor::BlockingTask(t) => t.args_with_executable(),
-            Executor::HttpRemote(x) => x.args_with_executable(),
-        }
-    }
-
-    pub fn command_line_with_redirects(&self, razel_executable: &str) -> Vec<String> {
-        match self {
-            Executor::CustomCommand(c) => c.command_line_with_redirects(),
-            Executor::Wasi(x) => x.command_line_with_redirects(razel_executable),
-            Executor::AsyncTask(x) => x.args_with_executable(),
-            Executor::BlockingTask(t) => t.args_with_executable(),
-            Executor::HttpRemote(x) => x.args_with_executable(),
+        match (self, &target.kind) {
+            (Executor::CustomCommand(e), TargetKind::Command(c)) => {
+                let timeout = target.tags.iter().find_map(|t| {
+                    if let Tag::Timeout(x) = t {
+                        Some(*x)
+                    } else {
+                        None
+                    }
+                });
+                e.exec(c, sandbox_dir, cgroup, timeout).await
+            }
+            (Executor::Wasi(e), TargetKind::Command(c)) => {
+                e.exec(c, cwd, sandbox_dir.dir.as_ref().unwrap()).await
+            }
+            (Executor::Task(e), TargetKind::Task(t)) => e.exec(&t.task, sandbox_dir).await,
+            (
+                Executor::HttpRemote(e),
+                TargetKind::Task(TaskTarget {
+                    task: Task::HttpRemoteExec(t),
+                    ..
+                }),
+            ) => e.exec(t).await,
+            _ => unreachable!(),
         }
     }
 
@@ -55,8 +52,7 @@ impl Executor {
         match self {
             Executor::CustomCommand(x) => &x.args,
             Executor::Wasi(x) => &x.args,
-            Executor::AsyncTask(x) => &x.args,
-            Executor::BlockingTask(x) => &x.args,
+            Executor::Task(x) => &x.args,
             Executor::HttpRemote(x) => &x.args,
         }
     }
@@ -65,8 +61,7 @@ impl Executor {
         match self {
             Executor::CustomCommand(x) => Some(&x.env),
             Executor::Wasi(x) => Some(&x.env),
-            Executor::AsyncTask(_) => None,
-            Executor::BlockingTask(_) => None,
+            Executor::Task(_) => None,
             Executor::HttpRemote(_) => None,
         }
     }
@@ -95,8 +90,7 @@ impl Executor {
         match self {
             Executor::CustomCommand(_) => true,
             Executor::Wasi(_) => true,
-            Executor::AsyncTask(_) => true,
-            Executor::BlockingTask(_) => false,
+            Executor::Task(_) => true,
             Executor::HttpRemote(_) => false,
         }
     }

@@ -1,10 +1,8 @@
-use crate::config;
 use crate::targets_builder::TargetsBuilder;
 use crate::types::*;
 use anyhow::{bail, Result};
 use itertools::{chain, Itertools};
 use std::collections::{HashMap, HashSet};
-use std::iter::once;
 
 #[derive(Default)]
 pub struct DependencyGraph {
@@ -13,9 +11,9 @@ pub struct DependencyGraph {
     pub creator_for_file: HashMap<FileId, TargetId>,
     pub target_by_name: HashMap<String, TargetId>,
     deps: Vec<Vec<TargetId>>,
-    reverse_deps: HashMap<TargetId, Vec<TargetId>>,
-    ready: Vec<TargetId>,
-    waiting: HashSet<TargetId>,
+    pub reverse_deps: HashMap<TargetId, Vec<TargetId>>,
+    pub ready: Vec<TargetId>,
+    pub waiting: HashSet<TargetId>,
 }
 
 impl DependencyGraph {
@@ -61,7 +59,7 @@ impl DependencyGraph {
 
     pub fn get_command_line_for_target(&self, target_id: TargetId) -> Vec<String> {
         let target = &self.targets[target_id];
-        target.command_line_with_redirects()
+        target.kind.command_line_with_redirects()
     }
 
     pub fn get_command_lines_for_target_with_deps(&self, name: &str) -> Result<Vec<String>> {
@@ -115,62 +113,5 @@ impl DependencyGraph {
 
     fn check_for_circular_dependencies(&self) {
         // TODO
-    }
-}
-
-trait CommandLine {
-    fn command_line_with_redirects(&self) -> Vec<String>;
-}
-
-impl CommandLine for Target {
-    fn command_line_with_redirects(&self) -> Vec<String> {
-        match &self.kind {
-            TargetKind::Command(x) => x.command_line_with_redirects(),
-            TargetKind::Wasi(x) => [
-                config::EXECUTABLE.to_string(),
-                "command".into(),
-                "--".into(),
-            ]
-            .into_iter()
-            .chain(x.command_line_with_redirects())
-            .collect(),
-            TargetKind::Task(x) => x.command_line_with_redirects(),
-            TargetKind::Service(x) => x.command_line_with_redirects(),
-        }
-    }
-}
-
-impl CommandLine for CommandTarget {
-    fn command_line_with_redirects(&self) -> Vec<String> {
-        once(&self.executable)
-            .chain(self.args.iter())
-            .chain(
-                self.stdout_file
-                    .as_ref()
-                    .map(|x| [">".into(), x.to_str().unwrap().into()])
-                    .iter()
-                    .flatten(),
-            )
-            .chain(
-                self.stderr_file
-                    .as_ref()
-                    .map(|x| ["2>".into(), x.to_str().unwrap().into()])
-                    .iter()
-                    .flatten(),
-            )
-            .cloned()
-            .collect()
-    }
-}
-
-impl CommandLine for TaskTarget {
-    fn command_line_with_redirects(&self) -> Vec<String> {
-        self.args.clone()
-    }
-}
-
-impl CommandLine for ServiceTarget {
-    fn command_line_with_redirects(&self) -> Vec<String> {
-        todo!()
     }
 }

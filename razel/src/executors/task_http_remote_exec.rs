@@ -119,7 +119,7 @@ impl HttpRemoteExecutor {
         })
     }
 
-    pub async fn exec(&self) -> ExecutionResult {
+    pub async fn exec(&self, task: &HttpRemoteExecTask) -> ExecutionResult {
         let result = if let Some(domain) = &self.state {
             self.exec_on_some_host_of_domain(domain).await
         } else {

@@ -8,7 +8,7 @@ use tokio::task::spawn_blocking;
 
 #[async_trait]
 impl AsyncTask for CaptureRegexTask {
-    async fn exec(&self, sandbox_dir: SandboxDir) -> Result<()> {
+    async fn exec(&self, sandbox_dir: &SandboxDir) -> Result<()> {
         let regex = Regex::new(&self.regex)?;
         let input = sandbox_dir.join(&self.input);
         let output = sandbox_dir.join(&self.output);
@@ -32,7 +32,7 @@ impl AsyncTask for CaptureRegexTask {
 
 #[async_trait]
 impl AsyncTask for WriteFileTask {
-    async fn exec(&self, sandbox_dir: SandboxDir) -> Result<()> {
+    async fn exec(&self, sandbox_dir: &SandboxDir) -> Result<()> {
         let output = sandbox_dir.join(&self.file);
         let mut text = self.lines.join("\n");
         text.push('\n');
@@ -43,7 +43,7 @@ impl AsyncTask for WriteFileTask {
 
 #[async_trait]
 impl AsyncTask for EnsureEqualTask {
-    async fn exec(&self, sandbox_dir: SandboxDir) -> Result<()> {
+    async fn exec(&self, sandbox_dir: &SandboxDir) -> Result<()> {
         assert!(sandbox_dir.dir.is_none());
         let file1 = self.file1.clone();
         let file2 = self.file2.clone();
@@ -62,7 +62,7 @@ impl AsyncTask for EnsureEqualTask {
 
 #[async_trait]
 impl AsyncTask for EnsureNotEqualTask {
-    async fn exec(&self, sandbox_dir: SandboxDir) -> Result<()> {
+    async fn exec(&self, sandbox_dir: &SandboxDir) -> Result<()> {
         assert!(sandbox_dir.dir.is_none());
         let file1 = self.file1.clone();
         let file2 = self.file2.clone();

@@ -1,6 +1,7 @@
 use crate::config::OUT_DIR;
 use crate::executors::{ExecutionResult, ExecutionStatus};
-use crate::{config, FileId};
+use crate::types::CommandTarget;
+use crate::FileId;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -43,7 +44,7 @@ impl WasiExecutor {
             .with_context(|| format!("create WASM module: {:?}", file.as_ref()))
     }
 
-    pub async fn exec(&self, cwd: &Path, sandbox_dir: &Path) -> ExecutionResult {
+    pub async fn exec(&self, c: &CommandTarget, cwd: &Path, sandbox_dir: &Path) -> ExecutionResult {
         match self.wasi_exec(cwd, sandbox_dir).await {
             Ok(execution_result) => execution_result,
             Err(error) => ExecutionResult {
@@ -96,46 +97,6 @@ impl WasiExecutor {
         execution_result.stdout = stdout.try_into_inner().unwrap().into();
         execution_result.stderr = stderr.try_into_inner().unwrap().into();
         Ok(execution_result)
-    }
-
-    pub fn args_with_executable(&self) -> Vec<String> {
-        [
-            config::EXECUTABLE.into(),
-            "command".into(),
-            "--".into(),
-            self.executable.clone(),
-        ]
-        .iter()
-        .chain(self.args.iter())
-        .cloned()
-        .collect()
-    }
-
-    pub fn command_line_with_redirects(&self, razel_executable: &str) -> Vec<String> {
-        [
-            razel_executable.into(),
-            "command".into(),
-            "--".into(),
-            self.executable.clone(),
-        ]
-        .iter()
-        .chain(self.args.iter())
-        .chain(
-            self.stdout_file
-                .as_ref()
-                .map(|x| [">".to_string(), x.to_str().unwrap().to_string()])
-                .iter()
-                .flatten(),
-        )
-        .chain(
-            self.stderr_file
-                .as_ref()
-                .map(|x| ["2>".to_string(), x.to_str().unwrap().to_string()])
-                .iter()
-                .flatten(),
-        )
-        .cloned()
-        .collect()
     }
 
     fn create_wasi_ctx(

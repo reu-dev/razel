@@ -10,7 +10,7 @@ pub type BoxedSandbox = Box<dyn Sandbox + Send>;
 
 #[async_trait]
 pub trait Sandbox {
-    fn dir(&self) -> &PathBuf;
+    fn dir(&self) -> SandboxDir;
 
     /// Create tmp dir, link inputs and create output directories
     async fn create(&self, outputs: &[PathBuf]) -> Result<&PathBuf, anyhow::Error>;
@@ -46,8 +46,8 @@ impl TmpDirSandbox {
 
 #[async_trait]
 impl Sandbox for TmpDirSandbox {
-    fn dir(&self) -> &PathBuf {
-        &self.dir
+    fn dir(&self) -> SandboxDir {
+        SandboxDir::new(Some(self.dir.clone()))
     }
 
     async fn create(&self, outputs: &[PathBuf]) -> Result<&PathBuf, anyhow::Error> {
@@ -113,14 +113,15 @@ impl WasiSandbox {
 
 #[async_trait]
 impl Sandbox for WasiSandbox {
-    fn dir(&self) -> &PathBuf {
+    fn dir(&self) -> SandboxDir {
         self.tmp_dir_sandbox.dir()
     }
 
     async fn create(&self, outputs: &[PathBuf]) -> Result<&PathBuf, anyhow::Error> {
-        fs::create_dir_all(&self.dir())
+        let dir = &self.tmp_dir_sandbox.dir;
+        fs::create_dir_all(&dir)
             .await
-            .with_context(|| format!("Failed to create sandbox dir: {:?}", self.dir()))?;
+            .with_context(|| format!("Failed to create sandbox dir: {dir:?}"))?;
         for (input, cas_path) in &self.inputs {
             if input.starts_with("..") {
                 bail!("input file must be inside of workspace: {input:?}");
@@ -135,7 +136,7 @@ impl Sandbox for WasiSandbox {
                 .await
                 .with_context(|| format!("Failed to create sandbox output dir: {dir:?}"))?;
         }
-        Ok(self.dir())
+        Ok(dir)
     }
 
     async fn move_output_files_into_out_dir(&self, output_paths: &[PathBuf]) -> Result<(), Error> {

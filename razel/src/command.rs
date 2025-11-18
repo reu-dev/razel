@@ -5,8 +5,8 @@ use std::sync::Arc;
 use url::Url;
 
 use crate::executors::{
-    AsyncTask, AsyncTaskExecutor, BlockingTaskExecutor, CustomCommandExecutor, Executor,
-    HttpRemoteExecDomain, HttpRemoteExecutor, TaskFn, WasiExecutor,
+    AsyncTask, AsyncTaskExecutor,  CustomCommandExecutor, Executor,
+    HttpRemoteExecDomain, HttpRemoteExecutor, WasiExecutor,
 };
 use crate::types::Tag;
 use crate::{ArenaId, FileId, FileType, Razel, ScheduleState};
@@ -209,13 +209,6 @@ impl CommandBuilder {
     pub fn async_task_executor(&mut self, task: impl AsyncTask + Send + Sync + 'static) {
         self.executor = Some(Executor::AsyncTask(AsyncTaskExecutor {
             task: Arc::new(task),
-            args: self.args_with_out_paths.clone(),
-        }));
-    }
-
-    pub fn blocking_task_executor(&mut self, f: TaskFn) {
-        self.executor = Some(Executor::BlockingTask(BlockingTaskExecutor {
-            f,
             args: self.args_with_out_paths.clone(),
         }));
     }

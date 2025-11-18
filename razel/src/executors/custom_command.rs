@@ -1,32 +1,27 @@
 use crate::config::RESPONSE_FILE_PREFIX;
-use crate::CGroup;
-use anyhow::anyhow;
-use std::collections::HashMap;
+use crate::{CGroup, SandboxDir};
+use anyhow::{anyhow, ensure};
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::time::Instant;
 use tokio::io::AsyncWriteExt;
 
 use crate::executors::{ExecutionResult, ExecutionStatus};
+use crate::types::CommandTarget;
 
 #[derive(Clone, Default)]
-pub struct CustomCommandExecutor {
-    pub executable: String,
-    pub args: Vec<String>,
-    pub env: HashMap<String, String>,
-    pub stdout_file: Option<PathBuf>,
-    pub stderr_file: Option<PathBuf>,
-    pub timeout: Option<u16>,
-}
+pub struct CustomCommandExecutor {}
 
 impl CustomCommandExecutor {
     pub async fn exec(
         &self,
-        sandbox_dir_option: Option<PathBuf>,
+        c: &CommandTarget,
+        sandbox_dir: &SandboxDir,
         cgroup: Option<CGroup>,
+        timeout: Option<u16>,
     ) -> ExecutionResult {
         let mut result: ExecutionResult = Default::default();
-        let response_file_args = match self.maybe_use_response_file(&sandbox_dir_option).await {
+        let response_file_args = match self.maybe_use_response_file(&c.args, sandbox_dir).await {
             Ok(Some(x)) => Some(vec![x]),
             Ok(None) => None,
             Err(x) => {
@@ -35,12 +30,12 @@ impl CustomCommandExecutor {
                 return result;
             }
         };
-        let cwd = sandbox_dir_option.unwrap_or_else(|| ".".into());
+        let cwd = sandbox_dir.dir.clone().unwrap_or_else(|| ".".into());
         let execution_start = Instant::now();
-        let child = match tokio::process::Command::new(&self.executable)
+        let child = match tokio::process::Command::new(&c.executable)
             .env_clear()
-            .envs(&self.env)
-            .args(response_file_args.as_ref().unwrap_or(&self.args))
+            .envs(&c.env)
+            .args(response_file_args.as_ref().unwrap_or(&c.args))
             .current_dir(&cwd)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -57,7 +52,7 @@ impl CustomCommandExecutor {
         if let Some(cgroup) = cgroup {
             cgroup.add_task("memory", child.id().unwrap()).ok();
         }
-        let (exec_result, timed_out) = self.wait_with_timeout(child).await;
+        let (exec_result, timed_out) = self.wait_with_timeout(child, timeout).await;
         match exec_result {
             Ok(output) => {
                 if output.status.success() {
@@ -81,15 +76,16 @@ impl CustomCommandExecutor {
             }
         }
         result.exec_duration = Some(execution_start.elapsed());
-        self.write_redirect_files(&cwd, &mut result).await;
+        self.write_redirect_files(c, &cwd, &mut result).await;
         result
     }
 
     async fn wait_with_timeout(
         &self,
         mut child: tokio::process::Child,
+        timeout: Option<u16>,
     ) -> (std::io::Result<std::process::Output>, bool) {
-        let timed_out = if let Some(timeout_s) = self.timeout {
+        let timed_out = if let Some(timeout_s) = timeout {
             let sleep = tokio::time::sleep(std::time::Duration::from_secs(timeout_s.into()));
             tokio::pin!(sleep);
             tokio::select! {
@@ -105,36 +101,6 @@ impl CustomCommandExecutor {
             false
         };
         (child.wait_with_output().await, timed_out)
-    }
-
-    pub fn args_with_executable(&self) -> Vec<String> {
-        [self.executable.clone()]
-            .iter()
-            .chain(self.args.iter())
-            .cloned()
-            .collect()
-    }
-
-    pub fn command_line_with_redirects(&self) -> Vec<String> {
-        [self.executable.clone()]
-            .iter()
-            .chain(self.args.iter())
-            .chain(
-                self.stdout_file
-                    .as_ref()
-                    .map(|x| [">".to_string(), x.to_str().unwrap().to_string()])
-                    .iter()
-                    .flatten(),
-            )
-            .chain(
-                self.stderr_file
-                    .as_ref()
-                    .map(|x| ["2>".to_string(), x.to_str().unwrap().to_string()])
-                    .iter()
-                    .flatten(),
-            )
-            .cloned()
-            .collect()
     }
 
     #[cfg(target_family = "windows")]
@@ -195,23 +161,25 @@ impl CustomCommandExecutor {
 
     async fn maybe_use_response_file(
         &self,
-        sandbox_dir: &Option<PathBuf>,
+        args: &Vec<String>,
+        sandbox_dir: &SandboxDir,
     ) -> Result<Option<String>, anyhow::Error> {
-        if !self.is_response_file_needed() {
+        if !self.is_response_file_needed(args) {
             return Ok(None);
         }
         let file_name = "params";
-        let path = sandbox_dir
-            .as_ref()
-            .ok_or_else(|| anyhow!("Sandbox is required for response file!"))?
-            .join(file_name);
+        ensure!(
+            sandbox_dir.dir.is_some(),
+            "Sandbox is required for response file!"
+        );
+        let path = sandbox_dir.join(&file_name);
         let mut file = tokio::fs::File::create(path).await?;
-        file.write_all(self.args.join("\n").as_bytes()).await?;
+        file.write_all(args.join("\n").as_bytes()).await?;
         file.sync_all().await?;
         Ok(Some(RESPONSE_FILE_PREFIX.to_string() + file_name))
     }
 
-    fn is_response_file_needed(&self) -> bool {
+    fn is_response_file_needed(&self, args: &Vec<String>) -> bool {
         /* those limits are taken from test_arg_max()
          * TODO replace hardcoded limits with running that check before executing commands */
         let (max_len, terminator_len) = if cfg!(windows) {
@@ -222,7 +190,7 @@ impl CustomCommandExecutor {
             (2_097_088, 1 + std::mem::size_of::<usize>())
         };
         let mut args_len_sum = 0;
-        for x in &self.args {
+        for x in args {
             args_len_sum += x.len() + terminator_len;
             if args_len_sum >= max_len {
                 return true;
@@ -231,9 +199,14 @@ impl CustomCommandExecutor {
         false
     }
 
-    async fn write_redirect_files(&self, cwd: &Path, result: &mut ExecutionResult) {
+    async fn write_redirect_files(
+        &self,
+        c: &CommandTarget,
+        cwd: &Path,
+        result: &mut ExecutionResult,
+    ) {
         if let Err(e) = Self::maybe_write_redirect_file(
-            &self.stdout_file.as_ref().map(|x| cwd.join(x)),
+            &c.stdout_file.as_ref().map(|x| cwd.join(x)),
             &mut result.stdout,
         )
         .await
@@ -243,7 +216,7 @@ impl CustomCommandExecutor {
             return;
         }
         if let Err(e) = Self::maybe_write_redirect_file(
-            &self.stderr_file.as_ref().map(|x| cwd.join(x)),
+            &c.stderr_file.as_ref().map(|x| cwd.join(x)),
             &mut result.stderr,
         )
         .await
@@ -271,7 +244,7 @@ impl CustomCommandExecutor {
 mod tests {
     use crate::executors::{CustomCommandExecutor, ExecutionStatus};
     use crate::types::Tag;
-    use crate::Razel;
+    use crate::{Razel, SandboxDir};
     use std::path::Path;
 
     #[tokio::test]
@@ -292,7 +265,9 @@ mod tests {
             )
             .map(|id| razel.get_command(id).unwrap())
             .unwrap();
-        let result = command.executor.exec(Path::new("."), None, None).await;
+        let result = CustomCommandExecutor {}
+            .exec(&command, &SandboxDir::new(None), None, None)
+            .await;
         assert!(result.success());
         assert_eq!(result.status, ExecutionStatus::Success);
         assert_eq!(result.exit_code, Some(0));

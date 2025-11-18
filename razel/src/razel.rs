@@ -13,7 +13,7 @@ use crate::types::{RazelJsonCommand, RazelJsonTask, Tag, Target, TargetId, Task}
 use crate::{
     bazel_remote_exec, config, create_cgroup, force_remove_file, is_file_executable,
     select_cache_dir, select_sandbox_dir, write_gitignore, Arena, BoxedSandbox, CGroup, File,
-    FileId, FileType, Scheduler, TmpDirSandbox, WasiSandbox, GITIGNORE_FILENAME,
+    FileId, FileType, SandboxDir, Scheduler, TmpDirSandbox, WasiSandbox, GITIGNORE_FILENAME,
 };
 use anyhow::{anyhow, bail, Context};
 use itertools::{chain, Itertools};
@@ -575,6 +575,7 @@ impl Razel {
                 })
         }
     }
+     */
 
     fn create_dependency_graph(&mut self) {
         let reserve = self.commands.len() - self.excluded_commands_len;
@@ -609,13 +610,7 @@ impl Razel {
         for (id, rdep) in rdeps {
             self.commands[id].reverse_deps.push(rdep);
         }
-        self.check_for_circular_dependencies();
     }
-
-    fn check_for_circular_dependencies(&self) {
-        // TODO
-    }
-     */
 
     fn remove_unknown_or_excluded_files_from_out_dir(
         &self,
@@ -981,11 +976,10 @@ impl Razel {
             .create(output_paths)
             .await
             .context("Sandbox::create()")?;
-        let execution_result = executor
-            .exec(cwd, Some(sandbox.dir().clone()), cgroup)
-            .await;
+        let sandbox_dir = sandbox.dir();
+        let execution_result = executor.exec(cwd, &sandbox_dir, cgroup).await;
         let output_files = if execution_result.success() {
-            Self::new_output_files_with_digest(Some(sandbox.dir()), out_dir, output_paths).await?
+            Self::new_output_files_with_digest(&sandbox_dir, out_dir, output_paths).await?
         } else {
             Default::default()
         };
@@ -995,7 +989,7 @@ impl Razel {
                     action_digest,
                     &execution_result,
                     output_files.clone(),
-                    Some(sandbox.dir()),
+                    &sandbox_dir,
                     cache,
                     use_remote_cache,
                 )
@@ -1027,9 +1021,10 @@ impl Razel {
         for x in output_paths {
             force_remove_file(x).await?;
         }
-        let execution_result = executor.exec(cwd, None, cgroup).await;
+        let sandbox_dir = SandboxDir::new(None);
+        let execution_result = executor.exec(cwd, &sandbox_dir, cgroup).await;
         let output_files = if execution_result.success() {
-            Self::new_output_files_with_digest(None, out_dir, output_paths).await?
+            Self::new_output_files_with_digest(&sandbox_dir, out_dir, output_paths).await?
         } else {
             Default::default()
         };
@@ -1038,7 +1033,7 @@ impl Razel {
                 action_digest,
                 &execution_result,
                 output_files.clone(),
-                None,
+                &sandbox_dir,
                 cache,
                 use_remote_cache,
             )
@@ -1049,7 +1044,7 @@ impl Razel {
     }
 
     async fn new_output_files_with_digest(
-        sandbox_dir: Option<&PathBuf>,
+        sandbox_dir: &SandboxDir,
         out_dir: &PathBuf,
         output_paths: &Vec<PathBuf>,
     ) -> Result<Vec<OutputFile>, anyhow::Error> {
@@ -1064,13 +1059,11 @@ impl Razel {
     }
 
     async fn new_output_file_with_digest(
-        sandbox_dir: Option<&PathBuf>,
+        sandbox_dir: &SandboxDir,
         out_dir: &PathBuf,
         exec_path: &PathBuf,
     ) -> Result<OutputFile, anyhow::Error> {
-        let src = sandbox_dir
-            .as_ref()
-            .map_or(exec_path.clone(), |x| x.join(exec_path));
+        let src = sandbox_dir.join(exec_path);
         if src.is_symlink() {
             bail!("Output file must not be a symlink: {:?}", src);
         }
@@ -1100,7 +1093,7 @@ impl Razel {
         action_digest: &MessageDigest,
         execution_result: &ExecutionResult,
         output_files: Vec<OutputFile>,
-        sandbox_dir: Option<&PathBuf>,
+        sandbox_dir: &SandboxDir,
         cache: &mut Cache,
         use_remote_cache: bool,
     ) -> Result<Vec<OutputFile>, anyhow::Error> {

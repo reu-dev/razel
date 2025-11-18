@@ -45,7 +45,7 @@ impl Razel {
                         tags: command.tags.clone(),
                     })
                 }
-                Executor::AsyncTask(_) | Executor::BlockingTask(_) | Executor::HttpRemote(_) => {
+                Executor::Task(_) | Executor::HttpRemote(_) => {
                     let mut i = command.executor.args().iter();
                     i.next();
                     i.next();
