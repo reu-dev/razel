@@ -2,7 +2,6 @@ use crate::executors::ExecutionResult;
 use crate::types::Task;
 use crate::SandboxDir;
 use anyhow::Result;
-use async_trait::async_trait;
 use std::time::Instant;
 
 #[derive(Clone)]
@@ -16,12 +15,12 @@ impl TaskExecutor {
     }
 }
 
-#[async_trait]
 pub trait AsyncTask {
     async fn exec(&self, sandbox_dir: &SandboxDir) -> Result<()>;
 }
 
 impl AsyncTask for Task {
+    //impl Task {
     async fn exec(&self, sandbox_dir: &SandboxDir) -> Result<()> {
         match self {
             Task::CaptureRegex(x) => x.exec(sandbox_dir).await,

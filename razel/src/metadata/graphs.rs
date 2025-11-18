@@ -1,5 +1,5 @@
-use crate::executors::Executor;
-use crate::{config, Arena, Command, File, FileId, FileType};
+use crate::types::{FileId, TargetKind};
+use crate::{config,  Command, File,  FileType};
 use anyhow::Result;
 use itertools::{chain, Itertools};
 use std::collections::HashSet;
@@ -144,10 +144,8 @@ flowchart LR
 }
 
 fn executable(command: &Command) -> String {
-    match &command.executor {
-        Executor::CustomCommand(x) => x.executable.clone(),
-        Executor::Wasi(x) => x.executable.clone(),
-        Executor::Task(x) => x.args.iter().take(3).join(" "),
-        Executor::HttpRemote(x) => x.args.iter().take(3).join(" "),
+    match &command.kind {
+        TargetKind::Command(x) | TargetKind::Wasi(x) => x.executable.clone(),
+        TargetKind::Task(x) | TargetKind::HttpRemoteExecTask(x) => x.args.iter().take(3).join(" "),
     }
 }

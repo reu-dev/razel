@@ -1,7 +1,6 @@
 use crate::config::OUT_DIR;
 use crate::executors::{ExecutionResult, ExecutionStatus};
-use crate::types::CommandTarget;
-use crate::FileId;
+use crate::types::{CommandTarget, FileId};
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -189,7 +188,7 @@ mod tests {
     #[tokio::test]
     async fn cp_help() {
         let workspace_dir = Path::new(".");
-        let sandbox_dir = new_tmp_dir!();
+        let sandbox_dir = new_tmp_dir!().into();
         let mut x = WasiExecutor {
             module: Some(create_cp_module()),
             executable: CP_MODULE_PATH.into(),

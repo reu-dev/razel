@@ -10,7 +10,7 @@ pub struct DependencyGraph {
     pub files: Vec<File>,
     pub creator_for_file: HashMap<FileId, TargetId>,
     pub target_by_name: HashMap<String, TargetId>,
-    deps: Vec<Vec<TargetId>>,
+    pub deps: Vec<Vec<TargetId>>,
     pub reverse_deps: HashMap<TargetId, Vec<TargetId>>,
     pub ready: Vec<TargetId>,
     pub waiting: HashSet<TargetId>,
@@ -81,15 +81,13 @@ impl DependencyGraph {
         })
     }
 
-    fn create(&mut self) {
+    pub fn create(&mut self) {
         self.waiting.reserve(self.targets.len());
         for target in &self.targets {
             assert_eq!(target.id, self.deps.len());
-            /* TODO
-            if excluded.contains(target.id) {
+            if target.is_excluded {
                 continue;
             }
-             */
             let mut target_deps = vec![];
             for input_id in chain!(&target.executables, &target.inputs) {
                 if let Some(dep) = self.creator_for_file.get(input_id).cloned() {

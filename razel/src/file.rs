@@ -1,5 +1,6 @@
 use crate::cache::BlobDigest;
-use crate::{config, ArenaId, CommandId};
+use crate::types::FileId;
+use crate::{config, CommandId};
 use anyhow::{anyhow, Context};
 use itertools::Itertools;
 use std::ffi::OsStr;
@@ -117,5 +118,3 @@ impl File {
         }
     }
 }
-
-pub type FileId = ArenaId<File>;

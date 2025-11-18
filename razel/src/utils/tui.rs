@@ -129,14 +129,10 @@ impl TUI {
         Self::field(
             "command:   ",
             Color::Blue,
-            self.format_command_line(
-                &command
-                    .executor
-                    .command_line_with_redirects(&self.razel_executable),
-            )
-            .as_str(),
+            self.format_command_line(&command.kind.command_line_with_redirects())
+                .as_str(),
         );
-        if let Some(env) = command.executor.env() {
+        if let Some(env) = command.kind.env() {
             Self::field(
                 "env:       ",
                 Color::Blue,

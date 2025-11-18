@@ -2,13 +2,11 @@ use crate::executors::AsyncTask;
 use crate::types::{CsvConcatTask, CsvFilterTask};
 use crate::SandboxDir;
 use anyhow::{ensure, Result};
-use async_trait::async_trait;
 use csv::{StringRecord, Writer};
 use itertools::Itertools;
 use std::io;
 use tokio::task::spawn_blocking;
 
-#[async_trait]
 impl AsyncTask for CsvConcatTask {
     async fn exec(&self, sandbox_dir: &SandboxDir) -> Result<()> {
         let inputs = self.input.iter().map(|x| sandbox_dir.join(x)).collect_vec();
@@ -38,7 +36,6 @@ impl AsyncTask for CsvConcatTask {
     }
 }
 
-#[async_trait]
 impl AsyncTask for CsvFilterTask {
     async fn exec(&self, sandbox_dir: &SandboxDir) -> Result<()> {
         let input = sandbox_dir.join(&self.input);

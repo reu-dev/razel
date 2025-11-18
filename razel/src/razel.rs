@@ -9,13 +9,16 @@ use crate::executors::{
 use crate::metadata::{write_graphs_html, LogFile, Measurements, Profile, Report};
 use crate::targets_builder::TargetsBuilder;
 use crate::tui::TUI;
-use crate::types::{RazelJsonCommand, RazelJsonTask, Tag, Target, TargetId, Task};
+use crate::types::{
+    DependencyGraph, FileId, RazelJsonCommand, RazelJsonTask, Tag, Target, TargetId, TargetKind,
+    Task,
+};
 use crate::{
     bazel_remote_exec, config, create_cgroup, force_remove_file, is_file_executable,
-    select_cache_dir, select_sandbox_dir, write_gitignore, Arena, BoxedSandbox, CGroup, File,
-    FileId, FileType, SandboxDir, Scheduler, TmpDirSandbox, WasiSandbox, GITIGNORE_FILENAME,
+    select_cache_dir, select_sandbox_dir, write_gitignore, BoxedSandbox, CGroup, FileType,
+    SandboxDir, Scheduler, TmpDirSandbox, WasiSandbox, GITIGNORE_FILENAME,
 };
-use anyhow::{anyhow, bail, Context};
+use anyhow::{bail, Context};
 use itertools::{chain, Itertools};
 use log::{debug, warn};
 use serde::{Deserialize, Serialize};
@@ -85,29 +88,27 @@ pub struct Razel {
     /// Should be but on same device as local cache dir to quickly move outfile file to cache.
     /// Ideally outside the workspace dir to help IDE indexer.
     sandbox_dir: Option<PathBuf>,
-    files: Arena<File>,
-    /// maps paths relative to current_dir (without out_dir prefix) to <File>s
-    path_to_file_id: HashMap<PathBuf, FileId>,
-    which_to_file_id: HashMap<String, FileId>,
+    targets_builder: Option<TargetsBuilder>,
+    dep_graph: DependencyGraph,
+    /// maps paths relative to current_dir (without out_dir prefix) to FileId
+    file_by_path: HashMap<PathBuf, FileId>,
     /// razel executable - used in Action::input_root_digest for versioning tasks
     self_file_id: Option<FileId>,
-    commands: Arena<Command>,
     excluded_commands_len: usize,
     /// single Linux cgroup for all commands to trigger OOM killer
     cgroup: Option<CGroup>,
     http_remote_exec_state: HttpRemoteExecState,
-    waiting: HashSet<CommandId>,
+    wasi_module_by_executable: HashMap<FileId, wasmtime::Module>,
     scheduler: Scheduler,
     succeeded: Vec<CommandId>,
     failed: Vec<CommandId>,
-    skipped: Vec<CommandId>,
+    skipped: HashSet<CommandId>,
     cache_hits: usize,
     tui: TUI,
     tui_dirty: bool,
     measurements: Measurements,
     profile: Profile,
     log_file: LogFile,
-    targets_builder: TargetsBuilder,
 }
 
 impl Razel {
@@ -117,7 +118,7 @@ impl Razel {
         let current_dir = env::current_dir().unwrap();
         let workspace_dir = current_dir.clone();
         let out_dir = PathBuf::from(config::OUT_DIR);
-        let targets_builder = TargetsBuilder::new(workspace_dir.clone());
+        let targets_builder = TargetsBuilder::new();
         Razel {
             read_cache: true,
             worker_threads,
@@ -126,26 +127,24 @@ impl Razel {
             out_dir,
             cache: None,
             sandbox_dir: None,
-            files: Default::default(),
-            path_to_file_id: Default::default(),
-            which_to_file_id: Default::default(),
+            targets_builder: Some(targets_builder),
+            dep_graph: Default::default(),
+            file_by_path: Default::default(),
             self_file_id: None,
-            commands: Default::default(),
             excluded_commands_len: 0,
             cgroup: None,
             http_remote_exec_state: Default::default(),
-            waiting: Default::default(),
+            wasi_module_by_executable: Default::default(),
             scheduler: Scheduler::new(worker_threads),
             succeeded: vec![],
             failed: vec![],
-            skipped: vec![],
+            skipped: Default::default(),
             cache_hits: 0,
             tui: TUI::new(),
             tui_dirty: false,
             measurements: Measurements::new(),
             profile: Profile::new(),
             log_file: Default::default(),
-            targets_builder,
         }
     }
 
@@ -169,41 +168,14 @@ impl Razel {
     }
 
     pub fn push_json_command(&mut self, json: RazelJsonCommand) -> anyhow::Result<TargetId> {
-        self.targets_builder.push_json_command(json)
-    }
-
-    // TODO cleanup tests
-    #[cfg(test)]
-    #[allow(clippy::too_many_arguments)]
-    pub fn push_custom_command(
-        &mut self,
-        name: String,
-        executable: String,
-        args: Vec<String>,
-        env: HashMap<String, String>,
-        inputs: Vec<String>,
-        outputs: Vec<String>,
-        stdout: Option<String>,
-        stderr: Option<String>,
-        deps: Vec<String>,
-        tags: Vec<Tag>,
-    ) -> Result<CommandId, anyhow::Error> {
-        self.targets_builder.push_json_command(RazelJsonCommand {
-            name,
-            executable,
-            args,
-            env,
-            inputs,
-            outputs,
-            stdout,
-            stderr,
-            deps,
-            tags,
-        })
+        self.targets_builder
+            .as_mut()
+            .unwrap()
+            .push_json_command(json)
     }
 
     pub fn push_json_task(&mut self, json: RazelJsonTask) -> anyhow::Result<TargetId> {
-        self.targets_builder.push_json_task(json)
+        self.targets_builder.as_mut().unwrap().push_json_task(json)
     }
 
     pub fn push_task(
@@ -213,57 +185,19 @@ impl Razel {
         task: Task,
         tags: Vec<Tag>,
     ) -> anyhow::Result<TargetId> {
-        self.targets_builder.push_task(name, args, task, tags)
+        self.targets_builder
+            .as_mut()
+            .unwrap()
+            .push_task(name, args, task, tags)
     }
 
-    /*
-    pub fn push(&mut self, builder: CommandBuilder) -> Result<CommandId, anyhow::Error> {
-        // TODO check if name is unique
-        let id = self.commands.alloc_with_id(|id| builder.build(id));
-        let command = &mut self.commands[id];
-        Self::check_tags(command)?;
-        if !matches!(&command.executor, Executor::CustomCommand(_)) {
-            // add razel executable to command hash
-            // TODO set digest to razel version once stable
-            let self_file_id = self.lazy_self_file_id()?;
-            self.commands[id].executables.push(self_file_id);
-        }
-        // patch outputs.creating_command
-        for output_id in &self.commands[id].outputs {
-            let output = &mut self.files[*output_id];
-            assert!(output.creating_command.is_none());
-            output.creating_command = Some(id);
-        }
-        Ok(id)
-    }
-
-    fn check_tags(command: &mut Command) -> Result<(), anyhow::Error> {
-        match &command.executor {
-            Executor::CustomCommand(_) => {
-                if command.tags.contains(&Tag::NoSandbox) && !command.tags.contains(&Tag::NoCache) {
-                    // executing a command without sandbox is not reliable, therefore don't cache it
-                    command.tags.push(Tag::NoCache);
-                }
-            }
-            Executor::Wasi(_) => {
-                if command.tags.contains(&Tag::NoSandbox) {
-                    bail!(
-                        "Tag is not supported for WASI executor: {}",
-                        serde_json::to_string(&Tag::NoSandbox).unwrap()
-                    );
-                }
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-
-     */
-
+    /// TODO add razel executable digest to command hash
     fn lazy_self_file_id(&mut self) -> Result<FileId, anyhow::Error> {
         if let Some(x) = self.self_file_id {
             Ok(x)
         } else {
+            todo!();
+            /*
             let path = Path::new(&env::args().next().unwrap())
                 .canonicalize()
                 .ok()
@@ -283,18 +217,11 @@ impl Razel {
             };
             self.self_file_id = Some(file_id);
             Ok(file_id)
+             */
         }
     }
 
-    #[cfg(test)]
-    pub fn get_command(&self, id: CommandId) -> Option<&Command> {
-        self.commands.get(id)
-    }
-
-    pub fn get_command_by_name(&self, command_name: &String) -> Option<&Command> {
-        self.commands.iter().find(|x| &x.name == command_name)
-    }
-
+    /*
     pub fn add_tag_for_command(&mut self, name: &str, tag: Tag) -> Result<(), anyhow::Error> {
         match self.commands.iter_mut().find(|x| x.name == name) {
             Some(command) => {
@@ -305,33 +232,27 @@ impl Razel {
             _ => bail!("Command not found: {name}"),
         }
     }
+     */
 
     pub fn list_commands(&mut self) {
         self.create_dependency_graph();
         while let Some(id) = self.scheduler.pop_ready_and_run() {
-            let command = &mut self.commands[id];
-            println!("# {}", command.name);
+            let target = &self.dep_graph.targets[id];
+            println!("# {}", target.name);
             println!(
                 "{}",
-                self.tui.format_command_line(
-                    &command
-                        .executor
-                        .command_line_with_redirects(&self.tui.razel_executable)
-                )
+                self.tui
+                    .format_command_line(&target.kind.command_line_with_redirects())
             );
-            command.schedule_state = ScheduleState::Succeeded;
             self.scheduler
-                .set_finished_and_get_retry_flag(command, false);
-            for rdep_id in command.reverse_deps.clone() {
-                let rdep = &mut self.commands[rdep_id];
-                assert_eq!(rdep.schedule_state, ScheduleState::Waiting);
-                assert!(!rdep.unfinished_deps.is_empty());
-                rdep.unfinished_deps
-                    .swap_remove(rdep.unfinished_deps.iter().position(|x| *x == id).unwrap());
-                if rdep.unfinished_deps.is_empty() {
-                    rdep.schedule_state = ScheduleState::Ready;
-                    self.waiting.remove(&rdep_id);
-                    self.scheduler.push_ready(rdep);
+                .set_finished_and_get_retry_flag(target, false);
+            for rdep_id in self.dep_graph.reverse_deps[&id].clone() {
+                let deps = self.dep_graph.deps.get_mut(rdep_id).unwrap();
+                assert!(!deps.is_empty());
+                deps.swap_remove(deps.iter().position(|x| *x == id).unwrap());
+                if deps.is_empty() {
+                    self.dep_graph.waiting.remove(&rdep_id);
+                    self.scheduler.push_ready(&self.dep_graph.targets[rdep_id]);
                 }
             }
         }
@@ -398,8 +319,8 @@ impl Razel {
         remote_cache_threshold: Option<u32>,
     ) -> Result<SchedulerStats, anyhow::Error> {
         let preparation_start = Instant::now();
-        if self.commands.is_empty() {
-            bail!("No commands added");
+        if self.dep_graph.targets.is_empty() {
+            bail!("No targets added");
         }
         self.tui.verbose = verbose;
         self.prepare_run(cache_dir, remote_cache, remote_cache_threshold)
@@ -434,7 +355,7 @@ impl Razel {
                 succeeded: self.succeeded.len(),
                 failed: self.failed.len(),
                 skipped: self.skipped.len(),
-                not_run: self.waiting.len() + self.scheduler.ready(),
+                not_run: self.dep_graph.waiting.len() + self.scheduler.ready(),
             },
             cache_hits: self.cache_hits,
             preparation_duration: execution_start.duration_since(preparation_start),
@@ -446,170 +367,21 @@ impl Razel {
         Ok(stats)
     }
 
-    pub(crate) fn get_file_path(&self, id: FileId) -> &PathBuf {
-        &self.files[id].path
-    }
-
-    /*
-    /// Register an executable file
-    pub fn executable(&mut self, arg: String) -> Result<&File, anyhow::Error> {
-        let path = Path::new(&arg);
-        if path.is_relative() {
-            let abs = self.workspace_dir.join(path);
-            let cwd_path = abs.strip_prefix(&self.current_dir).unwrap().to_path_buf();
-            if let Some(id) = self.path_to_file_id.get(&cwd_path) {
-                return Ok(&self.files[*id]);
-            }
-        }
-        let (file_type, abs_path) = FileType::from_executable_arg(&arg, &self.workspace_dir)?;
-        match file_type {
-            FileType::ExecutableInWorkspace
-            | FileType::ExecutableOutsideWorkspace
-            | FileType::WasiModule => {
-                let cwd_path = self.rel_path(&abs_path.unwrap().to_str().unwrap().into())?;
-                self.input_file_for_rel_path(arg, file_type, cwd_path)
-            }
-            FileType::SystemExecutable => self.executable_which(arg, file_type),
-            FileType::RazelExecutable => self.lazy_self_file_id().map(|x| &self.files[x]),
-            _ => unreachable!(),
-        }
-    }
-
-    fn executable_which(
-        &mut self,
-        arg: String,
-        file_type: FileType,
-    ) -> Result<&File, anyhow::Error> {
-        if let Some(x) = self.which_to_file_id.get(&arg) {
-            Ok(&self.files[*x])
-        } else {
-            let path =
-                which(&arg).with_context(|| format!("executable not found: {:?}", arg.clone()))?;
-            debug!("which({arg}) => {path:?}");
-            let id = self
-                .input_file_for_rel_path(arg.clone(), file_type, path.to_str().unwrap().into())?
-                .id;
-            self.which_to_file_id.insert(arg, id);
-            Ok(&self.files[id])
-        }
-    }
-
-    pub fn input_file(&mut self, arg: String) -> Result<&File, anyhow::Error> {
-        let rel_path = self.rel_path(&arg)?;
-        self.input_file_for_rel_path(arg, FileType::DataFile, rel_path)
-    }
-
-    fn input_file_for_rel_path(
-        &mut self,
-        arg: String,
-        file_type: FileType,
-        rel_path: PathBuf,
-    ) -> Result<&File, anyhow::Error> {
-        let id = self
-            .path_to_file_id
-            .get(&rel_path)
-            .cloned()
-            .unwrap_or_else(|| {
-                let id = self
-                    .files
-                    .alloc_with_id(|id| File::new(id, arg, file_type, rel_path.clone()));
-                self.path_to_file_id.insert(rel_path, id);
-                id
-            });
-        Ok(&self.files[id])
-    }
-
-    pub fn output_file(
-        &mut self,
-        arg: &String,
-        file_type: FileType,
-    ) -> Result<&File, anyhow::Error> {
-        let rel_path = self.rel_path(arg)?;
-        if let Some(file) = self.path_to_file_id.get(&rel_path).map(|x| &self.files[*x]) {
-            if let Some(creating_command) = file.creating_command {
-                bail!(
-                    "File {} cannot be output of multiple commands, already output of {}",
-                    arg,
-                    self.commands[creating_command].name
-                );
-            } else {
-                bail!(
-                    "File {} cannot be output because it's already used as data",
-                    arg,
-                );
-            }
-        }
-        let id = self.files.alloc_with_id(|id| {
-            File::new(id, arg.clone(), file_type, self.out_dir.join(&rel_path))
-        });
-        self.path_to_file_id.insert(rel_path, id);
-        Ok(&self.files[id])
-    }
-
-    pub fn http_remote_exec(&self, url: &Url) -> Option<Arc<HttpRemoteExecDomain>> {
-        self.http_remote_exec_state.for_url(url)
-    }
-
-    pub fn wasi_module(&mut self, arg: String) -> Result<&File, anyhow::Error> {
-        let rel_path = self.rel_path(&arg)?;
-        self.input_file_for_rel_path(arg, FileType::WasiModule, rel_path)
-    }
-
-    /// Maps a relative path from workspace dir to cwd, allow absolute path
-    fn rel_path(&self, arg: &String) -> Result<PathBuf, anyhow::Error> {
-        let path = Path::new(arg);
-        if path.is_absolute() {
-            Ok(PathBuf::from(
-                path.strip_prefix(&self.current_dir).unwrap_or(path),
-            ))
-        } else {
-            self.workspace_dir
-                .join(path)
-                .strip_prefix(&self.current_dir)
-                .map(PathBuf::from)
-                .with_context(|| {
-                    format!(
-                        "File is not within cwd ({:?}): {:?}",
-                        self.current_dir, path
-                    )
-                })
-        }
-    }
-     */
-
     fn create_dependency_graph(&mut self) {
-        let reserve = self.commands.len() - self.excluded_commands_len;
-        self.waiting.reserve(reserve);
-        self.succeeded.reserve(reserve);
-        let mut rdeps = vec![];
-        for command in self.commands.iter_mut() {
-            assert_eq!(command.schedule_state, ScheduleState::New);
-            if command.is_excluded {
-                command.schedule_state = ScheduleState::Excluded;
-                continue;
-            }
-            command.unfinished_deps.reserve(command.deps.len());
-            for input_id in chain!(&command.executables, &command.inputs) {
-                if let Some(dep) = self.files[*input_id].creating_command {
-                    command.unfinished_deps.push(dep);
-                    rdeps.push((dep, command.id));
-                }
-            }
-            for dep in &command.deps {
-                command.unfinished_deps.push(*dep);
-                rdeps.push((*dep, command.id));
-            }
-            if command.unfinished_deps.is_empty() {
-                command.schedule_state = ScheduleState::Ready;
-                self.scheduler.push_ready(command);
-            } else {
-                command.schedule_state = ScheduleState::Waiting;
-                self.waiting.insert(command.id);
-            }
-        }
-        for (id, rdep) in rdeps {
-            self.commands[id].reverse_deps.push(rdep);
-        }
+        assert!(self.dep_graph.targets.is_empty());
+        let builder = self.targets_builder.take().unwrap();
+        self.dep_graph = DependencyGraph {
+            targets: builder.targets,
+            files: builder.files,
+            creator_for_file: builder.creator_for_file,
+            target_by_name: builder.target_by_name,
+            deps: vec![],
+            reverse_deps: Default::default(),
+            ready: vec![],
+            waiting: Default::default(),
+        };
+        self.dep_graph.create();
+        self.file_by_path = builder.file_by_path;
     }
 
     fn remove_unknown_or_excluded_files_from_out_dir(
@@ -625,9 +397,9 @@ impl Razel {
                 } else {
                     let path_wo_prefix = path.strip_prefix(&self.out_dir).unwrap();
                     if self
-                        .path_to_file_id
+                        .file_by_path
                         .get(path_wo_prefix)
-                        .map_or(true, |x| self.files[*x].is_excluded)
+                        .map_or(true, |x| self.dep_graph.files[*x].is_excluded)
                         && path_wo_prefix.to_string_lossy() != GITIGNORE_FILENAME
                     {
                         fs::remove_file(path).ok();
@@ -639,9 +411,14 @@ impl Razel {
     }
 
     fn remove_outputs_of_not_run_actions_from_out_dir(&self) {
-        for command_id in self.waiting.iter().chain(self.scheduler.ready_ids().iter()) {
-            for file_id in &self.commands[*command_id].outputs {
-                fs::remove_file(&self.files[*file_id].path).ok();
+        for target_id in self
+            .dep_graph
+            .waiting
+            .iter()
+            .chain(self.scheduler.ready_ids().iter())
+        {
+            for file_id in &self.dep_graph.targets[*target_id].outputs {
+                fs::remove_file(&self.dep_graph.files[*file_id].path).ok();
             }
         }
     }
@@ -650,7 +427,7 @@ impl Razel {
         let concurrent = self.worker_threads;
         let (tx, mut rx) = mpsc::channel(concurrent);
         let mut tx_option = Some(tx);
-        let mut next_file_id = self.files.first_id();
+        let mut next_file_id = 0;
         for _ in 0..concurrent {
             self.spawn_digest_input_file(&mut next_file_id, &mut tx_option);
         }
@@ -658,7 +435,7 @@ impl Razel {
         while let Some((id, result)) = rx.recv().await {
             match result {
                 Ok(digest) => {
-                    self.files[id].digest = Some(digest);
+                    self.dep_graph.files[id].digest = Some(digest);
                 }
                 Err(x) => {
                     warn!("{x}");
@@ -697,10 +474,12 @@ impl Razel {
 
     fn create_output_dirs(&self) -> Result<(), anyhow::Error> {
         let dirs = self
-            .files
+            .dep_graph
+            .targets
             .iter()
-            .filter(|x| x.creating_command.is_some() && !x.is_excluded)
-            .map(|x| x.path.parent().unwrap())
+            .filter(|x| !x.is_excluded)
+            .flat_map(|x| &x.outputs)
+            .map(|x| self.dep_graph.files[*x].path.parent().unwrap())
             .sorted_unstable()
             .dedup();
         for x in dirs {
@@ -713,25 +492,21 @@ impl Razel {
 
     fn create_wasi_modules(&mut self) -> Result<(), anyhow::Error> {
         let mut engine = None;
-        let mut modules: HashMap<FileId, wasmtime::Module> = HashMap::new();
-        for command in self.commands.iter_mut() {
-            if let Executor::Wasi(executor) = &mut command.executor {
-                let file_id = executor.module_file_id.unwrap();
-                let module = match modules.entry(file_id) {
-                    hash_map::Entry::Occupied(x) => x.get().clone(),
-                    hash_map::Entry::Vacant(x) => {
-                        if engine.is_none() {
-                            engine = Some(WasiExecutor::create_engine()?);
-                        }
-                        let module = WasiExecutor::create_module(
-                            engine.as_ref().unwrap(),
-                            &executor.executable,
-                        )?;
-                        x.insert(module.clone());
-                        module
-                    }
-                };
-                executor.module = Some(module);
+        for target in self
+            .dep_graph
+            .targets
+            .iter()
+            .filter(|t| matches!(&t.kind, TargetKind::Wasi(_)))
+        {
+            let executable_id = *target.executables.first().unwrap();
+            if let hash_map::Entry::Vacant(x) = self.wasi_module_by_executable.entry(executable_id)
+            {
+                if engine.is_none() {
+                    engine = Some(WasiExecutor::create_engine()?);
+                }
+                let path = &self.dep_graph.files[executable_id].path;
+                let module = WasiExecutor::create_module(engine.as_ref().unwrap(), path)?;
+                x.insert(module);
             }
         }
         Ok(())
@@ -759,8 +534,8 @@ impl Razel {
     }
 
     fn new_sandbox(&self, command: &Command) -> BoxedSandbox {
-        match command.executor {
-            Executor::Wasi(_) => self.new_wasi_sandbox(command),
+        match command.kind {
+            TargetKind::Wasi(_) => self.new_wasi_sandbox(command),
             _ => self.new_tmp_dir_sandbox(command),
         }
     }
@@ -821,7 +596,6 @@ impl Razel {
     fn start_next_command(&mut self, id: CommandId, tx: UnboundedSender<ExecutionResultChannel>) {
         let total_duration_start = Instant::now();
         let command = &self.commands[id];
-        assert_eq!(command.schedule_state, ScheduleState::Ready);
         assert_eq!(command.unfinished_deps.len(), 0);
         let (bzl_command, bzl_input_root) = self.get_bzl_action_for_command(command);
         let no_cache_tag = command.tags.contains(&Tag::NoCache);
@@ -1123,38 +897,32 @@ impl Razel {
 
     fn on_command_finished(
         &mut self,
-        id: CommandId,
+        id: TargetId,
         execution_result: &ExecutionResult,
         output_files: Vec<OutputFile>,
         output_files_cached: bool,
     ) {
-        let retry = self.scheduler.set_finished_and_get_retry_flag(
-            &self.commands[id],
-            execution_result.out_of_memory_killed(),
-        );
+        let target = &self.dep_graph.as_ref().unwrap().targets[id];
+        let retry = self
+            .scheduler
+            .set_finished_and_get_retry_flag(target, execution_result.out_of_memory_killed());
         if retry {
             self.on_command_retry(id, execution_result);
         } else {
-            let measurements = self
-                .measurements
-                .collect(&self.commands[id].name, execution_result);
-            self.profile.collect(&self.commands[id], execution_result);
+            let measurements = self.measurements.collect(&target.name, execution_result);
+            self.profile.collect(target, execution_result);
             let output_size = output_files
                 .iter()
                 .map(|x| x.digest.as_ref().unwrap().size_bytes as u64)
                 .sum::<u64>()
                 + execution_result.stdout.len() as u64
                 + execution_result.stderr.len() as u64;
-            self.log_file.push(
-                &self.commands[id],
-                execution_result,
-                Some(output_size),
-                measurements,
-            );
+            self.log_file
+                .push(target, execution_result, Some(output_size), measurements);
             if execution_result.success() {
                 self.set_output_file_digests(output_files, output_files_cached);
                 self.on_command_succeeded(id, execution_result);
-            } else if self.commands[id].tags.contains(&Tag::Condition) {
+            } else if target.tags.contains(&Tag::Condition) {
                 self.on_condition_failed(id, execution_result);
             } else {
                 self.on_command_failed(id, execution_result);
@@ -1171,7 +939,7 @@ impl Razel {
         for output_file in output_files {
             assert!(output_file.digest.is_some());
             let path = PathBuf::from(output_file.path);
-            let file = &mut self.files[self.path_to_file_id[&path]];
+            let file = &mut self.files[self.file_by_path[&path]];
             assert!(file.digest.is_none());
             file.digest = output_file.digest;
             if output_files_cached {
@@ -1181,56 +949,52 @@ impl Razel {
     }
 
     /// Track state and check if reverse dependencies are ready
-    fn on_command_succeeded(&mut self, id: CommandId, execution_result: &ExecutionResult) {
+    fn on_command_succeeded(&mut self, id: TargetId, execution_result: &ExecutionResult) {
         self.succeeded.push(id);
         if execution_result.cache_hit.is_some() {
             self.cache_hits += 1;
         }
-        let command = &mut self.commands[id];
-        command.schedule_state = ScheduleState::Succeeded;
-        self.tui.command_succeeded(command, execution_result);
-        for rdep_id in command.reverse_deps.clone() {
-            let rdep = &mut self.commands[rdep_id];
-            assert!(!rdep.unfinished_deps.is_empty());
-            rdep.unfinished_deps
-                .swap_remove(rdep.unfinished_deps.iter().position(|x| *x == id).unwrap());
-            if rdep.unfinished_deps.is_empty() {
-                assert_eq!(rdep.schedule_state, ScheduleState::Waiting);
-                rdep.schedule_state = ScheduleState::Ready;
-                self.waiting.remove(&rdep_id);
-                self.scheduler.push_ready(rdep);
+        let dep_graph = self.dep_graph.as_mut().unwrap();
+        let target = &dep_graph.targets[id];
+        self.tui.command_succeeded(target, execution_result);
+        for rdep_id in dep_graph.reverse_deps[&id].clone() {
+            let deps = dep_graph.deps.get_mut(rdep_id).unwrap();
+            assert!(!deps.is_empty());
+            deps.swap_remove(deps.iter().position(|x| *x == id).unwrap());
+            if deps.is_empty() {
+                dep_graph.waiting.remove(&rdep_id);
+                self.scheduler.push_ready(&dep_graph.targets[rdep_id]);
             }
         }
     }
 
-    fn on_command_retry(&mut self, id: CommandId, execution_result: &ExecutionResult) {
-        let command = &self.commands[id];
-        self.tui.command_retry(command, execution_result);
+    fn on_command_retry(&mut self, id: TargetId, execution_result: &ExecutionResult) {
+        let target = &self.dep_graph.as_ref().unwrap().targets[id];
+        self.tui.command_retry(target, execution_result);
     }
 
-    fn on_command_failed(&mut self, id: CommandId, execution_result: &ExecutionResult) {
+    fn on_command_failed(&mut self, id: TargetId, execution_result: &ExecutionResult) {
         self.failed.push(id);
-        let command = &self.commands[id];
-        self.tui.command_failed(command, execution_result);
+        let target = &self.dep_graph.as_ref().unwrap().targets[id];
+        self.tui.command_failed(target, execution_result);
     }
 
-    fn on_condition_failed(&mut self, id: CommandId, execution_result: &ExecutionResult) {
-        let command = &self.commands[id];
-        self.tui.command_failed(command, execution_result);
-        let mut ids_to_skip = command.reverse_deps.clone();
+    fn on_condition_failed(&mut self, id: TargetId, execution_result: &ExecutionResult) {
+        let dep_graph = self.dep_graph.as_mut().unwrap();
+        let target = &dep_graph.targets[id];
+        self.tui.command_failed(target, execution_result);
+        let mut ids_to_skip = dep_graph.reverse_deps[&id].clone();
         while let Some(id_to_skip) = ids_to_skip.pop() {
-            let to_skip = &mut self.commands[id_to_skip];
-            if to_skip.schedule_state == ScheduleState::Skipped {
+            if self.skipped.contains(&id_to_skip) {
                 continue;
             }
-            assert_eq!(to_skip.schedule_state, ScheduleState::Waiting);
-            assert!(!to_skip.unfinished_deps.is_empty());
-            to_skip.schedule_state = ScheduleState::Skipped;
+            let to_skip = &dep_graph.targets[id_to_skip];
+            assert!(!dep_graph.deps[id_to_skip].is_empty());
             self.log_file
                 .push_not_run(to_skip, ExecutionStatus::Skipped);
-            self.waiting.remove(&id_to_skip);
-            self.skipped.push(id_to_skip);
-            ids_to_skip.extend(to_skip.reverse_deps.iter());
+            dep_graph.waiting.remove(&id_to_skip);
+            self.skipped.insert(id_to_skip);
+            ids_to_skip.extend(dep_graph.reverse_deps[&id_to_skip].iter());
         }
     }
 
@@ -1327,6 +1091,7 @@ mod tests {
     use approx::assert_abs_diff_eq;
     use serial_test::serial;
 
+    use crate::types::RazelJsonCommand;
     use crate::{Razel, SchedulerExecStats};
 
     /// Test that commands are actually run in parallel limited by Scheduler::worker_threads
@@ -1340,18 +1105,18 @@ mod tests {
         let sleep_duration = 0.5;
         for i in 0..n {
             razel
-                .push_custom_command(
-                    format!("{i}"),
-                    "cmake".into(),
-                    vec!["-E".into(), "sleep".into(), sleep_duration.to_string()],
-                    Default::default(),
-                    vec![],
-                    vec![],
-                    None,
-                    None,
-                    vec![],
-                    vec![],
-                )
+                .push_json_command(RazelJsonCommand {
+                    name: format!("{i}"),
+                    executable: "cmake".into(),
+                    args: vec!["-E".into(), "sleep".into(), sleep_duration.to_string()],
+                    env: Default::default(),
+                    inputs: vec![],
+                    outputs: vec![],
+                    stdout: None,
+                    stderr: None,
+                    deps: vec![],
+                    tags: vec![],
+                })
                 .unwrap();
         }
         let stats = razel

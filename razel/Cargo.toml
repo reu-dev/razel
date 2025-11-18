@@ -13,7 +13,6 @@ default-run = "razel"
 
 [dependencies]
 anyhow = { workspace = true }
-async-trait = { version = "0.1", optional = true }
 base16ct = { version = "0.2", features = ["alloc"] }
 bstr = "1"
 clap = { workspace = true }
@@ -57,7 +56,7 @@ serial_test = "3"
 
 [features]
 default = ["full"]
-full = ["dep:async-trait", "dep:crossterm", "dep:csv", "dep:directories", "dep:dotenv-flow", "dep:futures-util",
+full = ["dep:crossterm", "dep:csv", "dep:directories", "dep:dotenv-flow", "dep:futures-util",
     "dep:gethostname", "dep:num_cpus", "dep:prost", "dep:prost-types", "dep:regex", "dep:reqwest", "dep:sha2",
     "dep:simplelog", "dep:tokio", "dep:tonic", "dep:tonic-prost", "dep:wasmtime", "dep:wasmtime-wasi", "dep:procfs", "dep:tonic-prost-build"]
 

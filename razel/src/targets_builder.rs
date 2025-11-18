@@ -31,11 +31,9 @@ pub struct TargetsBuilder {
 }
 
 impl TargetsBuilder {
-    pub fn new(mut workspace_dir: PathBuf) -> Self {
+    pub fn new() -> Self {
         let current_dir = env::current_dir().unwrap();
-        if workspace_dir.is_relative() {
-            workspace_dir = current_dir.join(workspace_dir);
-        }
+        let workspace_dir = current_dir.clone();
         Self {
             current_dir,
             workspace_dir,
@@ -46,6 +44,15 @@ impl TargetsBuilder {
             creator_for_file: Default::default(),
             target_by_name: Default::default(),
             system_executable_by_name: Default::default(),
+        }
+    }
+
+    /// Set the directory to resolve relative paths of input/output files
+    pub fn set_workspace_dir(&mut self, dir: &Path) {
+        if dir.is_absolute() {
+            self.workspace_dir = dir.into();
+        } else {
+            self.workspace_dir = self.current_dir.join(dir);
         }
     }
 
@@ -82,9 +89,8 @@ impl TargetsBuilder {
             stdout_file: command.stdout.map(|x| x.into()),
             stderr_file: command.stderr.map(|x| x.into()),
         };
-        let id = self.targets.len();
         let target = Target {
-            id,
+            id: Default::default(),
             name: command.name,
             kind: if command_target.executable.ends_with(".wasm") {
                 TargetKind::Wasi(command_target)
@@ -96,9 +102,9 @@ impl TargetsBuilder {
             outputs,
             deps,
             tags: command.tags,
+            is_excluded: false,
         };
-        self.push_target(target);
-        Ok(id)
+        self.push_target(target)
     }
 
     pub fn push_json_task(&mut self, json: RazelJsonTask) -> Result<TargetId> {
@@ -187,19 +193,43 @@ impl TargetsBuilder {
             outputs,
             deps: vec![],
             tags,
+            is_excluded: false,
         };
-        self.push_target(target);
-        Ok(id)
+        self.push_target(target)
     }
 
-    fn push_target(&mut self, target: Target) {
+    fn push_target(&mut self, mut target: Target) -> Result<TargetId> {
+        Self::check_tags(&mut target)?;
         let old = self.target_by_name.insert(target.name.clone(), target.id);
         assert!(old.is_none());
+        let id = self.targets.len();
+        target.id = id;
         for output in target.outputs.iter().cloned() {
             let old = self.creator_for_file.insert(output, target.id);
             assert!(old.is_none());
         }
         self.targets.push(target);
+        Ok(id)
+    }
+
+    fn check_tags(target: &mut Target) -> Result<()> {
+        match &target.kind {
+            TargetKind::Command(_) | TargetKind::Task(_) | TargetKind::HttpRemoteExecTask(_) => {
+                if target.tags.contains(&Tag::NoSandbox) && !target.tags.contains(&Tag::NoCache) {
+                    // executing a command without sandbox is not reliable, therefore don't cache it
+                    target.tags.push(Tag::NoCache);
+                }
+            }
+            TargetKind::Wasi(_) => {
+                if target.tags.contains(&Tag::NoSandbox) {
+                    bail!(
+                        "Tag is not supported for WASI executor: {}",
+                        serde_json::to_string(&Tag::NoSandbox).unwrap()
+                    );
+                }
+            }
+        }
+        Ok(())
     }
 
     fn push_executable_file(&mut self, arg: &str) -> Result<FileId> {
@@ -352,12 +382,14 @@ impl File {
             path,
             digest: None,
             executable,
+            is_excluded: false,
         }
     }
 }
 
 pub fn parse_jsonl_file(path: &str) -> Result<TargetsBuilder> {
-    let mut builder = TargetsBuilder::new(Path::new(path).parent().unwrap().into());
+    let mut builder = TargetsBuilder::new();
+    builder.set_workspace_dir(Path::new(path).parent().unwrap());
     let file =
         BufReader::new(fs::File::open(path).with_context(|| anyhow!("failed to open {path:?}"))?);
     let mut len: usize = 0;

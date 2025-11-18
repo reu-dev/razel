@@ -2,11 +2,9 @@ use crate::executors::AsyncTask;
 use crate::types::{CaptureRegexTask, EnsureEqualTask, EnsureNotEqualTask, WriteFileTask};
 use crate::SandboxDir;
 use anyhow::{anyhow, bail, Result};
-use async_trait::async_trait;
 use regex::Regex;
 use tokio::task::spawn_blocking;
 
-#[async_trait]
 impl AsyncTask for CaptureRegexTask {
     async fn exec(&self, sandbox_dir: &SandboxDir) -> Result<()> {
         let regex = Regex::new(&self.regex)?;
@@ -30,7 +28,6 @@ impl AsyncTask for CaptureRegexTask {
     }
 }
 
-#[async_trait]
 impl AsyncTask for WriteFileTask {
     async fn exec(&self, sandbox_dir: &SandboxDir) -> Result<()> {
         let output = sandbox_dir.join(&self.file);
@@ -41,7 +38,6 @@ impl AsyncTask for WriteFileTask {
     }
 }
 
-#[async_trait]
 impl AsyncTask for EnsureEqualTask {
     async fn exec(&self, sandbox_dir: &SandboxDir) -> Result<()> {
         assert!(sandbox_dir.dir.is_none());
@@ -60,7 +56,6 @@ impl AsyncTask for EnsureEqualTask {
     }
 }
 
-#[async_trait]
 impl AsyncTask for EnsureNotEqualTask {
     async fn exec(&self, sandbox_dir: &SandboxDir) -> Result<()> {
         assert!(sandbox_dir.dir.is_none());

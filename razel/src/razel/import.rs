@@ -1,6 +1,5 @@
 use super::Razel;
-use crate::executors::Executor;
-use crate::types::{RazelJson, RazelJsonCommand, RazelJsonTask};
+use crate::types::{RazelJson, RazelJsonCommand, RazelJsonTask, TargetKind};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
@@ -9,51 +8,43 @@ use std::slice::Iter;
 impl Razel {
     pub fn write_jsonl(&self, output: &Path) -> Result<(), anyhow::Error> {
         let mut writer = BufWriter::new(File::create(output)?);
-        for command in self.commands.iter() {
-            let json = match &command.executor {
-                Executor::CustomCommand(_) | Executor::Wasi(_) => {
+        for target in self.dep_graph.targets.iter() {
+            let json = match &target.kind {
+                TargetKind::Command(c) | TargetKind::Wasi(c) => {
                     RazelJson::Command(RazelJsonCommand {
-                        name: command.name.clone(),
-                        executable: self.files[*command.executables.first().unwrap()]
-                            .arg
-                            .clone(),
-                        args: args_wo_out_dir(&self.out_dir, command.executor.args().iter()),
-                        env: command.executor.env().cloned().unwrap_or_default(),
-                        inputs: command
+                        name: target.name.clone(),
+                        executable: c.executable.clone(),
+                        args: args_wo_out_dir(&self.out_dir, c.args.iter()),
+                        env: c.env.clone(),
+                        inputs: target
                             .inputs
                             .iter()
-                            .map(|x| self.files[*x].arg.clone())
+                            .map(|x| self.dep_graph.files[*x].path.to_str().unwrap().into())
                             .collect(),
-                        outputs: command
+                        outputs: target
                             .outputs
                             .iter()
-                            .map(|x| self.files[*x].arg.clone())
+                            .map(|x| self.dep_graph.files[*x].path.to_str().unwrap().into())
                             .collect(),
-                        stdout: command
-                            .executor
-                            .stdout_file()
-                            .map(|x| x.to_str().unwrap().into()),
-                        stderr: command
-                            .executor
-                            .stderr_file()
-                            .map(|x| x.to_str().unwrap().into()),
-                        deps: command
+                        stdout: c.stdout_file.as_ref().map(|x| x.to_str().unwrap().into()),
+                        stderr: c.stderr_file.as_ref().map(|x| x.to_str().unwrap().into()),
+                        deps: target
                             .deps
                             .iter()
-                            .map(|x| self.commands[*x].name.clone())
+                            .map(|x| self.dep_graph.targets[*x].name.clone())
                             .collect(),
-                        tags: command.tags.clone(),
+                        tags: target.tags.clone(),
                     })
                 }
-                Executor::Task(_) | Executor::HttpRemote(_) => {
-                    let mut i = command.executor.args().iter();
-                    i.next();
-                    i.next();
+                TargetKind::Task(t) | TargetKind::HttpRemoteExecTask(t) => {
+                    let mut i = t.args.iter();
+                    i.next(); // "task"
+                    let task = i.next().unwrap().to_string();
                     RazelJson::Task(RazelJsonTask {
-                        name: command.name.clone(),
-                        task: i.next().unwrap().to_string(),
+                        name: target.name.clone(),
+                        task,
                         args: args_wo_out_dir(&self.out_dir, i),
-                        tags: command.tags.clone(),
+                        tags: target.tags.clone(),
                     })
                 }
             };

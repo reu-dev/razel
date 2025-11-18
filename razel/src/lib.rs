@@ -85,7 +85,6 @@ pub mod metadata {
 #[cfg(feature = "full")]
 pub mod utils {
     pub mod test_utils;
-    pub use arena::*;
     pub use directories::*;
     pub use file_permissions::*;
     pub use hardlink::*;
@@ -93,7 +92,6 @@ pub mod utils {
     pub use resources::*;
     pub use symlink::*;
 
-    mod arena;
     mod directories;
     mod file_permissions;
     mod hardlink;

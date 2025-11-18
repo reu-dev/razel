@@ -13,6 +13,7 @@ pub struct File {
     pub path: PathBuf,
     pub digest: Option<Digest>,
     pub executable: Option<ExecutableType>,
+    pub is_excluded: bool,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -45,6 +46,7 @@ pub struct Target {
     /// dependencies on other targets in addition to input files
     pub deps: Vec<TargetId>,
     pub tags: Vec<Tag>,
+    pub is_excluded: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -52,6 +54,7 @@ pub enum TargetKind {
     Command(CommandTarget),
     Wasi(CommandTarget),
     Task(TaskTarget),
+    HttpRemoteExecTask(TaskTarget),
 }
 
 impl TargetKind {
@@ -66,7 +69,9 @@ impl TargetKind {
             .into_iter()
             .chain(x.args_with_executable())
             .collect(),
-            TargetKind::Task(x) => x.command_line_with_redirects(),
+            TargetKind::Task(x) | TargetKind::HttpRemoteExecTask(x) => {
+                x.command_line_with_redirects()
+            }
         }
     }
 
@@ -81,12 +86,21 @@ impl TargetKind {
             .into_iter()
             .chain(x.command_line_with_redirects())
             .collect(),
-            TargetKind::Task(x) => x.command_line_with_redirects(),
+            TargetKind::Task(x) | TargetKind::HttpRemoteExecTask(x) => {
+                x.command_line_with_redirects()
+            }
+        }
+    }
+
+    pub fn env(&self) -> Option<&HashMap<String, String>> {
+        match self {
+            TargetKind::Command(c) | TargetKind::Wasi(c) => Some(&c.env),
+            TargetKind::Task(_) | TargetKind::HttpRemoteExecTask(_) => None,
         }
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct CommandTarget {
     pub executable: String,
     pub args: Vec<String>,

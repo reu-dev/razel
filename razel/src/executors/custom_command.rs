@@ -13,6 +13,10 @@ use crate::types::CommandTarget;
 pub struct CustomCommandExecutor {}
 
 impl CustomCommandExecutor {
+    pub fn new() -> CustomCommandExecutor {
+        CustomCommandExecutor {}
+    }
+
     pub async fn exec(
         &self,
         c: &CommandTarget,
@@ -242,32 +246,27 @@ impl CustomCommandExecutor {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::executors::{CustomCommandExecutor, ExecutionStatus};
-    use crate::types::Tag;
-    use crate::{Razel, SandboxDir};
-    use std::path::Path;
+    use crate::types::CommandTarget;
+
+    async fn exec_basic(executable: &str, args: Vec<String>) -> ExecutionResult {
+        exec_target(CommandTarget {
+            executable: executable.into(),
+            args,
+            ..Default::default()
+        })
+        .await
+    }
+
+    async fn exec_target(target: CommandTarget) -> ExecutionResult {
+        let executor = CustomCommandExecutor::new();
+        executor.exec(&target, &None.into(), None, None).await
+    }
 
     #[tokio::test]
     async fn exec_ok() {
-        let mut razel = Razel::new();
-        let command = razel
-            .push_custom_command(
-                "test".into(),
-                "cmake".into(),
-                vec!["-E".into(), "true".into()],
-                Default::default(),
-                vec![],
-                vec![],
-                None,
-                None,
-                vec![],
-                vec![],
-            )
-            .map(|id| razel.get_command(id).unwrap())
-            .unwrap();
-        let result = CustomCommandExecutor {}
-            .exec(&command, &SandboxDir::new(None), None, None)
-            .await;
+        let result = exec_basic("cmake", vec!["-E".into(), "true".into()]).await;
         assert!(result.success());
         assert_eq!(result.status, ExecutionStatus::Success);
         assert_eq!(result.exit_code, Some(0));
@@ -276,23 +275,11 @@ mod tests {
 
     #[tokio::test]
     async fn exec_fail_to_start() {
-        let mut razel = Razel::new();
-        let command = razel
-            .push_custom_command(
-                "test".into(),
-                "./examples/data/a.csv".into(), // file exists but is not executable
-                vec![],
-                Default::default(),
-                vec![],
-                vec![],
-                None,
-                None,
-                vec![],
-                vec![],
-            )
-            .map(|id| razel.get_command(id).unwrap())
-            .unwrap();
-        let result = command.executor.exec(Path::new("."), None, None).await;
+        let result = exec_basic(
+            "./examples/data/a.csv".into(), // file exists but is not executable
+            vec![],
+        )
+        .await;
         assert!(!result.success());
         assert_eq!(result.status, ExecutionStatus::FailedToStart);
         assert_eq!(result.exit_code, None);
@@ -301,23 +288,7 @@ mod tests {
 
     #[tokio::test]
     async fn exec_failed_to_run() {
-        let mut razel = Razel::new();
-        let command = razel
-            .push_custom_command(
-                "test".into(),
-                "cmake".into(),
-                vec!["-E".into(), "false".into()],
-                Default::default(),
-                vec![],
-                vec![],
-                None,
-                None,
-                vec![],
-                vec![],
-            )
-            .map(|id| razel.get_command(id).unwrap())
-            .unwrap();
-        let result = command.executor.exec(Path::new("."), None, None).await;
+        let result = exec_basic("cmake", vec!["-E".into(), "false".into()]).await;
         assert!(!result.success());
         assert_eq!(result.status, ExecutionStatus::Failed);
         assert_eq!(result.exit_code, Some(1));
@@ -326,23 +297,7 @@ mod tests {
 
     #[tokio::test]
     async fn exec_stdout() {
-        let mut razel = Razel::new();
-        let command = razel
-            .push_custom_command(
-                "test".into(),
-                "cmake".into(),
-                vec!["-h".into()],
-                Default::default(),
-                vec![],
-                vec![],
-                None,
-                None,
-                vec![],
-                vec![],
-            )
-            .map(|id| razel.get_command(id).unwrap())
-            .unwrap();
-        let result = command.executor.exec(Path::new("."), None, None).await;
+        let result = exec_basic("cmake", vec!["-h".into()]).await;
         assert!(result.success());
         assert_eq!(result.status, ExecutionStatus::Success);
         assert_eq!(result.exit_code, Some(0));
@@ -353,23 +308,11 @@ mod tests {
 
     #[tokio::test]
     async fn exec_stderr() {
-        let mut razel = Razel::new();
-        let command = razel
-            .push_custom_command(
-                "test".into(),
-                "cmake".into(),
-                vec!["-E".into(), "hopefully-not-existing-command".into()],
-                Default::default(),
-                vec![],
-                vec![],
-                None,
-                None,
-                vec![],
-                vec![],
-            )
-            .map(|id| razel.get_command(id).unwrap())
-            .unwrap();
-        let result = command.executor.exec(Path::new("."), None, None).await;
+        let result = exec_basic(
+            "cmake",
+            vec!["-E".into(), "hopefully-not-existing-command".into()],
+        )
+        .await;
         assert!(!result.success());
         assert_eq!(result.status, ExecutionStatus::Failed);
         assert_eq!(result.exit_code, Some(1));
@@ -380,23 +323,14 @@ mod tests {
 
     #[tokio::test]
     async fn exec_timeout() {
-        let mut razel = Razel::new();
-        let command = razel
-            .push_custom_command(
-                "test".into(),
-                "cmake".into(),
-                vec!["-E".into(), "sleep".into(), "3".into()],
-                Default::default(),
-                vec![],
-                vec![],
-                None,
-                None,
-                vec![],
-                vec![Tag::Timeout(1)],
-            )
-            .map(|id| razel.get_command(id).unwrap())
-            .unwrap();
-        let result = command.executor.exec(Path::new("."), None, None).await;
+        let target = CommandTarget {
+            executable: "cmake".into(),
+            args: vec!["-E".into(), "sleep".into(), "3".into()],
+            ..Default::default()
+        };
+        let executor = CustomCommandExecutor::new();
+        let timeout = Some(1);
+        let result = executor.exec(&target, &None.into(), None, timeout).await;
         assert!(!result.success());
         assert_eq!(result.status, ExecutionStatus::Timeout);
         assert_ne!(result.exit_code, Some(0));
@@ -405,21 +339,12 @@ mod tests {
     /* TODO
     #[tokio::test]
     async fn exec_kill() {
-        let mut razel = Scheduler::new();
-        let command = razel
-            .push_custom_command(
-                "test".into(),
-                "cmake".into(),
-                vec!["-E".into(), "sleep".into(), "10".into()],
-                Default::default(),
-                vec![],
-                vec![],
-                None,
-                None,
-            )
-            .map(|id| razel.get_command(id).unwrap())
-            .unwrap();
-        let result = command.executor.exec().await;
+        let result = exec(
+            "cmake",
+            vec!["-E".into(), "sleep".into(), "10".into()],
+            Default::default(),
+        )
+        .await;
         assert!(!result.success());
         assert_eq!(result.status, ExecutionStatus::Failed);
         assert_eq!(result.exit_code, Some(-1));
@@ -429,18 +354,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_arg_max() {
-        let mut executor = CustomCommandExecutor {
-            executable: "echo".to_string(),
+        let executor = CustomCommandExecutor::new();
+        let mut target = CommandTarget {
+            executable: "echo".into(),
             ..Default::default()
         };
         for arg in &["a", "ab", "abcdefabcdef"] {
-            executor.args.clear();
+            target.args.clear();
             let mut lower: usize = 0;
             let mut upper: Option<usize> = None;
             let mut current = 2048;
             loop {
-                executor.args.resize(current, arg.to_string().clone());
-                let result = executor.exec(None, None).await;
+                target.args.resize(current, arg.to_string());
+                let result = executor.exec(&target, &None.into(), None, None).await;
                 if result.success() {
                     lower = current;
                 } else {
