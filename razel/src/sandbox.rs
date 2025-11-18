@@ -146,6 +146,7 @@ impl Sandbox for WasiSandbox {
     }
 }
 
+#[derive(Debug)]
 pub struct SandboxDir {
     pub dir: Option<PathBuf>,
 }
@@ -155,7 +156,7 @@ impl SandboxDir {
         Self { dir }
     }
 
-    pub fn join<S: AsRef<OsStr>>(&self, path: &S) -> PathBuf {
+    pub fn join<S: AsRef<OsStr> + ?Sized>(&self, path: &S) -> PathBuf {
         let path = Path::new(&path);
         self.dir
             .as_ref()
@@ -172,6 +173,12 @@ impl From<Option<PathBuf>> for SandboxDir {
 impl From<PathBuf> for SandboxDir {
     fn from(dir: PathBuf) -> Self {
         Self::new(Some(dir))
+    }
+}
+
+impl From<&PathBuf> for SandboxDir {
+    fn from(dir: &PathBuf) -> Self {
+        Self::new(Some(dir.clone()))
     }
 }
 

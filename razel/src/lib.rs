@@ -18,7 +18,6 @@ pub use utils::*;
 mod bazel_remote_exec;
 #[cfg(feature = "full")]
 pub mod cli;
-//mod command; // TODO rm file
 pub mod config;
 #[cfg(feature = "full")]
 mod file;

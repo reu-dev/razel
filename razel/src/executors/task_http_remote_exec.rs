@@ -1,7 +1,7 @@
 use crate::cli::HttpRemoteExecConfig;
 use crate::executors::{ExecutionResult, ExecutionStatus};
 use crate::types::HttpRemoteExecTask;
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use itertools::{zip_eq, Itertools};
 use log::warn;
 use reqwest::{multipart, Client, Url};
@@ -53,7 +53,7 @@ impl HttpRemoteExecState {
         Self { domains }
     }
 
-    pub fn for_url(&self, url: &Url) -> Option<Arc<HttpRemoteExecDomain>> {
+    fn for_url(&self, url: &Url) -> Option<Arc<HttpRemoteExecDomain>> {
         let domain = url.domain()?;
         self.domains.iter().find(|x| x.domain == domain).cloned()
     }
@@ -102,24 +102,21 @@ pub struct HttpRemoteExecutor {
 }
 
 impl HttpRemoteExecutor {
-    pub fn new(state: &HttpRemoteExecState, task: HttpRemoteExecTask) -> Result<Self> {
-        if task.file_names.len() != task.files.len() {
-            bail!("number of file names and files must be equal");
-        }
+    pub fn new(task: &HttpRemoteExecTask, state: &HttpRemoteExecState) -> Self {
         let state = state.for_url(&task.url);
         let files = zip_eq(
-            task.file_names.into_iter(),
-            task.files.into_iter().map_into(),
+            task.file_names.iter().cloned(),
+            task.files.iter().map_into(),
         )
         .collect();
-        Ok(HttpRemoteExecutor {
+        HttpRemoteExecutor {
             state,
-            url: task.url,
+            url: task.url.clone(),
             files,
-        })
+        }
     }
 
-    pub async fn exec(&self, task: &HttpRemoteExecTask) -> ExecutionResult {
+    pub async fn exec(&self) -> ExecutionResult {
         let result = if let Some(domain) = &self.state {
             self.exec_on_some_host_of_domain(domain).await
         } else {

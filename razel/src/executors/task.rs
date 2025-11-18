@@ -4,10 +4,13 @@ use crate::SandboxDir;
 use anyhow::Result;
 use std::time::Instant;
 
-#[derive(Clone)]
 pub struct TaskExecutor {}
 
 impl TaskExecutor {
+    pub fn new() -> Self {
+        Self {}
+    }
+
     pub async fn exec(&self, task: &Task, sandbox_dir: &SandboxDir) -> ExecutionResult {
         let execution_start = Instant::now();
         let result = task.exec(sandbox_dir).await;

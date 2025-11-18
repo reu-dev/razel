@@ -164,8 +164,8 @@ impl Scheduler {
         false
     }
 
-    fn unschedule_remote_exec(&mut self, command: &Command) -> bool {
-        let TargetKind::HttpRemoteExecTask(executor) = &command.kind else {
+    fn unschedule_remote_exec(&mut self, target: &Target) -> bool {
+        let TargetKind::HttpRemoteExecTask(executor) = &target.kind else {
             return false;
         };
         let Some(domain) = &executor.state else {

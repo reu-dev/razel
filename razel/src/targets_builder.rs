@@ -177,6 +177,9 @@ impl TargetsBuilder {
                 input!(&mut t.file2);
             }
             Task::HttpRemoteExec(ref mut t) => {
+                if t.file_names.len() != t.files.len() {
+                    bail!("number of file names and files must be equal: {name:?}");
+                }
                 inputs.reserve(t.files.len());
                 for x in t.files.iter_mut() {
                     input!(*x);
