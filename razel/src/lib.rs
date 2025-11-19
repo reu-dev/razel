@@ -68,7 +68,6 @@ pub mod executors {
 
 #[cfg(feature = "full")]
 pub mod metadata {
-    pub use graphs::*;
     pub use log_file::*;
     pub use measurements::*;
     pub use profile::*;
