@@ -1,15 +1,14 @@
-use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
-
+use crate::bazel_remote_exec::{message_to_pb_buf, ActionResult, OutputFile};
+use crate::cache::DigestData;
+use crate::config::LinkType;
+use crate::types::Digest;
+use crate::{force_remove_file, set_file_readonly, write_gitignore};
 use anyhow::{bail, Context};
 use log::warn;
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
-
-use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
-use crate::cache::{message_to_pb_buf, BlobDigest, MessageDigest};
-use crate::config::LinkType;
-use crate::{force_remove_file, set_file_readonly, write_gitignore};
 
 #[derive(Clone)]
 pub struct LocalCache {
@@ -32,12 +31,12 @@ impl LocalCache {
         })
     }
 
-    pub fn cas_path(&self, digest: &BlobDigest) -> PathBuf {
-        self.cas_dir.join(&digest.hash)
+    pub fn cas_path(&self, digest: &impl DigestData) -> PathBuf {
+        self.cas_dir.join(&digest.hash())
     }
 
-    pub async fn get_action_result(&self, digest: &MessageDigest) -> Option<ActionResult> {
-        let path = self.ac_dir.join(&digest.hash);
+    pub async fn get_action_result(&self, digest: &impl DigestData) -> Option<ActionResult> {
+        let path = self.ac_dir.join(digest.hash());
         match Self::try_read_pb_file(&path).await {
             Ok(x) => x,
             Err(x) => {
@@ -50,16 +49,16 @@ impl LocalCache {
 
     pub async fn push_action_result(
         &self,
-        digest: &MessageDigest,
+        digest: &impl DigestData,
         result: &ActionResult,
     ) -> Result<(), anyhow::Error> {
-        let path = self.ac_dir.join(&digest.hash);
+        let path = self.ac_dir.join(digest.hash());
         Self::write_pb_file(&path, result)
             .await
             .with_context(|| format!("push_action_result(): {path:?}"))
     }
 
-    pub async fn is_blob_cached(&self, digest: &Digest) -> bool {
+    pub async fn is_blob_cached(&self, digest: &impl DigestData) -> bool {
         let path = self.cas_path(digest);
         if let Ok(metadata) = tokio::fs::metadata(&path).await {
             if !metadata.permissions().readonly() {
@@ -68,7 +67,7 @@ impl LocalCache {
                 return false;
             }
             let act_size = metadata.len();
-            let exp_size = digest.size_bytes as u64;
+            let exp_size = digest.size() as u64;
             if act_size != exp_size {
                 warn!("OutputFile has wrong size (act: {act_size}, exp:{exp_size}): {path:?}");
                 force_remove_file(path).await.ok();

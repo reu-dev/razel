@@ -1,5 +1,6 @@
-use crate::bazel_remote_exec::command::EnvironmentVariable;
-use crate::bazel_remote_exec::{ActionResult, Digest, ExecutedActionMetadata, OutputFile};
+use crate::bazel_remote_exec::{
+    ActionResult, BazelDigest, EnvironmentVariable, ExecutedActionMetadata, OutputFile,
+};
 use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::cli::HttpRemoteExecConfig;
 use crate::executors::{
@@ -10,13 +11,13 @@ use crate::metadata::{write_graphs_html, LogFile, Measurements, Profile, Report}
 use crate::targets_builder::TargetsBuilder;
 use crate::tui::TUI;
 use crate::types::{
-    CommandTarget, DependencyGraph, FileId, RazelJsonCommand, RazelJsonTask, Tag, Target, TargetId,
-    TargetKind, Task, TaskTarget,
+    CommandTarget, DependencyGraph, Digest, FileId, RazelJsonCommand, RazelJsonTask, Tag, Target,
+    TargetId, TargetKind, Task, TaskTarget,
 };
 use crate::{
     bazel_remote_exec, config, create_cgroup, force_remove_file, is_file_executable,
-    select_cache_dir, select_sandbox_dir, write_gitignore, BoxedSandbox, CGroup, FileType,
-    SandboxDir, Scheduler, TmpDirSandbox, WasiSandbox, GITIGNORE_FILENAME,
+    select_cache_dir, select_sandbox_dir, write_gitignore, BoxedSandbox, CGroup, SandboxDir,
+    Scheduler, TmpDirSandbox, WasiSandbox, GITIGNORE_FILENAME,
 };
 use anyhow::{bail, Context, Result};
 use itertools::{chain, Itertools};
@@ -455,8 +456,11 @@ impl Razel {
         if tx_option.is_none() {
             return;
         }
-        while let Some(file) = self.files.get_and_inc_id(next_id) {
-            if file.creating_command.is_none() && !file.is_excluded {
+        loop {
+            let Some(file) = self.dep_graph.files.get(*next_id) else {
+                break;
+            };
+            if !file.is_excluded && !self.dep_graph.creator_for_file.contains_key(&file.id) {
                 let id = file.id;
                 let path = file.path.clone();
                 let tx = tx_option.clone().unwrap();
@@ -465,6 +469,7 @@ impl Razel {
                 });
                 return;
             }
+            *next_id += 1;
         }
         tx_option.take();
     }
@@ -547,7 +552,7 @@ impl Razel {
             }
         });
         let inputs = chain(command_executables, command.inputs.iter())
-            .map(|x| self.files[*x].path.clone())
+            .map(|x| self.dep_graph.files[*x].path.clone())
             .filter(|x| x.is_relative())
             .collect();
         Box::new(TmpDirSandbox::new(
@@ -562,8 +567,8 @@ impl Razel {
         let inputs = command
             .inputs
             .iter()
-            .map(|x| &self.files[*x])
-            .filter(|x| x.file_type == FileType::OutputFile)
+            .map(|x| &self.dep_graph.files[*x])
+            // TODO .filter(|x| x.file_type == FileType::OutputFile)
             .map(|x| {
                 (
                     x.path.clone(),
@@ -583,7 +588,7 @@ impl Razel {
         command
             .outputs
             .iter()
-            .map(|x| self.files[*x].path.clone())
+            .map(|x| self.dep_graph.files[*x].path.clone())
             .collect()
     }
 
@@ -611,8 +616,8 @@ impl Razel {
         tokio::task::spawn(async move {
             let use_cache = cache.is_some();
             let action = bazel_remote_exec::Action {
-                command_digest: Some(Digest::for_message(&bzl_command)),
-                input_root_digest: Some(Digest::for_message(&bzl_input_root)),
+                command_digest: Some(BazelDigest::for_message(&bzl_command)),
+                input_root_digest: Some(BazelDigest::for_message(&bzl_input_root)),
                 ..Default::default()
             };
             let action_digest = Digest::for_message(&action);
@@ -884,7 +889,7 @@ impl Razel {
         let is_executable = is_file_executable(&file)
             .await
             .with_context(|| format!("is_file_executable(): {src:?}"))?;
-        let digest = Digest::for_file(file)
+        let digest = BazelDigest::for_file(file)
             .await
             .with_context(|| format!("Digest::for_file(): {src:?}"))?;
         let path = exec_path.strip_prefix(out_dir).unwrap_or(exec_path);
@@ -978,7 +983,7 @@ impl Razel {
             let path = PathBuf::from(output_file.path);
             let file = &mut self.dep_graph.files[self.file_by_path[&path]];
             assert!(file.digest.is_none());
-            file.digest = output_file.digest;
+            file.digest = Some(output_file.digest.unwrap().into());
             if output_files_cached {
                 file.locally_cached = true;
             }
@@ -1071,7 +1076,7 @@ impl Razel {
                     assert!(file.digest.is_some(), "digest missing for {:?}", file.path);
                     bazel_remote_exec::FileNode {
                         name: file.path.to_str().unwrap().into(),
-                        digest: file.digest.clone(),
+                        digest: Some(file.digest.as_ref().unwrap().into()),
                         is_executable: false, // TODO bazel_remote_exec::FileNode::is_executable
                         node_properties: None,
                     }

@@ -25,7 +25,7 @@ pub enum ExecutableType {
     RazelExecutable,
 }
 
-#[derive(PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Digest {
     /// The hash, represented as a lowercase hexadecimal string, padded with
     /// leading zeroes up to the hash function length.
