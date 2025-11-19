@@ -2,6 +2,7 @@
 
 use crate::cache::DigestData;
 use crate::types::Digest;
+use anyhow::Result;
 pub use build::bazel::remote::execution::v2::{
     action_cache_client::ActionCacheClient, batch_update_blobs_request,
     capabilities_client::CapabilitiesClient, command::EnvironmentVariable,
@@ -11,7 +12,6 @@ pub use build::bazel::remote::execution::v2::{
     ServerCapabilities, UpdateActionResultRequest,
 };
 use tokio::fs::File;
-use anyhow::Result;
 
 pub type BazelDigest = build::bazel::remote::execution::v2::Digest;
 pub type BazelMessageDigest = BazelDigest;
