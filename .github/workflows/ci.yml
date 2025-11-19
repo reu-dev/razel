@@ -72,6 +72,7 @@ jobs:
       - run: rustup show
       - run: rustup target add ${{matrix.target}}
 
+      - run: cargo check --no-default-features
       - run: cargo build
 
       - run: cargo run -- exec --info -f examples/razel.jsonl
