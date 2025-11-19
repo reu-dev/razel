@@ -1,22 +1,22 @@
-use anyhow::Context;
+use anyhow::{Context, Result};
 use std::fs::Metadata;
 use std::path::Path;
 use tokio::fs::File;
 
 #[cfg(target_family = "unix")]
-pub async fn is_file_executable(file: &File) -> Result<bool, anyhow::Error> {
+pub async fn is_file_executable(file: &File) -> Result<bool> {
     use std::os::unix::fs::PermissionsExt;
     let permissions = file.metadata().await?.permissions();
     Ok(permissions.mode() & 0o100 != 0)
 }
 
 #[cfg(not(target_family = "unix"))]
-pub async fn is_file_executable(_file: &File) -> Result<bool, anyhow::Error> {
+pub async fn is_file_executable(_file: &File) -> Result<bool> {
     Ok(false)
 }
 
 #[cfg(target_family = "unix")]
-pub async fn make_file_executable(file: &File) -> Result<(), anyhow::Error> {
+pub async fn make_file_executable(file: &File) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     let mut permissions = file.metadata().await?.permissions();
     let mode = permissions.mode() | 0o700;
@@ -26,18 +26,18 @@ pub async fn make_file_executable(file: &File) -> Result<(), anyhow::Error> {
 }
 
 #[cfg(not(target_family = "unix"))]
-pub async fn make_file_executable(_file: &File) -> Result<(), anyhow::Error> {
+pub async fn make_file_executable(_file: &File) -> Result<()> {
     Ok(())
 }
 
-pub async fn set_file_readonly(path: &Path) -> Result<(), anyhow::Error> {
+pub async fn set_file_readonly(path: &Path) -> Result<()> {
     let mut perms = tokio::fs::metadata(path).await?.permissions();
     perms.set_readonly(true);
     tokio::fs::set_permissions(path, perms).await?;
     Ok(())
 }
 
-pub async fn force_remove_file(path: impl AsRef<Path>) -> Result<(), anyhow::Error> {
+pub async fn force_remove_file(path: impl AsRef<Path>) -> Result<()> {
     let path = path.as_ref();
     if tokio::fs::remove_file(path).await.is_err() {
         if let Ok(metadata) = tokio::fs::metadata(path).await {
@@ -55,7 +55,7 @@ pub async fn force_remove_file(path: impl AsRef<Path>) -> Result<(), anyhow::Err
 }
 
 #[cfg(target_family = "unix")]
-pub async fn drop_readonly_flag(path: &Path, metadata: Metadata) -> Result<(), anyhow::Error> {
+pub async fn drop_readonly_flag(path: &Path, metadata: Metadata) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     let mut permissions = metadata.permissions();
     let mode = permissions.mode() | 0o600;
@@ -65,7 +65,7 @@ pub async fn drop_readonly_flag(path: &Path, metadata: Metadata) -> Result<(), a
 }
 
 #[cfg(not(target_family = "unix"))]
-pub async fn drop_readonly_flag(path: &Path, metadata: Metadata) -> Result<(), anyhow::Error> {
+pub async fn drop_readonly_flag(path: &Path, metadata: Metadata) -> Result<()> {
     let mut permissions = metadata.permissions();
     #[allow(clippy::permissions_set_readonly_false)] // this is the non-unix code
     permissions.set_readonly(false);

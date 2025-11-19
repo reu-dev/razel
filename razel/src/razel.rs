@@ -158,7 +158,7 @@ impl Razel {
         self.http_remote_exec_state = HttpRemoteExecState::new(config);
     }
 
-    pub fn push_json_command(&mut self, json: RazelJsonCommand) -> anyhow::Result<TargetId> {
+    pub fn push_json_command(&mut self, json: RazelJsonCommand) -> Result<TargetId> {
         self.targets_builder
             .as_mut()
             .unwrap()
@@ -171,7 +171,7 @@ impl Razel {
         args: Vec<String>,
         task: Task,
         tags: Vec<Tag>,
-    ) -> anyhow::Result<TargetId> {
+    ) -> Result<TargetId> {
         self.targets_builder
             .as_mut()
             .unwrap()

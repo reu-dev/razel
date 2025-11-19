@@ -1,9 +1,9 @@
 use crate::config::EXECUTABLE;
-use anyhow::Context;
+use anyhow::{Context, Result};
 use directories::ProjectDirs;
 use std::path::{Path, PathBuf};
 
-pub fn select_cache_dir(workspace_dir: &Path) -> Result<PathBuf, anyhow::Error> {
+pub fn select_cache_dir(workspace_dir: &Path) -> Result<PathBuf> {
     let project_dirs = ProjectDirs::from("de", "reu-dev", EXECUTABLE).unwrap();
     let home_cache: PathBuf = project_dirs.cache_dir().into();
     std::fs::create_dir_all(&home_cache)?;
@@ -17,7 +17,7 @@ pub fn select_cache_dir(workspace_dir: &Path) -> Result<PathBuf, anyhow::Error> 
 }
 
 /// The returned directory contains hostname and process id to avoid conflicts with concurrent razel processes
-pub fn select_sandbox_dir(cache_dir: &Path) -> Result<PathBuf, anyhow::Error> {
+pub fn select_sandbox_dir(cache_dir: &Path) -> Result<PathBuf> {
     Ok(cache_dir
         .join("sandbox")
         .join(gethostname::gethostname())
@@ -25,7 +25,7 @@ pub fn select_sandbox_dir(cache_dir: &Path) -> Result<PathBuf, anyhow::Error> {
 }
 
 #[cfg(target_family = "unix")]
-fn device_of_dir(dir: &Path) -> Result<u64, anyhow::Error> {
+fn device_of_dir(dir: &Path) -> Result<u64> {
     use std::os::unix::fs::MetadataExt;
     Ok(dir
         .metadata()
@@ -34,7 +34,7 @@ fn device_of_dir(dir: &Path) -> Result<u64, anyhow::Error> {
 }
 
 #[cfg(target_family = "windows")]
-fn device_of_dir(dir: &Path) -> Result<String, anyhow::Error> {
+fn device_of_dir(dir: &Path) -> Result<String> {
     use std::path::Component;
     match dir
         .components()

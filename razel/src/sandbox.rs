@@ -1,6 +1,6 @@
 use crate::config::LinkType;
 use anyhow::bail;
-use anyhow::{Context, Error};
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -13,15 +13,12 @@ pub trait Sandbox {
     fn dir(&self) -> SandboxDir;
 
     /// Create tmp dir, link inputs and create output directories
-    async fn create(&self, outputs: &[PathBuf]) -> Result<&PathBuf, anyhow::Error>;
+    async fn create(&self, outputs: &[PathBuf]) -> Result<&PathBuf>;
 
-    async fn move_output_files_into_out_dir(
-        &self,
-        output_paths: &[PathBuf],
-    ) -> Result<(), anyhow::Error>;
+    async fn move_output_files_into_out_dir(&self, output_paths: &[PathBuf]) -> Result<()>;
 
     /// Remove tmp dir
-    async fn destroy(&self) -> Result<(), anyhow::Error>;
+    async fn destroy(&self) -> Result<()>;
 }
 
 /// TODO sandbox does not stop writing to input files
@@ -50,7 +47,7 @@ impl Sandbox for TmpDirSandbox {
         SandboxDir::new(Some(self.dir.clone()))
     }
 
-    async fn create(&self, outputs: &[PathBuf]) -> Result<&PathBuf, anyhow::Error> {
+    async fn create(&self, outputs: &[PathBuf]) -> Result<&PathBuf> {
         fs::create_dir_all(&self.dir)
             .await
             .with_context(|| format!("Failed to create sandbox dir: {:?}", self.dir))?;
@@ -75,10 +72,7 @@ impl Sandbox for TmpDirSandbox {
         Ok(&self.dir)
     }
 
-    async fn move_output_files_into_out_dir(
-        &self,
-        output_paths: &[PathBuf],
-    ) -> Result<(), anyhow::Error> {
+    async fn move_output_files_into_out_dir(&self, output_paths: &[PathBuf]) -> Result<()> {
         for dst in output_paths {
             let src = self.dir.join(dst);
             tokio::fs::rename(&src, &dst)
@@ -88,7 +82,7 @@ impl Sandbox for TmpDirSandbox {
         Ok(())
     }
 
-    async fn destroy(&self) -> Result<(), anyhow::Error> {
+    async fn destroy(&self) -> Result<()> {
         fs::remove_dir_all(&self.dir)
             .await
             .with_context(|| format!("Failed to remove sandbox dir: {:?}", self.dir))?;
@@ -117,7 +111,7 @@ impl Sandbox for WasiSandbox {
         self.tmp_dir_sandbox.dir()
     }
 
-    async fn create(&self, outputs: &[PathBuf]) -> Result<&PathBuf, anyhow::Error> {
+    async fn create(&self, outputs: &[PathBuf]) -> Result<&PathBuf> {
         let dir = &self.tmp_dir_sandbox.dir;
         fs::create_dir_all(&dir)
             .await
@@ -139,13 +133,13 @@ impl Sandbox for WasiSandbox {
         Ok(dir)
     }
 
-    async fn move_output_files_into_out_dir(&self, output_paths: &[PathBuf]) -> Result<(), Error> {
+    async fn move_output_files_into_out_dir(&self, output_paths: &[PathBuf]) -> Result<()> {
         self.tmp_dir_sandbox
             .move_output_files_into_out_dir(output_paths)
             .await
     }
 
-    async fn destroy(&self) -> Result<(), Error> {
+    async fn destroy(&self) -> Result<()> {
         self.tmp_dir_sandbox.destroy().await
     }
 }

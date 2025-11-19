@@ -1,5 +1,5 @@
 use crate::types::CacheHit;
-use anyhow::{anyhow, Error};
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::time::Duration;
@@ -21,7 +21,7 @@ pub struct ExecutionResult {
 }
 
 impl ExecutionResult {
-    pub fn for_task(result: Result<(), Error>, execution_start: Instant) -> Self {
+    pub fn for_task(result: Result<()>, execution_start: Instant) -> Self {
         let exec_duration = Some(execution_start.elapsed());
         match result {
             Ok(()) => Self {
@@ -92,7 +92,7 @@ impl ExecutionResult {
 
     #[cfg(test)]
     pub fn assert_success(&mut self) {
-        use anyhow::Context;
+        use anyhow::{Context, Error};
         if self.success() {
             assert_eq!(self.exit_code, Some(0));
             assert!(self.error.is_none());

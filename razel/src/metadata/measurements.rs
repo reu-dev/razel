@@ -1,4 +1,5 @@
 use crate::executors::ExecutionResult;
+use anyhow::Result;
 use bstr::ByteSlice;
 use itertools::Itertools;
 use regex::Regex;
@@ -80,7 +81,7 @@ impl Measurements {
         (vec, map)
     }
 
-    pub fn write_csv(&self, path: &PathBuf) -> Result<(), anyhow::Error> {
+    pub fn write_csv(&self, path: &PathBuf) -> Result<()> {
         if self.rows.is_empty() {
             return Ok(());
         }

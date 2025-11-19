@@ -1,11 +1,12 @@
 use crate::types::DownloadFileTask;
 use crate::{make_file_executable, SandboxDir};
+use anyhow::Result;
 use futures_util::StreamExt;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
 impl DownloadFileTask {
-    pub async fn exec(&self, sandbox_dir: &SandboxDir) -> Result<(), anyhow::Error> {
+    pub async fn exec(&self, sandbox_dir: &SandboxDir) -> Result<()> {
         let mut stream = reqwest::get(&self.url)
             .await?
             .error_for_status()?

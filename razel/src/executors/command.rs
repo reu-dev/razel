@@ -2,7 +2,7 @@ use crate::config::RESPONSE_FILE_PREFIX;
 use crate::executors::{ExecutionResult, ExecutionStatus};
 use crate::types::CommandTarget;
 use crate::{CGroup, SandboxDir};
-use anyhow::{anyhow, ensure};
+use anyhow::{anyhow, ensure, Result};
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::time::Instant;
@@ -166,10 +166,7 @@ impl CommandExecutor {
         }
     }
 
-    async fn maybe_use_response_file(
-        &self,
-        sandbox_dir: &SandboxDir,
-    ) -> Result<Option<String>, anyhow::Error> {
+    async fn maybe_use_response_file(&self, sandbox_dir: &SandboxDir) -> Result<Option<String>> {
         if !self.is_response_file_needed() {
             return Ok(None);
         }
@@ -228,10 +225,7 @@ impl CommandExecutor {
         }
     }
 
-    async fn maybe_write_redirect_file(
-        path: &Option<PathBuf>,
-        buf: &mut Vec<u8>,
-    ) -> Result<(), anyhow::Error> {
+    async fn maybe_write_redirect_file(path: &Option<PathBuf>, buf: &mut Vec<u8>) -> Result<()> {
         if let Some(path) = path {
             let mut file = tokio::fs::File::create(path).await?;
             file.write_all(buf).await?;

@@ -1,11 +1,11 @@
-use anyhow::Context;
+use anyhow::{Context, Result};
 use log::{debug, LevelFilter};
 use razel::cli::parse_cli;
 use razel::Razel;
 use simplelog::*;
 
 #[tokio::main]
-async fn main() -> Result<(), anyhow::Error> {
+async fn main() -> Result<()> {
     TermLogger::init(
         LevelFilter::Info,
         ConfigBuilder::new()

@@ -11,13 +11,14 @@ pub use build::bazel::remote::execution::v2::{
     ServerCapabilities, UpdateActionResultRequest,
 };
 use tokio::fs::File;
+use anyhow::Result;
 
 pub type BazelDigest = build::bazel::remote::execution::v2::Digest;
 pub type BazelMessageDigest = BazelDigest;
 pub type BazelBlobDigest = BazelDigest;
 
 impl BazelDigest {
-    pub async fn for_file(file: File) -> anyhow::Result<Self> {
+    pub async fn for_file(file: File) -> Result<Self> {
         Ok(Digest::for_file(file).await?.into())
     }
 

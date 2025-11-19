@@ -1,7 +1,7 @@
 use crate::bazel_remote_exec::*;
 use crate::cache::{BlobDigest, DigestData, MessageDigest};
 use crate::make_file_executable;
-use anyhow::{anyhow, bail, Context};
+use anyhow::{anyhow, bail, Context, Result};
 use log::warn;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -23,7 +23,7 @@ pub struct GrpcRemoteCache {
 }
 
 impl GrpcRemoteCache {
-    pub async fn new(uri: Uri, dir: &Path) -> anyhow::Result<Self> {
+    pub async fn new(uri: Uri, dir: &Path) -> Result<Self> {
         let instance_name = uri
             .path()
             .strip_prefix('/')
@@ -57,7 +57,7 @@ impl GrpcRemoteCache {
         Ok(client)
     }
 
-    async fn check_capabilities(&mut self, channel: Channel) -> anyhow::Result<()> {
+    async fn check_capabilities(&mut self, channel: Channel) -> Result<()> {
         let mut client = CapabilitiesClient::new(channel);
         let capabilities: ServerCapabilities = client
             .get_capabilities(tonic::Request::new(GetCapabilitiesRequest {
@@ -227,7 +227,7 @@ impl GrpcRemoteCache {
     pub async fn download_and_store_blobs(
         &self,
         files: &[&OutputFile],
-    ) -> anyhow::Result<Vec<(BlobDigest, PathBuf)>> {
+    ) -> Result<Vec<(BlobDigest, PathBuf)>> {
         assert!(!files.is_empty());
         if files
             .iter()
@@ -292,11 +292,7 @@ impl GrpcRemoteCache {
         Ok(downloaded)
     }
 
-    async fn store_blob(
-        path: &PathBuf,
-        contents: &Vec<u8>,
-        is_executable: bool,
-    ) -> anyhow::Result<()> {
+    async fn store_blob(path: &PathBuf, contents: &Vec<u8>, is_executable: bool) -> Result<()> {
         tokio::fs::write(&path, contents).await?;
         if is_executable {
             let file = tokio::fs::File::open(path).await?;

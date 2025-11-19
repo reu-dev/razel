@@ -243,7 +243,7 @@ impl Cache {
     pub async fn link_output_files_into_out_dir(
         &self,
         output_files: &Vec<OutputFile>,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<()> {
         self.local_cache
             .link_output_files_into_out_dir(output_files, &self.out_dir)
             .await

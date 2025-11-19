@@ -1,12 +1,13 @@
 use super::Razel;
 use crate::types::{RazelJson, RazelJsonCommand, RazelJsonTask, TargetKind};
+use anyhow::Result;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::slice::Iter;
 
 impl Razel {
-    pub fn write_jsonl(&self, output: &Path) -> Result<(), anyhow::Error> {
+    pub fn write_jsonl(&self, output: &Path) -> Result<()> {
         let mut writer = BufWriter::new(File::create(output)?);
         for target in self.dep_graph.targets.iter() {
             let json = match &target.kind {

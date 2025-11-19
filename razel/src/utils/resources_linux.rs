@@ -1,5 +1,5 @@
 use crate::config;
-use anyhow::{bail, Context};
+use anyhow::{bail, Context, Result};
 use log::debug;
 use procfs::{Current, Meminfo};
 use std::fs;
@@ -8,7 +8,7 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::str::FromStr;
 
-pub fn create_cgroup() -> Result<Option<CGroup>, anyhow::Error> {
+pub fn create_cgroup() -> Result<Option<CGroup>> {
     let available = get_available_memory()?;
     let mut limit = available;
     let existing_limit = CGroup::new("".into()).read::<u64>("memory", "memory.limit_in_bytes");
@@ -32,7 +32,7 @@ pub fn create_cgroup() -> Result<Option<CGroup>, anyhow::Error> {
 /// Reproduces what the K8s kubelet does to calculate memory.available relative to root cgroup.
 ///
 /// see https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/
-fn get_available_memory() -> Result<u64, anyhow::Error> {
+fn get_available_memory() -> Result<u64> {
     let memory_capacity = Meminfo::current()?.mem_total;
     let cgroup = CGroup::new("".into());
     let memory_usage = cgroup.read::<u64>("memory", "memory.usage_in_bytes")?;
@@ -53,18 +53,18 @@ impl CGroup {
         Self { group }
     }
 
-    pub fn create(&self, controller: &str) -> Result<(), anyhow::Error> {
+    pub fn create(&self, controller: &str) -> Result<()> {
         let path = self.path(controller, "x");
         let dir = path.parent().unwrap();
         fs::create_dir_all(dir).with_context(|| format!("Failed to create dir {dir:?}"))?;
         Ok(())
     }
 
-    pub fn add_task(&self, controller: &str, pid: u32) -> Result<(), anyhow::Error> {
+    pub fn add_task(&self, controller: &str, pid: u32) -> Result<()> {
         self.write(controller, "tasks", pid)
     }
 
-    pub fn read<T>(&self, controller: &str, file: &str) -> Result<T, anyhow::Error>
+    pub fn read<T>(&self, controller: &str, file: &str) -> Result<T>
     where
         T: FromStr,
         <T as FromStr>::Err: std::error::Error + Send + Sync + 'static,
@@ -78,12 +78,7 @@ impl CGroup {
         Ok(value)
     }
 
-    pub fn read_field<T>(
-        &self,
-        controller: &str,
-        file: &str,
-        field: &str,
-    ) -> Result<T, anyhow::Error>
+    pub fn read_field<T>(&self, controller: &str, file: &str, field: &str) -> Result<T>
     where
         T: FromStr,
         <T as FromStr>::Err: std::error::Error + Send + Sync + 'static,
@@ -102,7 +97,7 @@ impl CGroup {
         bail!("Failed to parse field {} from {:?}", field, path);
     }
 
-    pub fn write<T>(&self, controller: &str, file: &str, value: T) -> Result<(), anyhow::Error>
+    pub fn write<T>(&self, controller: &str, file: &str, value: T) -> Result<()>
     where
         T: std::fmt::Display,
     {

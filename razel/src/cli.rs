@@ -1,6 +1,6 @@
 use crate::types::{RazelJson, Tag, Task};
 use crate::{parse_batch_file, parse_command, Razel};
-use anyhow::bail;
+use anyhow::{bail, Result};
 use clap::{Args, Parser, Subcommand};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -138,10 +138,7 @@ enum SystemCommand {
     },
 }
 
-pub async fn parse_cli(
-    args: Vec<String>,
-    razel: &mut Razel,
-) -> Result<Option<RunArgs>, anyhow::Error> {
+pub async fn parse_cli(args: Vec<String>, razel: &mut Razel) -> Result<Option<RunArgs>> {
     let cli = Cli::parse_from(args.iter());
     Ok(match cli.command {
         CliCommands::Command { command } => {
@@ -186,7 +183,7 @@ pub fn parse_cli_within_file(
     args: Vec<String>,
     name: String,
     tags: Vec<Tag>,
-) -> Result<(), anyhow::Error> {
+) -> Result<()> {
     let cli = Cli::try_parse_from(args.iter())?;
     match cli.command {
         CliCommands::Command { command } => {
@@ -200,14 +197,14 @@ pub fn parse_cli_within_file(
     Ok(())
 }
 
-fn apply_file(razel: &mut Razel, file: &String) -> Result<(), anyhow::Error> {
+fn apply_file(razel: &mut Razel, file: &String) -> Result<()> {
     match Path::new(file).extension().and_then(OsStr::to_str) {
         Some("jsonl") => RazelJson::read(file, razel),
         _ => parse_batch_file(razel, file),
     }
 }
 
-fn apply_filter(razel: &mut Razel, filter: &FilterArgs) -> Result<(), anyhow::Error> {
+fn apply_filter(razel: &mut Razel, filter: &FilterArgs) -> Result<()> {
     if !filter.targets.is_empty() {
         razel.filter_targets(&filter.targets);
     } else if !filter.filter_regex.is_empty() {
@@ -218,7 +215,7 @@ fn apply_filter(razel: &mut Razel, filter: &FilterArgs) -> Result<(), anyhow::Er
     Ok(())
 }
 
-fn import(razel: &mut Razel, output: &Path, files: Vec<String>) -> Result<(), anyhow::Error> {
+fn import(razel: &mut Razel, output: &Path, files: Vec<String>) -> Result<()> {
     for file in files {
         apply_file(razel, &file)?;
     }
