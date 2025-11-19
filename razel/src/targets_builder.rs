@@ -1,7 +1,7 @@
 use crate::config;
 use crate::types::{
-    CommandTarget, ExecutableType, File, FileId, RazelJson, RazelJsonCommand, RazelJsonTask, Tag,
-    Target, TargetId, TargetKind, Task, TaskTarget,
+    CommandTarget, ExecutableType, File, FileId, RazelJson, RazelJsonCommand, RazelJsonHandler,
+    RazelJsonTask, Tag, Target, TargetId, TargetKind, Task, TaskTarget,
 };
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
@@ -30,6 +30,12 @@ pub struct TargetsBuilder {
     system_executable_by_name: HashMap<String, FileId>,
 }
 
+impl Default for TargetsBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TargetsBuilder {
     pub fn new() -> Self {
         let current_dir = env::current_dir().unwrap();
@@ -47,13 +53,34 @@ impl TargetsBuilder {
         }
     }
 
-    /// Set the directory to resolve relative paths of input/output files
-    pub fn set_workspace_dir(&mut self, dir: &Path) {
-        if dir.is_absolute() {
-            self.workspace_dir = dir.into();
-        } else {
-            self.workspace_dir = self.current_dir.join(dir);
+    pub fn read_jsonl_file(&mut self, path: &str) -> Result<()> {
+        self.set_workspace_dir(Path::new(path).parent().unwrap());
+        let file = BufReader::new(
+            fs::File::open(path).with_context(|| anyhow!("failed to open {path:?}"))?,
+        );
+        let mut len: usize = 0;
+        for (line_number, line_result) in file.lines().enumerate() {
+            let line = line_result?;
+            let line_trimmed = line.trim();
+            if line_trimmed.is_empty() || line_trimmed.starts_with("//") {
+                continue;
+            }
+            let json: RazelJson = serde_json::from_str(line_trimmed).with_context(|| {
+                format!(
+                    "failed to parse {}:{}\n{}",
+                    path,
+                    line_number + 1,
+                    line_trimmed
+                )
+            })?;
+            match json {
+                RazelJson::Command(command) => self.push_json_command(command)?,
+                RazelJson::Task(json) => self.push_json_task(json)?,
+            };
+            len += 1;
         }
+        debug!("Added {len} commands from {path}");
+        Ok(())
     }
 
     pub fn push_json_command(&mut self, command: RazelJsonCommand) -> Result<TargetId> {
@@ -378,6 +405,24 @@ impl TargetsBuilder {
     }
 }
 
+impl RazelJsonHandler for TargetsBuilder {
+    /// Set the directory to resolve relative paths of input/output files
+    fn set_workspace_dir(&mut self, dir: &Path) {
+        if dir.is_absolute() {
+            self.workspace_dir = dir.into();
+        } else {
+            self.workspace_dir = self.current_dir.join(dir);
+        }
+    }
+
+    fn push_json(&mut self, json: RazelJson) -> Result<TargetId> {
+        match json {
+            RazelJson::Command(command) => self.push_json_command(command),
+            RazelJson::Task(json) => self.push_json_task(json),
+        }
+    }
+}
+
 impl File {
     fn new(id: FileId, path: PathBuf, executable: Option<ExecutableType>) -> Self {
         Self {
@@ -388,40 +433,6 @@ impl File {
             is_excluded: false,
         }
     }
-}
-
-pub fn parse_jsonl_file(path: &str) -> Result<TargetsBuilder> {
-    let mut builder = TargetsBuilder::new();
-    builder.set_workspace_dir(Path::new(path).parent().unwrap());
-    let file =
-        BufReader::new(fs::File::open(path).with_context(|| anyhow!("failed to open {path:?}"))?);
-    let mut len: usize = 0;
-    for (line_number, line_result) in file.lines().enumerate() {
-        let line = line_result?;
-        let line_trimmed = line.trim();
-        if line_trimmed.is_empty() || line_trimmed.starts_with("//") {
-            continue;
-        }
-        let json: RazelJson = serde_json::from_str(line_trimmed).with_context(|| {
-            format!(
-                "failed to parse {}:{}\n{}",
-                path,
-                line_number + 1,
-                line_trimmed
-            )
-        })?;
-        match json {
-            RazelJson::Command(command) => {
-                builder.push_json_command(command)?;
-            }
-            RazelJson::Task(json) => {
-                builder.push_json_task(json)?;
-            }
-        }
-        len += 1;
-    }
-    debug!("Added {len} commands from {path}");
-    Ok(builder)
 }
 
 #[derive(Parser)]

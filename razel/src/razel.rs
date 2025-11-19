@@ -4,15 +4,15 @@ use crate::bazel_remote_exec::{
 use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::cli::HttpRemoteExecConfig;
 use crate::executors::{
-    CustomCommandExecutor, ExecutionResult, ExecutionStatus, Executor, HttpRemoteExecState,
+    CommandExecutor, ExecutionResult, ExecutionStatus, Executor, HttpRemoteExecState,
     HttpRemoteExecutor, TaskExecutor, WasiExecutor,
 };
-use crate::metadata::{write_graphs_html, LogFile, Measurements, Profile, Report};
+use crate::metadata::{LogFile, Measurements, Profile, Report};
 use crate::targets_builder::TargetsBuilder;
 use crate::tui::TUI;
 use crate::types::{
-    CommandTarget, DependencyGraph, Digest, FileId, RazelJsonCommand, RazelJsonTask, Tag, Target,
-    TargetId, TargetKind, Task, TaskTarget,
+    CommandTarget, DependencyGraph, Digest, FileId, RazelJson, RazelJsonCommand, RazelJsonHandler,
+    Tag, Target, TargetId, TargetKind, Task, TaskTarget,
 };
 use crate::{
     bazel_remote_exec, config, create_cgroup, force_remove_file, is_file_executable,
@@ -154,16 +154,6 @@ impl Razel {
         fs::remove_dir_all(&self.out_dir).ok();
     }
 
-    /// Set the directory to resolve relative paths of input/output files
-    pub fn set_workspace_dir(&mut self, workspace: &Path) -> Result<()> {
-        if workspace.is_absolute() {
-            self.workspace_dir = workspace.into();
-        } else {
-            self.workspace_dir = self.current_dir.join(workspace);
-        }
-        Ok(())
-    }
-
     pub fn set_http_remote_exec_config(&mut self, config: &HttpRemoteExecConfig) {
         self.http_remote_exec_state = HttpRemoteExecState::new(config);
     }
@@ -173,10 +163,6 @@ impl Razel {
             .as_mut()
             .unwrap()
             .push_json_command(json)
-    }
-
-    pub fn push_json_task(&mut self, json: RazelJsonTask) -> anyhow::Result<TargetId> {
-        self.targets_builder.as_mut().unwrap().push_json_task(json)
     }
 
     pub fn push_task(
@@ -192,13 +178,12 @@ impl Razel {
             .push_task(name, args, task, tags)
     }
 
-    /// TODO add razel executable digest to command hash
+    // TODO add razel executable digest to command hash
+    /*
     fn lazy_self_file_id(&mut self) -> Result<FileId> {
         if let Some(x) = self.self_file_id {
             Ok(x)
         } else {
-            todo!();
-            /*
             let path = Path::new(&env::args().next().unwrap())
                 .canonicalize()
                 .ok()
@@ -218,22 +203,16 @@ impl Razel {
             };
             self.self_file_id = Some(file_id);
             Ok(file_id)
-             */
-        }
-    }
-
-    /*
-    pub fn add_tag_for_command(&mut self, name: &str, tag: Tag) -> Result<()> {
-        match self.commands.iter_mut().find(|x| x.name == name) {
-            Some(command) => {
-                command.tags.push(tag);
-                Self::check_tags(command)?;
-                Ok(())
-            }
-            _ => bail!("Command not found: {name}"),
         }
     }
      */
+
+    //#[cfg(test)]
+    pub fn add_tag_for_command(&mut self, name: &str, tag: Tag) {
+        let builder = &mut self.targets_builder.as_mut().unwrap();
+        let target_id = builder.target_by_name[name];
+        builder.targets[target_id].tags.push(tag);
+    }
 
     pub fn list_commands(&mut self) {
         self.create_dependency_graph();
@@ -563,7 +542,7 @@ impl Razel {
     }
 
     fn new_wasi_sandbox(&self, command: &Command) -> BoxedSandbox {
-        let cache = self.cache.as_ref().unwrap();
+        //let cache = self.cache.as_ref().unwrap();
         let inputs = command
             .inputs
             .iter()
@@ -572,8 +551,7 @@ impl Razel {
             .map(|x| {
                 (
                     x.path.clone(),
-                    x.locally_cached
-                        .then_some(cache.cas_path(x.digest.as_ref().unwrap())),
+                    None, // TODO x.locally_cached.then_some(cache.cas_path(x.digest.as_ref().unwrap())),
                 )
             })
             .collect();
@@ -599,7 +577,7 @@ impl Razel {
         let total_duration_start = Instant::now();
         let target = &self.dep_graph.targets[id];
         assert_eq!(self.dep_graph.deps[id].len(), 0);
-        let (bzl_command, bzl_input_root) = self.get_bzl_action_for_command(target);
+        let (bzl_command, bzl_input_root) = self.get_bzl_action_for_target(target);
         let no_cache_tag = target.tags.contains(&Tag::NoCache);
         let cache = (!no_cache_tag).then(|| self.cache.as_ref().unwrap().clone());
         let read_cache = self.read_cache;
@@ -610,7 +588,6 @@ impl Razel {
         let sandbox = (use_sandbox && !target.tags.contains(&Tag::NoSandbox))
             .then(|| self.new_sandbox(target));
         let output_paths = self.collect_output_file_paths_for_command(target);
-        let cgroup = self.cgroup.clone();
         let cwd = self.current_dir.clone();
         let out_dir = self.out_dir.clone();
         tokio::task::spawn(async move {
@@ -629,7 +606,6 @@ impl Razel {
                 &executor,
                 &output_paths,
                 sandbox,
-                cgroup,
                 &cwd,
                 &out_dir,
             )
@@ -654,11 +630,26 @@ impl Razel {
 
     fn new_executor(&self, target: &Target) -> Executor {
         match &target.kind {
-            TargetKind::Command(_) => Executor::CustomCommand(CustomCommandExecutor::new()),
+            TargetKind::Command(c) => self.new_command_executor(target, c),
             TargetKind::Wasi(c) => self.new_wasi_executor(target, c),
-            TargetKind::Task(_) => Executor::Task(TaskExecutor::new()),
+            TargetKind::Task(t) => Executor::Task(TaskExecutor::new(t.task.clone())),
             TargetKind::HttpRemoteExecTask(t) => self.new_http_remote_executor(t),
         }
+    }
+
+    fn new_command_executor(&self, target: &Target, command: &CommandTarget) -> Executor {
+        let timeout = target.tags.iter().find_map(|t| {
+            if let Tag::Timeout(x) = t {
+                Some(*x)
+            } else {
+                None
+            }
+        });
+        Executor::Command(CommandExecutor::new(
+            command.clone(),
+            timeout,
+            self.cgroup.clone(),
+        ))
     }
 
     fn new_wasi_executor(&self, target: &Target, command: &CommandTarget) -> Executor {
@@ -680,7 +671,12 @@ impl Razel {
             - command.stdout_file.is_some() as usize
             - command.stderr_file.is_some() as usize)
             != 0;
-        Executor::Wasi(WasiExecutor::new(module, read_dirs, write_dir))
+        Executor::Wasi(WasiExecutor::new(
+            command.clone(),
+            module,
+            read_dirs,
+            write_dir,
+        ))
     }
 
     fn new_http_remote_executor(&self, task: &TaskTarget) -> Executor {
@@ -699,7 +695,6 @@ impl Razel {
         executor: &Executor,
         output_paths: &Vec<PathBuf>,
         sandbox: Option<BoxedSandbox>,
-        cgroup: Option<CGroup>,
         cwd: &Path,
         out_dir: &PathBuf,
     ) -> Result<(ExecutionResult, Vec<OutputFile>)> {
@@ -716,7 +711,6 @@ impl Razel {
                 executor,
                 sandbox,
                 output_paths,
-                cgroup,
                 cwd,
                 out_dir,
             )
@@ -729,7 +723,6 @@ impl Razel {
                 use_remote_cache,
                 executor,
                 output_paths,
-                cgroup,
                 cwd,
                 out_dir,
             )
@@ -784,7 +777,6 @@ impl Razel {
         executor: &Executor,
         sandbox: BoxedSandbox,
         output_paths: &Vec<PathBuf>,
-        cgroup: Option<CGroup>,
         cwd: &Path,
         out_dir: &PathBuf,
     ) -> Result<(ExecutionResult, Vec<OutputFile>)> {
@@ -793,7 +785,7 @@ impl Razel {
             .await
             .context("Sandbox::create()")?;
         let sandbox_dir = sandbox.dir();
-        let execution_result = executor.exec(cwd, &sandbox_dir, cgroup).await;
+        let execution_result = executor.exec(cwd, &sandbox_dir).await;
         let output_files = if execution_result.success() {
             Self::new_output_files_with_digest(&sandbox_dir, out_dir, output_paths).await?
         } else {
@@ -829,7 +821,6 @@ impl Razel {
         use_remote_cache: bool,
         executor: &Executor,
         output_paths: &Vec<PathBuf>,
-        cgroup: Option<CGroup>,
         cwd: &Path,
         out_dir: &PathBuf,
     ) -> Result<(ExecutionResult, Vec<OutputFile>)> {
@@ -838,7 +829,7 @@ impl Razel {
             force_remove_file(x).await?;
         }
         let sandbox_dir = SandboxDir::new(None);
-        let execution_result = executor.exec(cwd, &sandbox_dir, cgroup).await;
+        let execution_result = executor.exec(cwd, &sandbox_dir).await;
         let output_files = if execution_result.success() {
             Self::new_output_files_with_digest(&sandbox_dir, out_dir, output_paths).await?
         } else {
@@ -985,7 +976,7 @@ impl Razel {
             assert!(file.digest.is_none());
             file.digest = Some(output_file.digest.unwrap().into());
             if output_files_cached {
-                file.locally_cached = true;
+                // TODO file.locally_cached = true;
             }
         }
     }
@@ -1040,14 +1031,14 @@ impl Razel {
         }
     }
 
-    fn get_bzl_action_for_command(
+    fn get_bzl_action_for_target(
         &self,
-        command: &Command,
+        target: &Target,
     ) -> (bazel_remote_exec::Command, bazel_remote_exec::Directory) {
         let bzl_command = bazel_remote_exec::Command {
-            arguments: command.executor.args_with_executable(),
-            environment_variables: command
-                .executor
+            arguments: target.kind.args_with_executable(),
+            environment_variables: target
+                .kind
                 .env()
                 .map(|x| {
                     x.clone()
@@ -1057,7 +1048,7 @@ impl Razel {
                         .collect()
                 })
                 .unwrap_or_default(),
-            output_paths: command
+            output_paths: target
                 .outputs
                 .iter()
                 .map(|x| self.dep_graph.files[*x].path.to_str().unwrap())
@@ -1070,7 +1061,7 @@ impl Razel {
         };
         // TODO properly build bazel_remote_exec::Directory tree
         let bzl_input_root = bazel_remote_exec::Directory {
-            files: chain(command.executables.iter(), command.inputs.iter())
+            files: chain(target.executables.iter(), target.inputs.iter())
                 .map(|x| {
                     let file = &self.dep_graph.files[*x];
                     assert!(file.digest.is_some(), "digest missing for {:?}", file.path);
@@ -1122,6 +1113,21 @@ impl Razel {
 impl Default for Razel {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl RazelJsonHandler for Razel {
+    /// Set the directory to resolve relative paths of input/output files
+    fn set_workspace_dir(&mut self, dir: &Path) {
+        if dir.is_absolute() {
+            self.workspace_dir = dir.into();
+        } else {
+            self.workspace_dir = self.current_dir.join(dir);
+        }
+    }
+
+    fn push_json(&mut self, json: RazelJson) -> Result<TargetId> {
+        self.targets_builder.as_mut().unwrap().push_json(json)
     }
 }
 

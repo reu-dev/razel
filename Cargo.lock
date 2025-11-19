@@ -2078,6 +2078,7 @@ dependencies = [
  "anyhow",
  "approx",
  "assert2",
+ "async-trait",
  "base16ct",
  "bstr",
  "clap",

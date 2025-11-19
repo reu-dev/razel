@@ -1,4 +1,4 @@
-use crate::types::{Tag, Task};
+use crate::types::{RazelJson, Tag, Task};
 use crate::{parse_batch_file, parse_command, Razel};
 use anyhow::bail;
 use clap::{Args, Parser, Subcommand};
@@ -6,7 +6,6 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 mod http_remote_exec_config;
-use crate::targets_builder::parse_jsonl_file;
 pub use http_remote_exec_config::*;
 
 #[derive(Parser)]
@@ -203,7 +202,7 @@ pub fn parse_cli_within_file(
 
 fn apply_file(razel: &mut Razel, file: &String) -> Result<(), anyhow::Error> {
     match Path::new(file).extension().and_then(OsStr::to_str) {
-        Some("jsonl") => parse_jsonl_file(razel, file),
+        Some("jsonl") => RazelJson::read(file, razel),
         _ => parse_batch_file(razel, file),
     }
 }

@@ -1,4 +1,6 @@
 use crate::config::RESPONSE_FILE_PREFIX;
+use crate::executors::{ExecutionResult, ExecutionStatus};
+use crate::types::CommandTarget;
 use crate::{CGroup, SandboxDir};
 use anyhow::{anyhow, ensure};
 use std::path::{Path, PathBuf};
@@ -6,26 +8,28 @@ use std::process::{ExitStatus, Stdio};
 use std::time::Instant;
 use tokio::io::AsyncWriteExt;
 
-use crate::executors::{ExecutionResult, ExecutionStatus};
-use crate::types::CommandTarget;
+pub struct CommandExecutor {
+    command: CommandTarget,
+    timeout: Option<u16>,
+    cgroup: Option<CGroup>,
+}
 
-#[derive(Clone, Default)]
-pub struct CustomCommandExecutor {}
-
-impl CustomCommandExecutor {
-    pub fn new() -> CustomCommandExecutor {
-        CustomCommandExecutor {}
+impl CommandExecutor {
+    pub fn new(
+        command: CommandTarget,
+        timeout: Option<u16>,
+        cgroup: Option<CGroup>,
+    ) -> CommandExecutor {
+        CommandExecutor {
+            command,
+            timeout,
+            cgroup,
+        }
     }
 
-    pub async fn exec(
-        &self,
-        c: &CommandTarget,
-        sandbox_dir: &SandboxDir,
-        cgroup: Option<CGroup>,
-        timeout: Option<u16>,
-    ) -> ExecutionResult {
+    pub async fn exec(&self, sandbox_dir: &SandboxDir) -> ExecutionResult {
         let mut result: ExecutionResult = Default::default();
-        let response_file_args = match self.maybe_use_response_file(&c.args, sandbox_dir).await {
+        let response_file_args = match self.maybe_use_response_file(sandbox_dir).await {
             Ok(Some(x)) => Some(vec![x]),
             Ok(None) => None,
             Err(x) => {
@@ -36,10 +40,10 @@ impl CustomCommandExecutor {
         };
         let cwd = sandbox_dir.dir.clone().unwrap_or_else(|| ".".into());
         let execution_start = Instant::now();
-        let child = match tokio::process::Command::new(&c.executable)
+        let child = match tokio::process::Command::new(&self.command.executable)
             .env_clear()
-            .envs(&c.env)
-            .args(response_file_args.as_ref().unwrap_or(&c.args))
+            .envs(&self.command.env)
+            .args(response_file_args.as_ref().unwrap_or(&self.command.args))
             .current_dir(&cwd)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -53,10 +57,10 @@ impl CustomCommandExecutor {
                 return result;
             }
         };
-        if let Some(cgroup) = cgroup {
+        if let Some(cgroup) = &self.cgroup {
             cgroup.add_task("memory", child.id().unwrap()).ok();
         }
-        let (exec_result, timed_out) = self.wait_with_timeout(child, timeout).await;
+        let (exec_result, timed_out) = self.wait_with_timeout(child).await;
         match exec_result {
             Ok(output) => {
                 if output.status.success() {
@@ -80,16 +84,15 @@ impl CustomCommandExecutor {
             }
         }
         result.exec_duration = Some(execution_start.elapsed());
-        self.write_redirect_files(c, &cwd, &mut result).await;
+        self.write_redirect_files(&cwd, &mut result).await;
         result
     }
 
     async fn wait_with_timeout(
         &self,
         mut child: tokio::process::Child,
-        timeout: Option<u16>,
     ) -> (std::io::Result<std::process::Output>, bool) {
-        let timed_out = if let Some(timeout_s) = timeout {
+        let timed_out = if let Some(timeout_s) = self.timeout {
             let sleep = tokio::time::sleep(std::time::Duration::from_secs(timeout_s.into()));
             tokio::pin!(sleep);
             tokio::select! {
@@ -165,10 +168,9 @@ impl CustomCommandExecutor {
 
     async fn maybe_use_response_file(
         &self,
-        args: &Vec<String>,
         sandbox_dir: &SandboxDir,
     ) -> Result<Option<String>, anyhow::Error> {
-        if !self.is_response_file_needed(args) {
+        if !self.is_response_file_needed() {
             return Ok(None);
         }
         let file_name = "params";
@@ -178,23 +180,24 @@ impl CustomCommandExecutor {
         );
         let path = sandbox_dir.join(&file_name);
         let mut file = tokio::fs::File::create(path).await?;
-        file.write_all(args.join("\n").as_bytes()).await?;
+        file.write_all(self.command.args.join("\n").as_bytes())
+            .await?;
         file.sync_all().await?;
         Ok(Some(RESPONSE_FILE_PREFIX.to_string() + file_name))
     }
 
-    fn is_response_file_needed(&self, args: &Vec<String>) -> bool {
+    fn is_response_file_needed(&self) -> bool {
         /* those limits are taken from test_arg_max()
          * TODO replace hardcoded limits with running that check before executing commands */
         let (max_len, terminator_len) = if cfg!(windows) {
             (32_760, 1)
         } else if cfg!(target_os = "macos") {
-            (1_048_512, 1 + std::mem::size_of::<usize>())
+            (1_048_512, 1 + size_of::<usize>())
         } else {
-            (2_097_088, 1 + std::mem::size_of::<usize>())
+            (2_097_088, 1 + size_of::<usize>())
         };
         let mut args_len_sum = 0;
-        for x in args {
+        for x in &self.command.args {
             args_len_sum += x.len() + terminator_len;
             if args_len_sum >= max_len {
                 return true;
@@ -203,14 +206,9 @@ impl CustomCommandExecutor {
         false
     }
 
-    async fn write_redirect_files(
-        &self,
-        c: &CommandTarget,
-        cwd: &Path,
-        result: &mut ExecutionResult,
-    ) {
+    async fn write_redirect_files(&self, cwd: &Path, result: &mut ExecutionResult) {
         if let Err(e) = Self::maybe_write_redirect_file(
-            &c.stdout_file.as_ref().map(|x| cwd.join(x)),
+            &self.command.stdout_file.as_ref().map(|x| cwd.join(x)),
             &mut result.stdout,
         )
         .await
@@ -220,7 +218,7 @@ impl CustomCommandExecutor {
             return;
         }
         if let Err(e) = Self::maybe_write_redirect_file(
-            &c.stderr_file.as_ref().map(|x| cwd.join(x)),
+            &self.command.stderr_file.as_ref().map(|x| cwd.join(x)),
             &mut result.stderr,
         )
         .await
@@ -247,21 +245,29 @@ impl CustomCommandExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::executors::{CustomCommandExecutor, ExecutionStatus};
+    use crate::executors::{CommandExecutor, ExecutionStatus};
     use crate::types::CommandTarget;
 
     async fn exec_basic(executable: &str, args: Vec<String>) -> ExecutionResult {
-        exec_target(CommandTarget {
-            executable: executable.into(),
-            args,
-            ..Default::default()
-        })
+        exec_target(
+            CommandTarget {
+                executable: executable.into(),
+                args,
+                ..Default::default()
+            },
+            None,
+            None,
+        )
         .await
     }
 
-    async fn exec_target(target: CommandTarget) -> ExecutionResult {
-        let executor = CustomCommandExecutor::new();
-        executor.exec(&target, &None.into(), None, None).await
+    async fn exec_target(
+        command: CommandTarget,
+        timeout: Option<u16>,
+        cgroup: Option<CGroup>,
+    ) -> ExecutionResult {
+        let executor = CommandExecutor::new(command, timeout, cgroup);
+        executor.exec(&None.into()).await
     }
 
     #[tokio::test]
@@ -276,7 +282,7 @@ mod tests {
     #[tokio::test]
     async fn exec_fail_to_start() {
         let result = exec_basic(
-            "./examples/data/a.csv".into(), // file exists but is not executable
+            "./examples/data/a.csv", // file exists but is not executable
             vec![],
         )
         .await;
@@ -323,14 +329,13 @@ mod tests {
 
     #[tokio::test]
     async fn exec_timeout() {
-        let target = CommandTarget {
+        let command = CommandTarget {
             executable: "cmake".into(),
             args: vec!["-E".into(), "sleep".into(), "3".into()],
             ..Default::default()
         };
-        let executor = CustomCommandExecutor::new();
         let timeout = Some(1);
-        let result = executor.exec(&target, &None.into(), None, timeout).await;
+        let result = exec_target(command, timeout, None).await;
         assert!(!result.success());
         assert_eq!(result.status, ExecutionStatus::Timeout);
         assert_ne!(result.exit_code, Some(0));
@@ -354,19 +359,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_arg_max() {
-        let executor = CustomCommandExecutor::new();
-        let mut target = CommandTarget {
-            executable: "echo".into(),
-            ..Default::default()
-        };
         for arg in &["a", "ab", "abcdefabcdef"] {
-            target.args.clear();
+            let mut args = vec![];
             let mut lower: usize = 0;
             let mut upper: Option<usize> = None;
             let mut current = 2048;
             loop {
-                target.args.resize(current, arg.to_string());
-                let result = executor.exec(&target, &None.into(), None, None).await;
+                args.resize(current, arg.to_string());
+                let result = exec_basic("echo", args.clone()).await;
                 if result.success() {
                     lower = current;
                 } else {
@@ -383,7 +383,7 @@ mod tests {
                 (lower - 1) * (arg.len() + 1)
             } else {
                 // add terminator and pointer for all args
-                (lower - 1) * (arg.len() + 1 + std::mem::size_of::<usize>())
+                (lower - 1) * (arg.len() + 1 + size_of::<usize>())
             };
             println!("{arg:>13}: {lower:>7} {max:>7}");
         }

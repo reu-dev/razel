@@ -100,7 +100,7 @@ impl TargetKind {
     }
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 pub struct CommandTarget {
     pub executable: String,
     pub args: Vec<String>,

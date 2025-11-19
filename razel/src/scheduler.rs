@@ -86,9 +86,11 @@ impl Scheduler {
     }
 
     fn push_ready_for_remote_exec(&mut self, target: &Target) -> bool {
-        let TargetKind::HttpRemoteExecTask(executor) = &target.kind else {
+        let TargetKind::HttpRemoteExecTask(_) = &target.kind else {
             return false;
         };
+        todo!();
+        /*
         let Some(domain) = &executor.state else {
             return false;
         };
@@ -107,6 +109,7 @@ impl Scheduler {
         ready.push_back(target.id);
         self.ready_for_remote_exec_len += 1;
         true
+         */
     }
 
     pub fn pop_ready_and_run(&mut self) -> Option<CommandId> {
@@ -165,9 +168,11 @@ impl Scheduler {
     }
 
     fn unschedule_remote_exec(&mut self, target: &Target) -> bool {
-        let TargetKind::HttpRemoteExecTask(executor) = &target.kind else {
+        let TargetKind::HttpRemoteExecTask(_) = &target.kind else {
             return false;
         };
+        todo!();
+        /*
         let Some(domain) = &executor.state else {
             return false;
         };
@@ -175,6 +180,7 @@ impl Scheduler {
         domain.unschedule();
         self.running_with_remote_exec -= 1;
         true
+         */
     }
 
     fn scale_up_memory_requirement(&mut self, group: &Group) -> bool {

@@ -1,8 +1,8 @@
 use anyhow::Context;
 use log::{debug, LevelFilter};
+use razel::cli::parse_cli;
+use razel::Razel;
 use simplelog::*;
-
-use razel::{parse_cli, Razel};
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -71,9 +71,10 @@ async fn main() -> Result<(), anyhow::Error> {
 
 #[cfg(test)]
 mod main {
+    use razel::cli::parse_cli;
     use razel::test_utils::ChangeDir;
     use razel::types::Tag;
-    use razel::{config, parse_cli, Razel, SchedulerExecStats};
+    use razel::{config, Razel, SchedulerExecStats};
     use serial_test::serial;
     use std::path::Path;
 
@@ -113,7 +114,7 @@ mod main {
                 .unwrap()
                 .unwrap();
             if let Some((name, tag)) = additional_tag.clone() {
-                razel.add_tag_for_command(name, tag).unwrap();
+                razel.add_tag_for_command(name, tag);
             }
             let act_stats = razel
                 .run(false, true, "", None, vec![], None)
@@ -131,7 +132,7 @@ mod main {
                 .unwrap()
                 .unwrap();
             if let Some((name, tag)) = additional_tag {
-                razel.add_tag_for_command(name, tag).unwrap();
+                razel.add_tag_for_command(name, tag);
             }
             let act_stats = razel
                 .run(false, true, "", None, vec![], None)

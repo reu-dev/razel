@@ -2,7 +2,7 @@ use clap::{Args, Subcommand};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-#[derive(Subcommand, Serialize, Deserialize)]
+#[derive(Clone, Subcommand, Serialize, Deserialize)]
 pub enum Task {
     /// Write a value captured with a regex to a file
     CaptureRegex(CaptureRegexTask),
@@ -22,7 +22,7 @@ pub enum Task {
     HttpRemoteExec(HttpRemoteExecTask),
 }
 
-#[derive(Args, Serialize, Deserialize)]
+#[derive(Args, Clone, Serialize, Deserialize)]
 pub struct CaptureRegexTask {
     /// Input file to read
     pub input: String,
@@ -32,7 +32,7 @@ pub struct CaptureRegexTask {
     pub regex: String,
 }
 
-#[derive(Args, Serialize, Deserialize)]
+#[derive(Args, Clone, Serialize, Deserialize)]
 pub struct CsvConcatTask {
     /// Input csv files
     #[clap(required = true)]
@@ -41,7 +41,7 @@ pub struct CsvConcatTask {
     pub output: String,
 }
 
-#[derive(Args, Serialize, Deserialize)]
+#[derive(Args, Clone, Serialize, Deserialize)]
 pub struct CsvFilterTask {
     #[clap(short, long)]
     pub input: String,
@@ -52,7 +52,7 @@ pub struct CsvFilterTask {
     pub cols: Vec<String>,
 }
 
-#[derive(Args, Serialize, Deserialize)]
+#[derive(Args, Clone, Serialize, Deserialize)]
 pub struct WriteFileTask {
     /// File to create
     pub file: String,
@@ -60,7 +60,7 @@ pub struct WriteFileTask {
     pub lines: Vec<String>,
 }
 
-#[derive(Args, Serialize, Deserialize)]
+#[derive(Args, Clone, Serialize, Deserialize)]
 pub struct DownloadFileTask {
     #[clap(short, long)]
     pub url: String,
@@ -70,19 +70,19 @@ pub struct DownloadFileTask {
     pub executable: bool,
 }
 
-#[derive(Args, Serialize, Deserialize)]
+#[derive(Args, Clone, Serialize, Deserialize)]
 pub struct EnsureEqualTask {
     pub file1: String,
     pub file2: String,
 }
 
-#[derive(Args, Serialize, Deserialize)]
+#[derive(Args, Clone, Serialize, Deserialize)]
 pub struct EnsureNotEqualTask {
     pub file1: String,
     pub file2: String,
 }
 
-#[derive(Args, Serialize, Deserialize)]
+#[derive(Args, Clone, Serialize, Deserialize)]
 pub struct HttpRemoteExecTask {
     /// url for HTTP multipart form POST
     #[clap(short, long)]

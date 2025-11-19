@@ -32,7 +32,7 @@ impl LocalCache {
     }
 
     pub fn cas_path(&self, digest: &impl DigestData) -> PathBuf {
-        self.cas_dir.join(&digest.hash())
+        self.cas_dir.join(digest.hash())
     }
 
     pub async fn get_action_result(&self, digest: &impl DigestData) -> Option<ActionResult> {

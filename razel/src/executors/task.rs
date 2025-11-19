@@ -4,16 +4,18 @@ use crate::SandboxDir;
 use anyhow::Result;
 use std::time::Instant;
 
-pub struct TaskExecutor {}
+pub struct TaskExecutor {
+    task: Task,
+}
 
 impl TaskExecutor {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(task: Task) -> Self {
+        Self { task }
     }
 
-    pub async fn exec(&self, task: &Task, sandbox_dir: &SandboxDir) -> ExecutionResult {
+    pub async fn exec(&self, sandbox_dir: &SandboxDir) -> ExecutionResult {
         let execution_start = Instant::now();
-        let result = task.exec(sandbox_dir).await;
+        let result = self.task.exec(sandbox_dir).await;
         ExecutionResult::for_task(result, execution_start)
     }
 }
@@ -23,7 +25,6 @@ pub trait AsyncTask {
 }
 
 impl AsyncTask for Task {
-    //impl Task {
     async fn exec(&self, sandbox_dir: &SandboxDir) -> Result<()> {
         match self {
             Task::CaptureRegex(x) => x.exec(sandbox_dir).await,

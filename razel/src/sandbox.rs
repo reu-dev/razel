@@ -1,12 +1,14 @@
 use crate::config::LinkType;
 use anyhow::bail;
 use anyhow::{Context, Error};
+use async_trait::async_trait;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use tokio::fs;
 
 pub type BoxedSandbox = Box<dyn Sandbox + Send>;
 
+#[async_trait]
 pub trait Sandbox {
     fn dir(&self) -> SandboxDir;
 
@@ -42,6 +44,7 @@ impl TmpDirSandbox {
     }
 }
 
+#[async_trait]
 impl Sandbox for TmpDirSandbox {
     fn dir(&self) -> SandboxDir {
         SandboxDir::new(Some(self.dir.clone()))
@@ -108,6 +111,7 @@ impl WasiSandbox {
     }
 }
 
+#[async_trait]
 impl Sandbox for WasiSandbox {
     fn dir(&self) -> SandboxDir {
         self.tmp_dir_sandbox.dir()

@@ -1,5 +1,6 @@
 use crate::cli::parse_cli_within_file;
 use crate::types::RazelJsonCommand;
+use crate::types::RazelJsonHandler;
 use crate::{config, Razel, Rules};
 use anyhow::{bail, Context, Result};
 use itertools::Itertools;
@@ -15,7 +16,7 @@ pub fn parse_command(razel: &mut Razel, command_line: Vec<String>) -> Result<()>
 }
 
 pub fn parse_batch_file(razel: &mut Razel, file_name: &String) -> Result<()> {
-    razel.set_workspace_dir(Path::new(file_name).parent().unwrap())?;
+    razel.set_workspace_dir(Path::new(file_name).parent().unwrap());
     let mut rules = Rules::new();
     let file = File::open(file_name).with_context(|| file_name.clone())?;
     let file_buffered = BufReader::new(file);
