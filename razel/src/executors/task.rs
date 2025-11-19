@@ -20,11 +20,7 @@ impl TaskExecutor {
     }
 }
 
-pub trait AsyncTask {
-    async fn exec(&self, sandbox_dir: &SandboxDir) -> Result<()>;
-}
-
-impl AsyncTask for Task {
+impl Task {
     async fn exec(&self, sandbox_dir: &SandboxDir) -> Result<()> {
         match self {
             Task::CaptureRegex(x) => x.exec(sandbox_dir).await,
@@ -32,8 +28,8 @@ impl AsyncTask for Task {
             Task::CsvFilter(x) => x.exec(sandbox_dir).await,
             Task::WriteFile(x) => x.exec(sandbox_dir).await,
             Task::DownloadFile(x) => x.exec(sandbox_dir).await,
-            Task::EnsureEqual(x) => x.exec(sandbox_dir).await,
-            Task::EnsureNotEqual(x) => x.exec(sandbox_dir).await,
+            Task::EnsureEqual(x) => x.exec().await,
+            Task::EnsureNotEqual(x) => x.exec().await,
             Task::HttpRemoteExec(_) => unreachable!(),
         }
     }

@@ -1,4 +1,3 @@
-use crate::executors::AsyncTask;
 use crate::types::{CsvConcatTask, CsvFilterTask};
 use crate::SandboxDir;
 use anyhow::{ensure, Result};
@@ -7,8 +6,8 @@ use itertools::Itertools;
 use std::io;
 use tokio::task::spawn_blocking;
 
-impl AsyncTask for CsvConcatTask {
-    async fn exec(&self, sandbox_dir: &SandboxDir) -> Result<()> {
+impl CsvConcatTask {
+    pub async fn exec(&self, sandbox_dir: &SandboxDir) -> Result<()> {
         let inputs = self.input.iter().map(|x| sandbox_dir.join(x)).collect_vec();
         let output = sandbox_dir.join(&self.output);
         spawn_blocking(move || {
@@ -36,8 +35,8 @@ impl AsyncTask for CsvConcatTask {
     }
 }
 
-impl AsyncTask for CsvFilterTask {
-    async fn exec(&self, sandbox_dir: &SandboxDir) -> Result<()> {
+impl CsvFilterTask {
+    pub async fn exec(&self, sandbox_dir: &SandboxDir) -> Result<()> {
         let input = sandbox_dir.join(&self.input);
         let output = sandbox_dir.join(&self.output);
         let cols = self.cols.clone();
