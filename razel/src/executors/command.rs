@@ -297,7 +297,7 @@ mod tests {
 
     #[tokio::test]
     async fn exec_stdout() {
-        let result = exec_basic("cmake", vec!["-h".into()]).await;
+        let result = exec_basic("echo", vec!["Hello".into()]).await;
         assert!(result.success());
         assert_eq!(result.status, ExecutionStatus::Success);
         assert_eq!(result.exit_code, Some(0));

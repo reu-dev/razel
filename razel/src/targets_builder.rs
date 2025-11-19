@@ -242,11 +242,12 @@ impl TargetsBuilder {
         Ok(id)
     }
 
-    fn check_tags(target: &mut Target) -> Result<()> {
+    pub fn check_tags(target: &mut Target) -> Result<()> {
         match &target.kind {
             TargetKind::Command(_) | TargetKind::Task(_) | TargetKind::HttpRemoteExecTask(_) => {
                 if target.tags.contains(&Tag::NoSandbox) && !target.tags.contains(&Tag::NoCache) {
                     // executing a command without sandbox is not reliable, therefore don't cache it
+                    debug!("push Tag::NoCache: {}", target.name);
                     target.tags.push(Tag::NoCache);
                 }
             }

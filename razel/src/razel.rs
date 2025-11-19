@@ -77,8 +77,6 @@ type ExecutionResultChannel = (CommandId, ExecutionResult, Vec<OutputFile>, bool
 pub struct Razel {
     pub read_cache: bool,
     worker_threads: usize,
-    /// absolute directory to resolve relative paths of input/output files
-    workspace_dir: PathBuf,
     /// current working directory, read-only, used to execute commands
     current_dir: PathBuf,
     /// directory of output files - relative to current_dir
@@ -117,13 +115,11 @@ impl Razel {
         let worker_threads = num_cpus::get();
         assert!(worker_threads > 0);
         let current_dir = env::current_dir().unwrap();
-        let workspace_dir = current_dir.clone();
         let out_dir = PathBuf::from(config::OUT_DIR);
         let targets_builder = TargetsBuilder::new();
         Razel {
             read_cache: true,
             worker_threads,
-            workspace_dir,
             current_dir,
             out_dir,
             cache: None,
@@ -207,11 +203,12 @@ impl Razel {
     }
      */
 
-    //#[cfg(test)]
+    #[doc(hidden)]
     pub fn add_tag_for_command(&mut self, name: &str, tag: Tag) {
         let builder = &mut self.targets_builder.as_mut().unwrap();
-        let target_id = builder.target_by_name[name];
-        builder.targets[target_id].tags.push(tag);
+        let target = &mut builder.targets[builder.target_by_name[name]];
+        target.tags.push(tag);
+        TargetsBuilder::check_tags(target).unwrap();
     }
 
     pub fn list_commands(&mut self) {
@@ -239,12 +236,14 @@ impl Razel {
     }
 
     pub fn show_info(&self, cache_dir: Option<PathBuf>) -> Result<()> {
+        let builder = self.targets_builder.as_ref().unwrap();
         let output_directory = self.current_dir.join(&self.out_dir);
-        println!("workspace dir:     {:?}", self.workspace_dir);
+        println!("current dir:       {:?}", self.current_dir);
+        println!("workspace dir:     {:?}", builder.workspace_dir);
         println!("output directory:  {output_directory:?}");
         let cache_dir = match cache_dir {
             Some(x) => x,
-            _ => select_cache_dir(&self.workspace_dir)?,
+            _ => select_cache_dir(&builder.workspace_dir)?,
         };
         println!("cache directory:   {cache_dir:?}");
         println!("sandbox directory: {:?}", select_sandbox_dir(&cache_dir)?);
@@ -258,12 +257,14 @@ impl Razel {
         remote_cache: Vec<String>,
         remote_cache_threshold: Option<u32>,
     ) -> Result<()> {
+        let builder = self.targets_builder.as_ref().unwrap();
         let output_directory = self.current_dir.join(&self.out_dir);
-        debug!("workspace dir:     {:?}", self.workspace_dir);
+        debug!("current dir:       {:?}", self.current_dir);
+        debug!("workspace dir:     {:?}", builder.workspace_dir);
         debug!("output directory:  {output_directory:?}");
         let cache_dir = match cache_dir {
             Some(x) => x,
-            _ => select_cache_dir(&self.workspace_dir)?,
+            _ => select_cache_dir(&builder.workspace_dir)?,
         };
         debug!("cache directory:   {cache_dir:?}");
         let sandbox_dir = select_sandbox_dir(&cache_dir)?;
@@ -299,7 +300,7 @@ impl Razel {
         remote_cache_threshold: Option<u32>,
     ) -> Result<SchedulerStats> {
         let preparation_start = Instant::now();
-        if self.dep_graph.targets.is_empty() {
+        if self.targets_builder.as_ref().unwrap().targets.is_empty() {
             bail!("No targets added");
         }
         self.tui.verbose = verbose;
@@ -350,6 +351,9 @@ impl Razel {
     fn create_dependency_graph(&mut self) {
         assert!(self.dep_graph.targets.is_empty());
         let builder = self.targets_builder.take().unwrap();
+        assert_eq!(builder.current_dir, self.current_dir);
+        assert_eq!(builder.out_dir, self.out_dir);
+        self.file_by_path = builder.file_by_path;
         self.dep_graph = DependencyGraph {
             targets: builder.targets,
             files: builder.files,
@@ -361,7 +365,14 @@ impl Razel {
             waiting: Default::default(),
         };
         self.dep_graph.create();
-        self.file_by_path = builder.file_by_path;
+        for target in self
+            .dep_graph
+            .ready
+            .iter()
+            .map(|id| &self.dep_graph.targets[*id])
+        {
+            self.scheduler.push_ready(target);
+        }
     }
 
     fn remove_unknown_or_excluded_files_from_out_dir(&self, dir: &Path) -> Result<()> {
@@ -436,7 +447,9 @@ impl Razel {
             return;
         }
         loop {
-            let Some(file) = self.dep_graph.files.get(*next_id) else {
+            let id = *next_id;
+            *next_id += 1;
+            let Some(file) = self.dep_graph.files.get(id) else {
                 break;
             };
             if !file.is_excluded && !self.dep_graph.creator_for_file.contains_key(&file.id) {
@@ -448,7 +461,6 @@ impl Razel {
                 });
                 return;
             }
-            *next_id += 1;
         }
         tx_option.take();
     }
@@ -990,7 +1002,7 @@ impl Razel {
         let dep_graph = &mut self.dep_graph;
         let target = &dep_graph.targets[id];
         self.tui.command_succeeded(target, execution_result);
-        for rdep_id in dep_graph.reverse_deps[&id].clone() {
+        for rdep_id in dep_graph.reverse_deps.get(&id).cloned().unwrap_or_default() {
             let deps = dep_graph.deps.get_mut(rdep_id).unwrap();
             assert!(!deps.is_empty());
             deps.swap_remove(deps.iter().position(|x| *x == id).unwrap());
@@ -1119,11 +1131,10 @@ impl Default for Razel {
 impl RazelJsonHandler for Razel {
     /// Set the directory to resolve relative paths of input/output files
     fn set_workspace_dir(&mut self, dir: &Path) {
-        if dir.is_absolute() {
-            self.workspace_dir = dir.into();
-        } else {
-            self.workspace_dir = self.current_dir.join(dir);
-        }
+        self.targets_builder
+            .as_mut()
+            .unwrap()
+            .set_workspace_dir(dir);
     }
 
     fn push_json(&mut self, json: RazelJson) -> Result<TargetId> {

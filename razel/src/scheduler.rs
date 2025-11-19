@@ -235,37 +235,35 @@ impl Drop for Scheduler {
 #[allow(clippy::bool_assert_comparison)]
 mod tests {
     use super::*;
-    use crate::targets_builder::TargetsBuilder;
-    use crate::types::RazelJsonCommand;
+    use crate::types::CommandTarget;
 
-    fn create(available_slots: usize, executables: Vec<&str>) -> (Scheduler, TargetsBuilder) {
+    fn create(available_slots: usize, executables: Vec<&str>) -> (Scheduler, Vec<Target>) {
         let mut scheduler = Scheduler::new(available_slots);
-        let mut builder = TargetsBuilder::new();
-        for (i, executable) in executables.iter().enumerate() {
-            let id = builder
-                .push_json_command(RazelJsonCommand {
-                    name: format!("cmd_{i}"),
+        let mut targets = vec![];
+        for (id, executable) in executables.iter().enumerate() {
+            targets.push(Target {
+                id,
+                name: format!("cmd_{id}"),
+                kind: TargetKind::Command(CommandTarget {
                     executable: executable.to_string(),
-                    args: vec![],
-                    env: Default::default(),
-                    inputs: vec![],
-                    outputs: vec![],
-                    stdout: None,
-                    stderr: None,
-                    deps: vec![],
-                    tags: vec![],
-                })
-                .unwrap();
-            scheduler.push_ready(&builder.targets[id]);
+                    ..Default::default()
+                }),
+                executables: vec![],
+                inputs: vec![],
+                outputs: vec![],
+                deps: vec![],
+                tags: vec![],
+                is_excluded: false,
+            });
+            scheduler.push_ready(&targets[id]);
         }
         assert_eq!(scheduler.ready(), executables.len());
-        (scheduler, builder)
+        (scheduler, targets)
     }
 
     #[test]
     fn simple() {
-        let (mut s, builder) = create(3, vec!["exec_0", "exec_0", "exec_1", "exec_1"]);
-        let targets = &builder.targets;
+        let (mut s, targets) = create(3, vec!["exec_0", "exec_0", "exec_1", "exec_1"]);
         let c0 = s.pop_ready_and_run().unwrap();
         let c1 = s.pop_ready_and_run().unwrap();
         let c2 = s.pop_ready_and_run().unwrap();
@@ -294,8 +292,7 @@ mod tests {
 
     #[test]
     fn killed() {
-        let (mut s, builder) = create(3, vec!["exec_0", "exec_0", "exec_1", "exec_1"]);
-        let targets = &builder.targets;
+        let (mut s, targets) = create(3, vec!["exec_0", "exec_0", "exec_1", "exec_1"]);
         let c0 = s.pop_ready_and_run().unwrap();
         let c1 = s.pop_ready_and_run().unwrap();
         let c2 = s.pop_ready_and_run().unwrap();

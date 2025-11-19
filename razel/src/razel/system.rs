@@ -6,7 +6,8 @@ use anyhow::{bail, Result};
 impl Razel {
     pub async fn check_remote_cache(&self, urls: Vec<String>) -> Result<()> {
         let mut failed = 0;
-        let cache_dir = select_cache_dir(&self.workspace_dir)?;
+        let workspace_dir = &self.targets_builder.as_ref().unwrap().workspace_dir;
+        let cache_dir = select_cache_dir(workspace_dir)?;
         let mut cache = Cache::new(cache_dir, self.out_dir.clone())?;
         for url in urls.iter().filter(|x| !x.is_empty()) {
             match cache
