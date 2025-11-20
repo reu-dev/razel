@@ -91,16 +91,17 @@ impl ExecutionResult {
     }
 
     #[cfg(test)]
-    pub fn assert_success(&mut self) {
-        use anyhow::{Context, Error};
+    pub fn assert_success(&self) {
         if self.success() {
             assert_eq!(self.exit_code, Some(0));
             assert!(self.error.is_none());
         } else {
             assert!(self.error.is_some());
-            Err::<(), Error>(self.error.take().unwrap())
-                .context(format!("Status: {:?}", self.status))
-                .unwrap();
+            panic!(
+                "assert_success(): status: {:?}, error: {:?}",
+                self.status,
+                self.error.as_ref().unwrap()
+            );
         }
     }
 }

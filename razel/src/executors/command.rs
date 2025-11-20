@@ -267,10 +267,7 @@ mod tests {
     #[tokio::test]
     async fn exec_ok() {
         let result = exec_basic("cmake", vec!["-E".into(), "true".into()]).await;
-        assert!(result.success());
-        assert_eq!(result.status, ExecutionStatus::Success);
-        assert_eq!(result.exit_code, Some(0));
-        assert!(result.error.is_none());
+        result.assert_success();
     }
 
     #[tokio::test]
@@ -298,9 +295,7 @@ mod tests {
     #[tokio::test]
     async fn exec_stdout() {
         let result = exec_basic("echo", vec!["Hello".into()]).await;
-        assert!(result.success());
-        assert_eq!(result.status, ExecutionStatus::Success);
-        assert_eq!(result.exit_code, Some(0));
+        result.assert_success();
         assert!(result.error.is_none());
         assert!(!result.stdout.is_empty());
         assert!(result.stderr.is_empty());

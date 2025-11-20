@@ -205,7 +205,7 @@ mod tests {
             read_dirs: vec![],
             write_dir: false,
         };
-        let mut result = executor
+        let result = executor
             .exec(workspace_dir, &sandbox_dir.dir().into())
             .await;
         println!("{result:?}");
@@ -232,7 +232,7 @@ mod tests {
             read_dirs: vec![".".into()],
             write_dir: true,
         };
-        let mut result = executor
+        let result = executor
             .exec(workspace_dir.dir(), &sandbox_dir.dir().into())
             .await;
         println!("{result:?}");
