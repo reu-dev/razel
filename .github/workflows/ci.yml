@@ -72,9 +72,8 @@ jobs:
       - run: rustup show
       - run: rustup target add ${{matrix.target}}
 
-      - run: cargo check --no-default-features
-      - run: cargo build
-
+      - run: cargo check -p razel --no-default-features
+      - run: cargo check
       - run: cargo run -- exec --info -f examples/razel.jsonl
 
       - run: cargo test -- --nocapture --skip real_time_test --skip grpc_server
