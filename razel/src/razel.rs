@@ -1080,7 +1080,7 @@ impl Razel {
                     bazel_remote_exec::FileNode {
                         name: file.path.to_str().unwrap().into(),
                         digest: Some(file.digest.as_ref().unwrap().into()),
-                        is_executable: false, // TODO bazel_remote_exec::FileNode::is_executable
+                        is_executable: file.executable.is_some(),
                         node_properties: None,
                     }
                 })
