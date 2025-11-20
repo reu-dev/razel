@@ -30,23 +30,20 @@ use std::{env, fs};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 
-pub type Command = Target; // TODO cleanup
-pub type CommandId = TargetId; // TODO cleanup
-
 #[derive(Debug, PartialEq, Eq)]
 pub enum ScheduleState {
     New,
-    /// Command is filtered out
+    /// Target is filtered out
     Excluded,
-    /// Command can not yet be executed because dependencies are still missing
+    /// Target can not yet be executed because dependencies are still missing
     Waiting,
-    /// Command is ready for being executed
+    /// Target is ready for being executed
     Ready,
-    /// Command execution finished successfully
+    /// Target execution finished successfully
     Succeeded,
-    /// Command execution failed
+    /// Target execution failed
     Failed,
-    /// Command could not be started because it depends on a failed condition
+    /// Target could not be started because it depends on a failed condition
     Skipped,
 }
 
@@ -72,7 +69,7 @@ impl SchedulerExecStats {
     }
 }
 
-type ExecutionResultChannel = (CommandId, ExecutionResult, Vec<OutputFile>, bool);
+type ExecutionResultChannel = (TargetId, ExecutionResult, Vec<OutputFile>, bool);
 
 pub struct Razel {
     pub read_cache: bool,
@@ -93,15 +90,15 @@ pub struct Razel {
     file_by_path: HashMap<PathBuf, FileId>,
     /// razel executable - used in Action::input_root_digest for versioning tasks
     self_file_id: Option<FileId>,
-    excluded_commands_len: usize,
+    excluded_targets_len: usize,
     /// single Linux cgroup for all commands to trigger OOM killer
     cgroup: Option<CGroup>,
     http_remote_exec_state: HttpRemoteExecState,
     wasi_module_by_executable: HashMap<FileId, wasmtime::Module>,
     scheduler: Scheduler,
-    succeeded: Vec<CommandId>,
-    failed: Vec<CommandId>,
-    skipped: HashSet<CommandId>,
+    succeeded: Vec<TargetId>,
+    failed: Vec<TargetId>,
+    skipped: HashSet<TargetId>,
     cache_hits: usize,
     tui: TUI,
     tui_dirty: bool,
@@ -128,7 +125,7 @@ impl Razel {
             dep_graph: Default::default(),
             file_by_path: Default::default(),
             self_file_id: None,
-            excluded_commands_len: 0,
+            excluded_targets_len: 0,
             cgroup: None,
             http_remote_exec_state: Default::default(),
             wasi_module_by_executable: Default::default(),
@@ -211,7 +208,7 @@ impl Razel {
         TargetsBuilder::check_tags(target).unwrap();
     }
 
-    pub fn list_commands(&mut self) {
+    pub fn list_targets(&mut self) {
         self.create_dependency_graph();
         while let Some(id) = self.scheduler.pop_ready_and_run() {
             let target = &self.dep_graph.targets[id];
@@ -310,8 +307,8 @@ impl Razel {
         let mut interval = tokio::time::interval(self.tui.get_update_interval());
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let execution_start = Instant::now();
-        self.start_ready_commands(&tx);
-        let mut start_more_commands = true;
+        self.start_ready_targets(&tx);
+        let mut start_more = true;
         while self.scheduler.running() != 0 {
             tokio::select! {
                 Some((id, execution_result, output_files, output_files_cached)) = rx.recv() => {
@@ -319,10 +316,10 @@ impl Razel {
                     if execution_result.status == ExecutionStatus::SystemError
                         || (!self.failed.is_empty() && !keep_going)
                     {
-                        start_more_commands = false;
+                        start_more = false;
                     }
-                    if start_more_commands {
-                        self.start_ready_commands(&tx);
+                    if start_more {
+                        self.start_ready_targets(&tx);
                     }
                 },
                 _ = interval.tick() => self.update_status(),
@@ -330,7 +327,7 @@ impl Razel {
         }
         self.remove_outputs_of_not_run_actions_from_out_dir();
         TmpDirSandbox::cleanup(self.sandbox_dir.as_ref().unwrap());
-        self.push_logs_for_not_started_commands();
+        self.push_logs_for_not_started_targets();
         let stats = SchedulerStats {
             exec: SchedulerExecStats {
                 succeeded: self.succeeded.len(),
@@ -505,7 +502,7 @@ impl Razel {
         Ok(())
     }
 
-    fn start_ready_commands(&mut self, tx: &UnboundedSender<ExecutionResultChannel>) {
+    fn start_ready_targets(&mut self, tx: &UnboundedSender<ExecutionResultChannel>) {
         while let Some(id) = self.scheduler.pop_ready_and_run() {
             self.start_next_command(id, tx.clone());
             self.tui_dirty = true;
@@ -526,15 +523,15 @@ impl Razel {
         self.tui_dirty = false;
     }
 
-    fn new_sandbox(&self, command: &Command) -> BoxedSandbox {
-        match command.kind {
-            TargetKind::Wasi(_) => self.new_wasi_sandbox(command),
-            _ => self.new_tmp_dir_sandbox(command),
+    fn new_sandbox(&self, target: &Target) -> BoxedSandbox {
+        match target.kind {
+            TargetKind::Wasi(_) => self.new_wasi_sandbox(target),
+            _ => self.new_tmp_dir_sandbox(target),
         }
     }
 
-    fn new_tmp_dir_sandbox(&self, command: &Command) -> BoxedSandbox {
-        let command_executables = command.executables.iter().filter(|&&x| {
+    fn new_tmp_dir_sandbox(&self, target: &Target) -> BoxedSandbox {
+        let command_executables = target.executables.iter().filter(|&&x| {
             if let Some(self_file_id) = self.self_file_id {
                 // razel never calls itself
                 x != self_file_id
@@ -542,20 +539,20 @@ impl Razel {
                 true
             }
         });
-        let inputs = chain(command_executables, command.inputs.iter())
+        let inputs = chain(command_executables, target.inputs.iter())
             .map(|x| self.dep_graph.files[*x].path.clone())
             .filter(|x| x.is_relative())
             .collect();
         Box::new(TmpDirSandbox::new(
             self.sandbox_dir.as_ref().unwrap(),
-            &command.id.to_string(),
+            &target.id.to_string(),
             inputs,
         ))
     }
 
-    fn new_wasi_sandbox(&self, command: &Command) -> BoxedSandbox {
+    fn new_wasi_sandbox(&self, target: &Target) -> BoxedSandbox {
         //let cache = self.cache.as_ref().unwrap();
-        let inputs = command
+        let inputs = target
             .inputs
             .iter()
             .map(|x| &self.dep_graph.files[*x])
@@ -569,22 +566,22 @@ impl Razel {
             .collect();
         Box::new(WasiSandbox::new(
             self.sandbox_dir.as_ref().unwrap(),
-            &command.id.to_string(),
+            &target.id.to_string(),
             inputs,
         ))
     }
 
-    fn collect_output_file_paths_for_command(&self, command: &Command) -> Vec<PathBuf> {
-        command
+    fn collect_output_file_paths_for_target(&self, target: &Target) -> Vec<PathBuf> {
+        target
             .outputs
             .iter()
             .map(|x| self.dep_graph.files[*x].path.clone())
             .collect()
     }
 
-    /// Execute a command in a worker thread with caching.
+    /// Execute a target in a worker thread with caching.
     ///
-    /// If the executed command failed, action_result will be None and the action will not be cached.
+    /// If the executed target failed, action_result will be None and the action will not be cached.
     fn start_next_command(&mut self, id: TargetId, tx: UnboundedSender<ExecutionResultChannel>) {
         let total_duration_start = Instant::now();
         let target = &self.dep_graph.targets[id];
@@ -599,7 +596,7 @@ impl Razel {
         let use_sandbox = !target.outputs.is_empty();
         let sandbox = (use_sandbox && !target.tags.contains(&Tag::NoSandbox))
             .then(|| self.new_sandbox(target));
-        let output_paths = self.collect_output_file_paths_for_command(target);
+        let output_paths = self.collect_output_file_paths_for_target(target);
         let cwd = self.current_dir.clone();
         let out_dir = self.out_dir.clone();
         tokio::task::spawn(async move {
@@ -634,7 +631,7 @@ impl Razel {
             });
             execution_result.total_duration = Some(total_duration_start.elapsed());
             let output_files_cached = use_cache && execution_result.success();
-            // ignore SendError - channel might be closed if a previous command failed
+            // ignore SendError - channel might be closed if a previous target failed
             tx.send((id, execution_result, output_files, output_files_cached))
                 .ok();
         });
@@ -1001,7 +998,7 @@ impl Razel {
         }
         let dep_graph = &mut self.dep_graph;
         let target = &dep_graph.targets[id];
-        self.tui.command_succeeded(target, execution_result);
+        self.tui.target_succeeded(target, execution_result);
         for rdep_id in dep_graph.reverse_deps[id].clone() {
             let deps = dep_graph.deps.get_mut(rdep_id).unwrap();
             assert!(!deps.is_empty());
@@ -1015,19 +1012,19 @@ impl Razel {
 
     fn on_command_retry(&mut self, id: TargetId, execution_result: &ExecutionResult) {
         let target = &self.dep_graph.targets[id];
-        self.tui.command_retry(target, execution_result);
+        self.tui.target_retry(target, execution_result);
     }
 
     fn on_command_failed(&mut self, id: TargetId, execution_result: &ExecutionResult) {
         self.failed.push(id);
         let target = &self.dep_graph.targets[id];
-        self.tui.command_failed(target, execution_result);
+        self.tui.target_failed(target, execution_result);
     }
 
     fn on_condition_failed(&mut self, id: TargetId, execution_result: &ExecutionResult) {
         let dep_graph = &mut self.dep_graph;
         let target = &dep_graph.targets[id];
-        self.tui.command_failed(target, execution_result);
+        self.tui.target_failed(target, execution_result);
         let mut ids_to_skip = dep_graph.reverse_deps[id].clone();
         while let Some(id_to_skip) = ids_to_skip.pop() {
             if self.skipped.contains(&id_to_skip) {
@@ -1093,7 +1090,7 @@ impl Razel {
         (bzl_command, bzl_input_root)
     }
 
-    fn push_logs_for_not_started_commands(&mut self) {
+    fn push_logs_for_not_started_targets(&mut self) {
         assert_eq!(self.scheduler.running(), 0);
         for id in self
             .dep_graph
@@ -1111,7 +1108,7 @@ impl Razel {
         fs::create_dir_all(&dir)
             .with_context(|| format!("Failed to create metadata directory: {dir:?}"))?;
         self.dep_graph
-            .write_graphs_html(self.excluded_commands_len, &dir.join("graphs.html"))?;
+            .write_graphs_html(self.excluded_targets_len, &dir.join("graphs.html"))?;
         self.measurements.write_csv(&dir.join("measurements.csv"))?;
         self.profile.write_json(&dir.join("execution_times.json"))?;
         self.log_file.write(&dir.join("log.json"))?;
@@ -1154,7 +1151,7 @@ mod tests {
     use crate::types::RazelJsonCommand;
     use crate::{Razel, SchedulerExecStats};
 
-    /// Test that commands are actually run in parallel limited by Scheduler::worker_threads
+    /// Test that targets are actually run in parallel limited by Scheduler::worker_threads
     #[tokio::test]
     #[serial]
     async fn parallel_real_time_test() {

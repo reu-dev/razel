@@ -1,6 +1,5 @@
 use crate::executors::{ExecutionResult, ExecutionStatus};
-use crate::types::{CacheHit, Tag};
-use crate::Command;
+use crate::types::{CacheHit, Tag, Target};
 use anyhow::{Context, Result};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -21,10 +20,10 @@ pub struct LogFileItem {
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache: Option<CacheHit>,
-    /// original execution duration of the command/task - ignoring cache
+    /// original execution duration of the target - ignoring cache
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exec: Option<f32>,
-    /// actual duration of processing the command/task - including caching and overheads
+    /// actual duration of processing the target - including caching and overheads
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total: Option<f32>,
     /// total size of all output files and stdout/stderr [bytes]
@@ -62,12 +61,12 @@ impl LogFile {
 
     pub fn push(
         &mut self,
-        command: &Command,
+        target: &Target,
         execution_result: &ExecutionResult,
         output_size: Option<u64>,
         measurements: Map<String, Value>,
     ) {
-        let custom_tags = command
+        let custom_tags = target
             .tags
             .iter()
             .filter_map(|x| match x {
@@ -76,7 +75,7 @@ impl LogFile {
             })
             .collect_vec();
         self.items.push(LogFileItem {
-            name: command.name.clone(),
+            name: target.name.clone(),
             tags: custom_tags,
             status: execution_result.status,
             error: execution_result.error.as_ref().map(|x| x.to_string()),
@@ -88,10 +87,10 @@ impl LogFile {
         });
     }
 
-    pub fn push_not_run(&mut self, command: &Command, status: ExecutionStatus) {
+    pub fn push_not_run(&mut self, target: &Target, status: ExecutionStatus) {
         assert!(status == ExecutionStatus::NotStarted || status == ExecutionStatus::Skipped);
         self.push(
-            command,
+            target,
             &ExecutionResult {
                 status,
                 ..Default::default()

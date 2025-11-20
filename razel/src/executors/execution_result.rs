@@ -127,7 +127,7 @@ impl fmt::Debug for ExecutionResult {
 pub enum ExecutionStatus {
     #[default]
     NotStarted,
-    /// Command could not be started because it depends on a failed condition
+    /// Target could not be started because it depends on a failed condition
     Skipped,
     FailedToStart,
     FailedToCreateResponseFile,

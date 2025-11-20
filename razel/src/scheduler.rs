@@ -1,6 +1,5 @@
 use crate::executors::HttpRemoteExecDomain;
-use crate::types::{Target, TargetKind};
-use crate::{Command, CommandId};
+use crate::types::{Target, TargetId, TargetKind};
 use itertools::Itertools;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -8,22 +7,22 @@ use std::sync::Arc;
 type Group = String;
 
 struct ReadyItem {
-    id: CommandId,
+    id: TargetId,
     group: Group,
     slots: usize,
 }
 
-/// Keeps track of ready/running commands and selects next to run depending on resources
+/// Keeps track of ready/running targets and selects next to run depending on resources
 pub struct Scheduler {
     available_slots: usize,
     used_slots: usize,
     // TODO sort by weight, e.g. recursive number of rdeps
     ready_items: Vec<ReadyItem>,
-    ready_for_remote_exec: Vec<(Arc<HttpRemoteExecDomain>, VecDeque<CommandId>)>,
+    ready_for_remote_exec: Vec<(Arc<HttpRemoteExecDomain>, VecDeque<TargetId>)>,
     ready_for_remote_exec_len: usize,
-    running_items: HashMap<CommandId, Group>,
+    running_items: HashMap<TargetId, Group>,
     running_with_remote_exec: usize,
-    /// groups commands by estimated resource requirement
+    /// groups targets by estimated resource requirement
     group_to_slots: HashMap<String, usize>,
 }
 
@@ -45,7 +44,7 @@ impl Scheduler {
         self.ready_items.len() + self.ready_for_remote_exec_len
     }
 
-    pub fn ready_ids(&self) -> Vec<CommandId> {
+    pub fn ready_ids(&self) -> Vec<TargetId> {
         self.ready_items
             .iter()
             .map(|x| x.id)
@@ -72,14 +71,14 @@ impl Scheduler {
             && self.running_with_remote_exec == 0
     }
 
-    pub fn push_ready(&mut self, command: &Command) {
-        if self.push_ready_for_remote_exec(command) {
+    pub fn push_ready(&mut self, target: &Target) {
+        if self.push_ready_for_remote_exec(target) {
             return;
         }
-        let group = Self::group_for_command(command);
+        let group = Self::group_for_command(target);
         let slots = self.slots_for_group(&group);
         self.ready_items.push(ReadyItem {
-            id: command.id,
+            id: target.id,
             group,
             slots,
         });
@@ -112,7 +111,7 @@ impl Scheduler {
          */
     }
 
-    pub fn pop_ready_and_run(&mut self) -> Option<CommandId> {
+    pub fn pop_ready_and_run(&mut self) -> Option<TargetId> {
         if let Some(x) = self.pop_ready_and_run_remote_exec() {
             return Some(x);
         }
@@ -134,30 +133,30 @@ impl Scheduler {
         }
     }
 
-    fn pop_ready_and_run_remote_exec(&mut self) -> Option<CommandId> {
+    fn pop_ready_and_run_remote_exec(&mut self) -> Option<TargetId> {
         if self.ready_for_remote_exec_len == 0 {
             return None;
         }
         let id = self
             .ready_for_remote_exec
             .iter_mut()
-            .find(|(domain, commands)| !commands.is_empty() && domain.try_schedule())
-            .and_then(|(_, commands)| commands.pop_front())?;
+            .find(|(domain, targets)| !targets.is_empty() && domain.try_schedule())
+            .and_then(|(_, targets)| targets.pop_front())?;
         self.ready_for_remote_exec_len -= 1;
         self.running_with_remote_exec += 1;
         Some(id)
     }
 
-    pub fn set_finished_and_get_retry_flag(&mut self, command: &Command, oom_killed: bool) -> bool {
-        if self.unschedule_remote_exec(command) {
+    pub fn set_finished_and_get_retry_flag(&mut self, target: &Target, oom_killed: bool) -> bool {
+        if self.unschedule_remote_exec(target) {
             return false;
         }
-        let id = command.id;
+        let id = target.id;
         let group = self.running_items.remove(&id).unwrap();
         self.used_slots -= self.slots_for_group(&group);
         if oom_killed {
             self.scale_up_memory_requirement(&group);
-            // stop retry only when command was run exclusively
+            // stop retry only when target was run exclusively
             if !self.running_items.is_empty() {
                 let slots = self.slots_for_group(&group);
                 self.ready_items.push(ReadyItem { id, group, slots });
@@ -207,10 +206,10 @@ impl Scheduler {
         *self.group_to_slots.get(group).unwrap_or(&1)
     }
 
-    fn group_for_command(command: &Command) -> Group {
+    fn group_for_command(target: &Target) -> Group {
         // assume resource requirements depends just on executable
         // could also use the command line with file arguments stripped
-        match &command.kind {
+        match &target.kind {
             TargetKind::Command(c) => c.executable.clone(),
             TargetKind::Wasi(c) => c.executable.clone(),
             TargetKind::Task(_) => String::new(),

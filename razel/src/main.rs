@@ -45,7 +45,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
     if run_args.no_execution {
-        razel.list_commands();
+        razel.list_targets();
     } else {
         let stats = razel
             .run(

@@ -1,6 +1,5 @@
 use crate::executors::ExecutionResult;
-use crate::types::Tag;
-use crate::Command;
+use crate::types::{Tag, Target};
 use anyhow::Result;
 use serde::Serialize;
 use std::fs;
@@ -25,11 +24,11 @@ impl Profile {
         }
     }
 
-    pub fn collect(&mut self, command: &Command, execution_result: &ExecutionResult) {
+    pub fn collect(&mut self, target: &Target, execution_result: &ExecutionResult) {
         if let Some(duration) = &execution_result.exec_duration {
             self.execution_times.push(ExecutionTimesItem {
-                name: command.name.clone(),
-                tags: command.tags.clone(),
+                name: target.name.clone(),
+                tags: target.tags.clone(),
                 time: duration.as_secs_f32(),
             })
         }
