@@ -223,7 +223,7 @@ impl Razel {
             );
             self.scheduler
                 .set_finished_and_get_retry_flag(target, false);
-            for rdep_id in self.dep_graph.reverse_deps[&id].clone() {
+            for rdep_id in self.dep_graph.reverse_deps[id].clone() {
                 let deps = self.dep_graph.deps.get_mut(rdep_id).unwrap();
                 assert!(!deps.is_empty());
                 deps.swap_remove(deps.iter().position(|x| *x == id).unwrap());
@@ -1002,7 +1002,7 @@ impl Razel {
         let dep_graph = &mut self.dep_graph;
         let target = &dep_graph.targets[id];
         self.tui.command_succeeded(target, execution_result);
-        for rdep_id in dep_graph.reverse_deps.get(&id).cloned().unwrap_or_default() {
+        for rdep_id in dep_graph.reverse_deps[id].clone() {
             let deps = dep_graph.deps.get_mut(rdep_id).unwrap();
             assert!(!deps.is_empty());
             deps.swap_remove(deps.iter().position(|x| *x == id).unwrap());
@@ -1028,7 +1028,7 @@ impl Razel {
         let dep_graph = &mut self.dep_graph;
         let target = &dep_graph.targets[id];
         self.tui.command_failed(target, execution_result);
-        let mut ids_to_skip = dep_graph.reverse_deps[&id].clone();
+        let mut ids_to_skip = dep_graph.reverse_deps[id].clone();
         while let Some(id_to_skip) = ids_to_skip.pop() {
             if self.skipped.contains(&id_to_skip) {
                 continue;
@@ -1039,7 +1039,7 @@ impl Razel {
                 .push_not_run(to_skip, ExecutionStatus::Skipped);
             dep_graph.waiting.remove(&id_to_skip);
             self.skipped.insert(id_to_skip);
-            ids_to_skip.extend(dep_graph.reverse_deps[&id_to_skip].iter());
+            ids_to_skip.extend(dep_graph.reverse_deps[id_to_skip].iter());
         }
     }
 

@@ -11,7 +11,7 @@ pub struct DependencyGraph {
     pub creator_for_file: HashMap<FileId, TargetId>,
     pub target_by_name: HashMap<String, TargetId>,
     pub deps: Vec<Vec<TargetId>>,
-    pub reverse_deps: HashMap<TargetId, Vec<TargetId>>,
+    pub reverse_deps: Vec<Vec<TargetId>>,
     pub ready: Vec<TargetId>,
     pub waiting: HashSet<TargetId>,
 }
@@ -82,29 +82,30 @@ impl DependencyGraph {
     }
 
     pub fn create(&mut self) {
+        assert!(self.deps.is_empty());
+        self.deps.resize(self.targets.len(), Vec::new());
+        self.reverse_deps.resize(self.targets.len(), Vec::new());
         self.waiting.reserve(self.targets.len());
         for target in &self.targets {
-            assert_eq!(target.id, self.deps.len());
             if target.is_excluded {
                 continue;
             }
-            let mut target_deps = vec![];
+            let target_deps = &mut self.deps[target.id];
             for input_id in chain!(&target.executables, &target.inputs) {
                 if let Some(dep) = self.creator_for_file.get(input_id).cloned() {
                     target_deps.push(dep);
-                    self.reverse_deps.entry(dep).or_default().push(target.id);
+                    self.reverse_deps[dep].push(target.id);
                 }
             }
             for dep in target.deps.iter().cloned() {
                 target_deps.push(dep);
-                self.reverse_deps.entry(dep).or_default().push(target.id);
+                self.reverse_deps[dep].push(target.id);
             }
             if target_deps.is_empty() {
                 self.ready.push(target.id);
             } else {
                 self.waiting.insert(target.id);
             }
-            self.deps.push(target_deps);
         }
         self.check_for_circular_dependencies();
     }
