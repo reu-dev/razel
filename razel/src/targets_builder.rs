@@ -409,10 +409,12 @@ impl TargetsBuilder {
 impl RazelJsonHandler for TargetsBuilder {
     /// Set the directory to resolve relative paths of input/output files
     fn set_workspace_dir(&mut self, dir: &Path) {
-        if dir.is_absolute() {
-            self.workspace_dir = dir.into();
-        } else {
+        if dir == "" {
+            self.workspace_dir = self.current_dir.clone();
+        } else if dir.is_relative() {
             self.workspace_dir = self.current_dir.join(dir);
+        } else {
+            self.workspace_dir = dir.into();
         }
     }
 
