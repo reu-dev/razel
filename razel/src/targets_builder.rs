@@ -315,7 +315,9 @@ impl TargetsBuilder {
             return Ok(*id);
         }
         let id = self.files.len();
-        self.files.push(File::new(id, path, Some(executable_type)));
+        self.files
+            .push(File::new(id, path.clone(), Some(executable_type)));
+        self.file_by_path.insert(path, id);
         Ok(id)
     }
 
