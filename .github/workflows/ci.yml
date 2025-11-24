@@ -72,6 +72,7 @@ jobs:
 
       - run: rustup show
       - run: rustup target add ${{matrix.target}}
+      - run: rustup run stable rustc --version
 
       - run: cargo check -p razel --no-default-features
       - run: cargo check
