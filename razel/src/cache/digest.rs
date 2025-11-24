@@ -52,7 +52,7 @@ impl Digest {
         Self::for_bytes(message_to_pb_buf(msg))
     }
 
-    pub fn for_string(text: &String) -> Self {
+    pub fn for_string(text: &str) -> Self {
         Self::for_bytes(text.as_bytes())
     }
 
@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn digest_for_string() {
         assert_eq!(
-            Digest::for_string(&"Hello World!".into()),
+            Digest::for_string("Hello World!"),
             Digest {
                 // echo -n "Hello World!" | sha256sum
                 hash: "7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069".into(),

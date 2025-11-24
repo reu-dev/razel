@@ -25,6 +25,7 @@ use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::{hash_map, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use std::{env, fs};
 use tokio::sync::mpsc;
@@ -88,8 +89,6 @@ pub struct Razel {
     dep_graph: DependencyGraph,
     /// maps paths relative to current_dir (without out_dir prefix) to FileId
     file_by_path: HashMap<PathBuf, FileId>,
-    /// razel executable - used in Action::input_root_digest for versioning tasks
-    self_file_id: Option<FileId>,
     excluded_targets_len: usize,
     /// single Linux cgroup for all commands to trigger OOM killer
     cgroup: Option<CGroup>,
@@ -124,7 +123,6 @@ impl Razel {
             targets_builder: Some(targets_builder),
             dep_graph: Default::default(),
             file_by_path: Default::default(),
-            self_file_id: None,
             excluded_targets_len: 0,
             cgroup: None,
             http_remote_exec_state: Default::default(),
@@ -170,35 +168,6 @@ impl Razel {
             .unwrap()
             .push_task(name, args, task, tags)
     }
-
-    // TODO add razel executable digest to command hash
-    /*
-    fn lazy_self_file_id(&mut self) -> Result<FileId> {
-        if let Some(x) = self.self_file_id {
-            Ok(x)
-        } else {
-            let path = Path::new(&env::args().next().unwrap())
-                .canonicalize()
-                .ok()
-                .filter(|x| x.is_file());
-            let file_id = if let Some(x) = &path {
-                self.input_file_for_rel_path(
-                    config::EXECUTABLE.into(),
-                    FileType::RazelExecutable,
-                    x.clone(),
-                )
-                .with_context(|| anyhow!("Failed to find razel executable for {x:?}"))?
-                .id
-            } else {
-                self.executable_which(config::EXECUTABLE.into(), FileType::RazelExecutable)
-                    .with_context(|| anyhow!("Failed to find razel executable"))?
-                    .id
-            };
-            self.self_file_id = Some(file_id);
-            Ok(file_id)
-        }
-    }
-     */
 
     #[doc(hidden)]
     pub fn add_tag_for_command(&mut self, name: &str, tag: Tag) {
@@ -531,15 +500,7 @@ impl Razel {
     }
 
     fn new_tmp_dir_sandbox(&self, target: &Target) -> BoxedSandbox {
-        let command_executables = target.executables.iter().filter(|&&x| {
-            if let Some(self_file_id) = self.self_file_id {
-                // razel never calls itself
-                x != self_file_id
-            } else {
-                true
-            }
-        });
-        let inputs = chain(command_executables, target.inputs.iter())
+        let inputs = chain(target.executables.iter(), target.inputs.iter())
             .map(|x| self.dep_graph.files[*x].path.clone())
             .filter(|x| x.is_relative())
             .collect();
@@ -1081,6 +1042,7 @@ impl Razel {
                         node_properties: None,
                     }
                 })
+                .chain(Self::razel_file_node_for_target(&target.kind))
                 .sorted_unstable_by(|a, b| Ord::cmp(&a.name, &b.name))
                 .collect(),
             directories: vec![],
@@ -1088,6 +1050,34 @@ impl Razel {
             node_properties: None,
         };
         (bzl_command, bzl_input_root)
+    }
+
+    /// used in Action::input_root_digest for versioning breaking changes in task/wasi executors
+    ///
+    /// Not using the digest of the razel executable to allow cache hits across platforms and razel versions.
+    fn razel_file_node_for_target(target_kind: &TargetKind) -> Option<bazel_remote_exec::FileNode> {
+        static WASI_EXECUTOR_DIGEST: OnceLock<BazelDigest> = OnceLock::new();
+        static TASK_EXECUTOR_DIGEST: OnceLock<BazelDigest> = OnceLock::new();
+        static HTTP_REMOTE_EXECUTOR_DIGEST: OnceLock<BazelDigest> = OnceLock::new();
+
+        let digest = match &target_kind {
+            TargetKind::Command(_) => return None,
+            TargetKind::Wasi(_) => {
+                WASI_EXECUTOR_DIGEST.get_or_init(|| BazelDigest::for_string("1"))
+            }
+            TargetKind::Task(_) => {
+                TASK_EXECUTOR_DIGEST.get_or_init(|| BazelDigest::for_string("1"))
+            }
+            TargetKind::HttpRemoteExecTask(_) => {
+                HTTP_REMOTE_EXECUTOR_DIGEST.get_or_init(|| BazelDigest::for_string("1"))
+            }
+        };
+        Some(bazel_remote_exec::FileNode {
+            name: "razel".to_string(),
+            digest: Some(digest.clone()),
+            is_executable: true,
+            node_properties: None,
+        })
     }
 
     fn push_logs_for_not_started_targets(&mut self) {

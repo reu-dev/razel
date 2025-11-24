@@ -30,7 +30,7 @@ impl BazelDigest {
         Self::for_bytes(message_to_pb_buf(msg))
     }
 
-    pub fn for_string(text: &String) -> Self {
+    pub fn for_string(text: &str) -> Self {
         Self::for_bytes(text.as_bytes())
     }
 }
