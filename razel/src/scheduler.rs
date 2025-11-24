@@ -1,5 +1,5 @@
-use crate::executors::HttpRemoteExecDomain;
-use crate::types::{Target, TargetId, TargetKind};
+use crate::executors::{HttpRemoteExecDomain, HttpRemoteExecState};
+use crate::types::{Target, TargetId, TargetKind, Task};
 use itertools::Itertools;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -15,6 +15,7 @@ struct ReadyItem {
 /// Keeps track of ready/running targets and selects next to run depending on resources
 pub struct Scheduler {
     available_slots: usize,
+    http_remote_exec_state: HttpRemoteExecState,
     used_slots: usize,
     // TODO sort by weight, e.g. recursive number of rdeps
     ready_items: Vec<ReadyItem>,
@@ -30,6 +31,7 @@ impl Scheduler {
     pub fn new(available_slots: usize) -> Self {
         Self {
             available_slots,
+            http_remote_exec_state: Default::default(),
             used_slots: 0,
             ready_items: Default::default(),
             ready_for_remote_exec: Default::default(),
@@ -38,6 +40,16 @@ impl Scheduler {
             running_with_remote_exec: 0,
             group_to_slots: Default::default(),
         }
+    }
+
+    pub fn set_http_remote_exec_config(&mut self, http_remote_exec_state: HttpRemoteExecState) {
+        self.http_remote_exec_state = http_remote_exec_state;
+        self.ready_for_remote_exec = self
+            .http_remote_exec_state
+            .domains
+            .iter()
+            .map(|x| (x.clone(), Default::default()))
+            .collect();
     }
 
     pub fn ready(&self) -> usize {
@@ -85,30 +97,25 @@ impl Scheduler {
     }
 
     fn push_ready_for_remote_exec(&mut self, target: &Target) -> bool {
-        let TargetKind::HttpRemoteExecTask(_) = &target.kind else {
+        let TargetKind::HttpRemoteExecTask(task_target) = &target.kind else {
             return false;
         };
-        todo!();
-        /*
-        let Some(domain) = &executor.state else {
+        let Task::HttpRemoteExec(task) = &task_target.task else {
+            unreachable!()
+        };
+        let Some(domain) = self.http_remote_exec_state.for_url(&task.url) else {
             return false;
         };
-        let ready = match self
+        let Some(ready) = self
             .ready_for_remote_exec
             .iter_mut()
-            .find(|(x, _)| Arc::ptr_eq(x, domain))
-        {
-            Some(x) => &mut x.1,
-            _ => {
-                self.ready_for_remote_exec
-                    .push((domain.clone(), Default::default()));
-                &mut self.ready_for_remote_exec.last_mut().unwrap().1
-            }
+            .find(|(x, _)| Arc::ptr_eq(x, &domain))
+        else {
+            unreachable!()
         };
-        ready.push_back(target.id);
+        ready.1.push_back(target.id);
         self.ready_for_remote_exec_len += 1;
         true
-         */
     }
 
     pub fn pop_ready_and_run(&mut self) -> Option<TargetId> {
@@ -167,19 +174,19 @@ impl Scheduler {
     }
 
     fn unschedule_remote_exec(&mut self, target: &Target) -> bool {
-        let TargetKind::HttpRemoteExecTask(_) = &target.kind else {
+        let TargetKind::HttpRemoteExecTask(task_target) = &target.kind else {
             return false;
         };
-        todo!();
-        /*
-        let Some(domain) = &executor.state else {
+        let Task::HttpRemoteExec(task) = &task_target.task else {
+            unreachable!()
+        };
+        let Some(domain) = self.http_remote_exec_state.for_url(&task.url) else {
             return false;
         };
         assert!(self.running_with_remote_exec > 0);
         domain.unschedule();
         self.running_with_remote_exec -= 1;
         true
-         */
     }
 
     fn scale_up_memory_requirement(&mut self, group: &Group) -> bool {

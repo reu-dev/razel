@@ -12,9 +12,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::fs;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct HttpRemoteExecState {
-    domains: Vec<Arc<HttpRemoteExecDomain>>,
+    pub domains: Vec<Arc<HttpRemoteExecDomain>>,
 }
 
 impl HttpRemoteExecState {
@@ -53,7 +53,7 @@ impl HttpRemoteExecState {
         Self { domains }
     }
 
-    fn for_url(&self, url: &Url) -> Option<Arc<HttpRemoteExecDomain>> {
+    pub fn for_url(&self, url: &Url) -> Option<Arc<HttpRemoteExecDomain>> {
         let domain = url.domain()?;
         self.domains.iter().find(|x| x.domain == domain).cloned()
     }

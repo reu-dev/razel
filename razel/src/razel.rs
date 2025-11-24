@@ -146,7 +146,9 @@ impl Razel {
     }
 
     pub fn set_http_remote_exec_config(&mut self, config: &HttpRemoteExecConfig) {
-        self.http_remote_exec_state = HttpRemoteExecState::new(config);
+        let state = HttpRemoteExecState::new(config);
+        self.http_remote_exec_state = state.clone();
+        self.scheduler.set_http_remote_exec_config(state);
     }
 
     pub fn push_json_command(&mut self, json: RazelJsonCommand) -> Result<TargetId> {
