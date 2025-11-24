@@ -65,6 +65,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - run: cmake --version
       - run: deno info
       - run: deno --version
       - run: protoc --version

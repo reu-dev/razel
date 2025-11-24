@@ -241,6 +241,7 @@ mod tests {
     use super::*;
     use crate::executors::{CommandExecutor, ExecutionStatus};
     use crate::types::CommandTarget;
+    use which::which;
 
     async fn exec_basic(executable: &str, args: Vec<String>) -> ExecutionResult {
         exec_target(
@@ -266,7 +267,8 @@ mod tests {
 
     #[tokio::test]
     async fn exec_ok() {
-        let result = exec_basic("cmake", vec!["-E".into(), "true".into()]).await;
+        let cmake = which("cmake").unwrap().to_str().unwrap().to_string();
+        let result = exec_basic(&cmake, vec!["-E".into(), "true".into()]).await;
         result.assert_success();
     }
 
@@ -285,7 +287,8 @@ mod tests {
 
     #[tokio::test]
     async fn exec_failed_to_run() {
-        let result = exec_basic("cmake", vec!["-E".into(), "false".into()]).await;
+        let cmake = which("cmake").unwrap().to_str().unwrap().to_string();
+        let result = exec_basic(&cmake, vec!["-E".into(), "false".into()]).await;
         assert!(!result.success());
         assert_eq!(result.status, ExecutionStatus::Failed);
         assert_eq!(result.exit_code, Some(1));
@@ -294,7 +297,8 @@ mod tests {
 
     #[tokio::test]
     async fn exec_stdout() {
-        let result = exec_basic("echo", vec!["Hello".into()]).await;
+        let echo = which("echo").unwrap().to_str().unwrap().to_string();
+        let result = exec_basic(&echo, vec!["Hello".into()]).await;
         result.assert_success();
         assert!(result.error.is_none());
         assert!(!result.stdout.is_empty());
@@ -303,8 +307,9 @@ mod tests {
 
     #[tokio::test]
     async fn exec_stderr() {
+        let cmake = which("cmake").unwrap().to_str().unwrap().to_string();
         let result = exec_basic(
-            "cmake",
+            &cmake,
             vec!["-E".into(), "hopefully-not-existing-command".into()],
         )
         .await;
@@ -319,7 +324,7 @@ mod tests {
     #[tokio::test]
     async fn exec_timeout() {
         let command = CommandTarget {
-            executable: "cmake".into(),
+            executable: which("cmake").unwrap().to_str().unwrap().to_string(),
             args: vec!["-E".into(), "sleep".into(), "3".into()],
             ..Default::default()
         };
@@ -333,8 +338,9 @@ mod tests {
     /* TODO
     #[tokio::test]
     async fn exec_kill() {
-        let result = exec(
-            "cmake",
+        let cmake = which("cmake").unwrap().to_str().unwrap().to_string();
+        let result = exec_basic(
+            &cmake,
             vec!["-E".into(), "sleep".into(), "10".into()],
             Default::default(),
         )
@@ -348,6 +354,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_arg_max() {
+        let echo = which("echo").unwrap().to_str().unwrap().to_string();
         for arg in &["a", "ab", "abcdefabcdef"] {
             let mut args = vec![];
             let mut lower: usize = 0;
@@ -355,7 +362,7 @@ mod tests {
             let mut current = 2048;
             loop {
                 args.resize(current, arg.to_string());
-                let result = exec_basic("echo", args.clone()).await;
+                let result = exec_basic(&echo, args.clone()).await;
                 if result.success() {
                     lower = current;
                 } else {
