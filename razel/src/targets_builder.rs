@@ -217,7 +217,12 @@ impl TargetsBuilder {
         let target = Target {
             id,
             name,
-            kind: TargetKind::Task(TaskTarget { args, task }),
+            kind: match task {
+                Task::HttpRemoteExec(_) => {
+                    TargetKind::HttpRemoteExecTask(TaskTarget { args, task })
+                }
+                _ => TargetKind::Task(TaskTarget { args, task }),
+            },
             executables: vec![],
             inputs,
             outputs,

@@ -30,7 +30,7 @@ impl Task {
             Task::DownloadFile(x) => x.exec(sandbox_dir).await,
             Task::EnsureEqual(x) => x.exec().await,
             Task::EnsureNotEqual(x) => x.exec().await,
-            Task::HttpRemoteExec(_) => unreachable!(),
+            Task::HttpRemoteExec(_) => unreachable!("should use HttpRemoteExecutor"),
         }
     }
 }
