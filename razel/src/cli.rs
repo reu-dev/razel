@@ -4,6 +4,7 @@ use anyhow::{bail, Result};
 use clap::{Args, Parser, Subcommand};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+use url::Url;
 
 mod http_remote_exec_config;
 pub use http_remote_exec_config::*;
@@ -91,6 +92,9 @@ pub struct RunArgs {
     /// Only cache commands with: output size / exec time < threshold [kilobyte / s]
     #[clap(long, env = "RAZEL_REMOTE_CACHE_THRESHOLD")]
     pub remote_cache_threshold: Option<u32>,
+    /// Comma seperated list of remote executor URLs
+    #[clap(long, env = "RAZEL_REMOTE_EXEC", value_delimiter = ',')]
+    pub remote_exec: Vec<Url>,
     /// Http remote execution configuration
     #[clap(long, env = "RAZEL_HTTP_REMOTE_EXEC")]
     pub http_remote_exec: Option<HttpRemoteExecConfig>,
@@ -107,6 +111,7 @@ impl Default for RunArgs {
             cache_dir: None,
             remote_cache: vec![],
             remote_cache_threshold: None,
+            remote_exec: vec![],
             http_remote_exec: None,
         }
     }

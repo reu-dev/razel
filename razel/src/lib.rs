@@ -76,6 +76,20 @@ pub mod metadata {
     mod report;
 }
 
+#[cfg(feature = "remote_exec")]
+pub mod remote_exec {
+    mod client;
+    mod job;
+    mod rpc_messages;
+    mod rpc_utils;
+    mod rpc_utils_client;
+
+    pub use client::*;
+    pub use job::*;
+    pub use rpc_messages::*;
+    pub use rpc_utils::*;
+}
+
 #[cfg(feature = "full")]
 pub mod utils {
     pub mod test_utils;

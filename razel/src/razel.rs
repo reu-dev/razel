@@ -30,6 +30,7 @@ use std::time::{Duration, Instant};
 use std::{env, fs};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
+use url::Url;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ScheduleState {
@@ -219,46 +220,46 @@ impl Razel {
         Ok(())
     }
 
-    async fn prepare_run(
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run(
         &mut self,
+        keep_going: bool,
+        verbose: bool,
+        group_by_tag: &str,
         cache_dir: Option<PathBuf>,
         remote_cache: Vec<String>,
         remote_cache_threshold: Option<u32>,
-    ) -> Result<()> {
-        let builder = self.targets_builder.as_ref().unwrap();
-        let output_directory = self.current_dir.join(&self.out_dir);
-        debug!("current dir:       {:?}", self.current_dir);
-        debug!("workspace dir:     {:?}", builder.workspace_dir);
-        debug!("output directory:  {output_directory:?}");
-        let cache_dir = match cache_dir {
-            Some(x) => x,
-            _ => select_cache_dir(&builder.workspace_dir)?,
-        };
-        debug!("cache directory:   {cache_dir:?}");
-        let sandbox_dir = select_sandbox_dir(&cache_dir)?;
-        let mut cache = Cache::new(cache_dir, self.out_dir.clone())?;
-        debug!("sandbox directory: {sandbox_dir:?}");
-        debug!("worker threads:    {}", self.worker_threads);
-        cache
-            .connect_remote_cache(&remote_cache, remote_cache_threshold)
-            .await?;
-        TmpDirSandbox::cleanup(&sandbox_dir);
-        self.cache = Some(cache);
-        self.sandbox_dir = Some(sandbox_dir);
-        match create_cgroup() {
-            Ok(x) => self.cgroup = x,
-            Err(e) => debug!("create_cgroup(): {e}"),
-        };
-        self.create_dependency_graph();
-        self.remove_unknown_or_excluded_files_from_out_dir(&self.out_dir)
-            .ok();
-        self.digest_input_files().await?;
-        self.create_output_dirs()?;
-        self.create_wasi_modules()?;
-        Ok(())
+        remote_exec: Vec<Url>,
+    ) -> Result<SchedulerStats> {
+        if !remote_exec.is_empty() {
+            self.run_remotely(keep_going, verbose, group_by_tag, cache_dir, remote_exec)
+                .await
+        } else {
+            self.run_locally(
+                keep_going,
+                verbose,
+                group_by_tag,
+                cache_dir,
+                remote_cache,
+                remote_cache_threshold,
+            )
+            .await
+        }
     }
 
-    pub async fn run(
+    #[cfg(not(feature = "remote_exec"))]
+    async fn run_remotely(
+        &mut self,
+        _keep_going: bool,
+        _verbose: bool,
+        _group_by_tag: &str,
+        _cache_dir: Option<PathBuf>,
+        _remote_exec: Vec<Url>,
+    ) -> Result<SchedulerStats> {
+        bail!("remote exec feature not enabled");
+    }
+
+    async fn run_locally(
         &mut self,
         keep_going: bool,
         verbose: bool,
@@ -272,7 +273,7 @@ impl Razel {
             bail!("No targets added");
         }
         self.tui.verbose = verbose;
-        self.prepare_run(cache_dir, remote_cache, remote_cache_threshold)
+        self.prepare_run_locally(cache_dir, remote_cache, remote_cache_threshold)
             .await?;
         let (tx, mut rx) = mpsc::unbounded_channel();
         let mut interval = tokio::time::interval(self.tui.get_update_interval());
@@ -314,6 +315,45 @@ impl Razel {
         self.write_metadata(group_by_tag)
             .context("Failed to write metadata")?;
         Ok(stats)
+    }
+
+    async fn prepare_run_locally(
+        &mut self,
+        cache_dir: Option<PathBuf>,
+        remote_cache: Vec<String>,
+        remote_cache_threshold: Option<u32>,
+    ) -> Result<()> {
+        let builder = self.targets_builder.as_ref().unwrap();
+        let output_directory = self.current_dir.join(&self.out_dir);
+        debug!("current dir:       {:?}", self.current_dir);
+        debug!("workspace dir:     {:?}", builder.workspace_dir);
+        debug!("output directory:  {output_directory:?}");
+        let cache_dir = match cache_dir {
+            Some(x) => x,
+            _ => select_cache_dir(&builder.workspace_dir)?,
+        };
+        debug!("cache directory:   {cache_dir:?}");
+        let sandbox_dir = select_sandbox_dir(&cache_dir)?;
+        let mut cache = Cache::new(cache_dir, self.out_dir.clone())?;
+        debug!("sandbox directory: {sandbox_dir:?}");
+        debug!("worker threads:    {}", self.worker_threads);
+        cache
+            .connect_remote_cache(&remote_cache, remote_cache_threshold)
+            .await?;
+        TmpDirSandbox::cleanup(&sandbox_dir);
+        self.cache = Some(cache);
+        self.sandbox_dir = Some(sandbox_dir);
+        match create_cgroup() {
+            Ok(x) => self.cgroup = x,
+            Err(e) => debug!("create_cgroup(): {e}"),
+        };
+        self.create_dependency_graph();
+        self.remove_unknown_or_excluded_files_from_out_dir(&self.out_dir)
+            .ok();
+        self.digest_input_files().await?;
+        self.create_output_dirs()?;
+        self.create_wasi_modules()?;
+        Ok(())
     }
 
     fn create_dependency_graph(&mut self) {
@@ -1133,6 +1173,8 @@ impl RazelJsonHandler for Razel {
 
 mod filter;
 mod import;
+#[cfg(feature = "remote_exec")]
+mod remote_exec;
 mod system;
 
 #[cfg(test)]
@@ -1169,7 +1211,7 @@ mod tests {
                 .unwrap();
         }
         let stats = razel
-            .run(false, true, "", None, vec![], None)
+            .run(false, true, "", None, vec![], None, vec![])
             .await
             .unwrap();
         assert_eq!(
