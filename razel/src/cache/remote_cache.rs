@@ -1,14 +1,7 @@
-use crate::bazel_remote_exec::action_cache_client::ActionCacheClient;
-use crate::bazel_remote_exec::capabilities_client::CapabilitiesClient;
-use crate::bazel_remote_exec::content_addressable_storage_client::ContentAddressableStorageClient;
-use crate::bazel_remote_exec::{
-    batch_update_blobs_request, digest_function, ActionResult, BatchReadBlobsRequest,
-    BatchUpdateBlobsRequest, Digest, GetActionResultRequest, GetCapabilitiesRequest, OutputFile,
-    ServerCapabilities, UpdateActionResultRequest,
-};
-use crate::cache::{BlobDigest, MessageDigest};
+use crate::bazel_remote_exec::*;
+use crate::cache::{BlobDigest, DigestData, MessageDigest};
 use crate::make_file_executable;
-use anyhow::{anyhow, bail, Context};
+use anyhow::{anyhow, bail, Context, Result};
 use log::warn;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -25,12 +18,12 @@ pub struct GrpcRemoteCache {
     ac_client: ActionCacheClient<Channel>,
     cas_client: ContentAddressableStorageClient<Channel>,
     max_batch_blob_size: i64,
-    ac_upload_tx: UnboundedSender<(MessageDigest, ActionResult)>,
+    ac_upload_tx: UnboundedSender<(BazelMessageDigest, ActionResult)>,
     cas_upload_tx: UnboundedSender<(BlobDigest, PathBuf)>,
 }
 
 impl GrpcRemoteCache {
-    pub async fn new(uri: Uri, dir: &Path) -> anyhow::Result<Self> {
+    pub async fn new(uri: Uri, dir: &Path) -> Result<Self> {
         let instance_name = uri
             .path()
             .strip_prefix('/')
@@ -64,7 +57,7 @@ impl GrpcRemoteCache {
         Ok(client)
     }
 
-    async fn check_capabilities(&mut self, channel: Channel) -> anyhow::Result<()> {
+    async fn check_capabilities(&mut self, channel: Channel) -> Result<()> {
         let mut client = CapabilitiesClient::new(channel);
         let capabilities: ServerCapabilities = client
             .get_capabilities(tonic::Request::new(GetCapabilitiesRequest {
@@ -107,7 +100,7 @@ impl GrpcRemoteCache {
         let encoded_len = BatchUpdateBlobsRequest {
             instance_name,
             requests: vec![batch_update_blobs_request::Request {
-                digest: Some(Digest::for_bytes(&data)),
+                digest: Some(BazelDigest::for_bytes(&data)),
                 data,
                 compressor: 0,
             }],
@@ -122,7 +115,7 @@ impl GrpcRemoteCache {
     fn spawn_ac_upload(
         instance_name: String,
         mut client: ActionCacheClient<Channel>,
-        mut rx: UnboundedReceiver<(MessageDigest, ActionResult)>,
+        mut rx: UnboundedReceiver<(BazelMessageDigest, ActionResult)>,
     ) {
         tokio::spawn(async move {
             while let Some((action_digest, action_result)) = rx.recv().await {
@@ -164,7 +157,7 @@ impl GrpcRemoteCache {
                     .batch_update_blobs(tonic::Request::new(BatchUpdateBlobsRequest {
                         instance_name: instance_name.clone(),
                         requests: vec![batch_update_blobs_request::Request {
-                            digest: Some(digest),
+                            digest: Some(digest.into()),
                             data,
                             compressor: 0,
                         }],
@@ -190,7 +183,7 @@ impl GrpcRemoteCache {
             .clone()
             .get_action_result(tonic::Request::new(GetActionResultRequest {
                 instance_name: self.instance_name.clone(),
-                action_digest: Some(digest),
+                action_digest: Some(digest.into()),
                 inline_stdout: true,
                 inline_stderr: true,
                 ..Default::default()
@@ -208,7 +201,7 @@ impl GrpcRemoteCache {
     }
 
     pub fn push_action_result(&self, digest: MessageDigest, result: ActionResult) {
-        self.ac_upload_tx.send((digest, result)).ok();
+        self.ac_upload_tx.send((digest.into(), result)).ok();
     }
 
     pub async fn get_blob(&self, digest: BlobDigest) -> Option<Vec<u8>> {
@@ -217,7 +210,7 @@ impl GrpcRemoteCache {
             .clone()
             .batch_read_blobs(tonic::Request::new(BatchReadBlobsRequest {
                 instance_name: self.instance_name.clone(),
-                digests: vec![digest],
+                digests: vec![digest.into()],
                 ..Default::default()
             }))
             .await
@@ -234,7 +227,7 @@ impl GrpcRemoteCache {
     pub async fn download_and_store_blobs(
         &self,
         files: &[&OutputFile],
-    ) -> anyhow::Result<Vec<(BlobDigest, PathBuf)>> {
+    ) -> Result<Vec<(BlobDigest, PathBuf)>> {
         assert!(!files.is_empty());
         if files
             .iter()
@@ -279,7 +272,7 @@ impl GrpcRemoteCache {
                             let path = self.get_download_path(&digest);
                             match Self::store_blob(&path, &response.data, file.is_executable).await
                             {
-                                Ok(_) => downloaded.push((digest, path)),
+                                Ok(_) => downloaded.push((digest.into(), path)),
                                 Err(e) => {
                                     warn!("Remote cache error in store_blob({path:?}): {e:?}")
                                 }
@@ -299,11 +292,7 @@ impl GrpcRemoteCache {
         Ok(downloaded)
     }
 
-    async fn store_blob(
-        path: &PathBuf,
-        contents: &Vec<u8>,
-        is_executable: bool,
-    ) -> anyhow::Result<()> {
+    async fn store_blob(path: &PathBuf, contents: &Vec<u8>, is_executable: bool) -> Result<()> {
         tokio::fs::write(&path, contents).await?;
         if is_executable {
             let file = tokio::fs::File::open(path).await?;
@@ -312,10 +301,10 @@ impl GrpcRemoteCache {
         Ok(())
     }
 
-    fn get_download_path(&self, digest: &BlobDigest) -> PathBuf {
+    fn get_download_path(&self, digest: &impl DigestData) -> PathBuf {
         static ID: AtomicUsize = AtomicUsize::new(0);
         let id = ID.fetch_add(1, Ordering::Relaxed);
-        self.download_dir.join(format!("{}_{id}", digest.hash))
+        self.download_dir.join(format!("{}_{id}", digest.hash()))
     }
 
     /// Blob is read from local cache only at upload to avoid keeping too many big files in memory.
@@ -337,11 +326,6 @@ impl Drop for GrpcRemoteCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bazel_remote_exec;
-    use crate::bazel_remote_exec::{
-        batch_update_blobs_request, ActionResult, BatchReadBlobsRequest, BatchUpdateBlobsRequest,
-        Digest, GetActionResultRequest, GetCapabilitiesRequest, UpdateActionResultRequest,
-    };
     use itertools::Itertools;
 
     const INSTANCE_NAME: &str = "main";
@@ -376,8 +360,8 @@ mod tests {
             std::process::id(),
             std::time::Instant::now()
         );
-        let action_digest = Digest::for_message(&bazel_remote_exec::Action {
-            command_digest: Some(Digest::for_message(&bazel_remote_exec::Command {
+        let action_digest = BazelDigest::for_message(&Action {
+            command_digest: Some(BazelDigest::for_message(&Command {
                 arguments: vec!["echo".into(), stdout.clone()],
                 ..Default::default()
             })),
@@ -435,7 +419,7 @@ mod tests {
             std::process::id(),
             std::time::Instant::now()
         );
-        let digest = Digest::for_string(&content);
+        let digest = BazelDigest::for_string(&content);
         // download should fail because the content is unique
         let response = client
             .batch_read_blobs(tonic::Request::new(BatchReadBlobsRequest {
@@ -504,8 +488,8 @@ mod tests {
                         std::process::id(),
                         std::time::Instant::now()
                     );
-                    let action_digest = Digest::for_message(&bazel_remote_exec::Action {
-                        command_digest: Some(Digest::for_message(&bazel_remote_exec::Command {
+                    let action_digest = BazelDigest::for_message(&Action {
+                        command_digest: Some(BazelDigest::for_message(&Command {
                             arguments: vec!["echo".into(), stdout],
                             ..Default::default()
                         })),

@@ -65,15 +65,17 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - run: cmake --version
       - run: deno info
       - run: deno --version
       - run: protoc --version
 
       - run: rustup show
       - run: rustup target add ${{matrix.target}}
+      - run: rustup run stable rustc --version
 
-      - run: cargo build
-
+      - run: cargo check -p razel --no-default-features
+      - run: cargo check
       - run: cargo run -- exec --info -f examples/razel.jsonl
 
       - run: cargo test -- --nocapture --skip real_time_test --skip grpc_server

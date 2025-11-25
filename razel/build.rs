@@ -1,6 +1,5 @@
-// build script to generate code from bazel remote execution protobuf files
-
-fn main() {
+#[cfg(feature = "full")]
+fn build_bazel_remote_execution_protos() {
     let files =
         vec!["src/bazel_remote_exec/proto/build/bazel/remote/execution/v2/remote_execution.proto"];
     for x in &files {
@@ -11,4 +10,9 @@ fn main() {
         .build_server(false)
         .compile_protos(&files, &["src/bazel_remote_exec/proto"])
         .unwrap();
+}
+
+fn main() {
+    #[cfg(feature = "full")]
+    build_bazel_remote_execution_protos();
 }

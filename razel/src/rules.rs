@@ -1,8 +1,7 @@
+use anyhow::{bail, Context, Result};
+use log::warn;
 use std::collections::HashMap;
 use std::path::Path;
-
-use anyhow::{bail, Context};
-use log::warn;
 
 /// Rules to parse input/output file arguments from command lines
 ///
@@ -30,7 +29,7 @@ impl Rules {
         s
     }
 
-    pub fn add(&mut self, spec: &str) -> Result<(), anyhow::Error> {
+    pub fn add(&mut self, spec: &str) -> Result<()> {
         let rule = Rule::new(spec)?;
         self.rules.insert(rule.executable.clone(), rule);
         Ok(())
@@ -40,7 +39,7 @@ impl Rules {
         &self,
         executable: &str,
         args: &[String],
-    ) -> Result<Option<ParseCommandResult>, anyhow::Error> {
+    ) -> Result<Option<ParseCommandResult>> {
         if args.is_empty() {
             return Ok(None);
         }
@@ -86,7 +85,7 @@ struct Rule {
 }
 
 impl Rule {
-    pub fn new(spec: &str) -> Result<Self, anyhow::Error> {
+    pub fn new(spec: &str) -> Result<Self> {
         let mut items = spec.split(' ').filter(|x| !x.is_empty());
         let executable = items.next().context("Rule is incomplete")?.into();
         let mut named_args: HashMap<String, Arg> = Default::default();
@@ -114,7 +113,7 @@ impl Rule {
         })
     }
 
-    fn parse_arg(item: &str) -> Result<Option<Arg>, anyhow::Error> {
+    fn parse_arg(item: &str) -> Result<Option<Arg>> {
         let open = item.chars().filter(|x| *x == '<').count();
         let close = item.chars().filter(|x| *x == '>').count();
         Ok(if open == 0 && close == 0 {
@@ -149,7 +148,7 @@ impl Rule {
         })
     }
 
-    pub fn eval_args(&self, items: &[String]) -> Result<ParseCommandResult, anyhow::Error> {
+    pub fn eval_args(&self, items: &[String]) -> Result<ParseCommandResult> {
         if items.len() < self.options.len() * 2 + self.positional_args.len() {
             bail!(
                 "expected {} arguments, found only {}",

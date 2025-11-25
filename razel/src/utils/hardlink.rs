@@ -1,10 +1,10 @@
 use crate::force_remove_file;
-use anyhow::{bail, Context};
+use anyhow::{bail, Context, Result};
 use std::path::PathBuf;
 use tokio::fs;
 
 /// Force creating a hardlink: overwrite existing file and create parent directories
-pub async fn force_hardlink(src: &PathBuf, dst: &PathBuf) -> Result<(), anyhow::Error> {
+pub async fn force_hardlink(src: &PathBuf, dst: &PathBuf) -> Result<()> {
     {
         if src == dst {
             bail!("hardlink dst must not equal src");

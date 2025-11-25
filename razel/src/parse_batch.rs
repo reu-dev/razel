@@ -1,12 +1,13 @@
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::path::Path;
-
+use crate::cli::parse_cli_within_file;
+use crate::types::RazelJsonCommand;
+use crate::types::RazelJsonHandler;
+use crate::{config, Razel, Rules};
 use anyhow::{bail, Context, Result};
 use itertools::Itertools;
 use log::debug;
-
-use crate::{config, parse_cli_within_file, Razel, Rules};
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::Path;
 
 pub fn parse_command(razel: &mut Razel, command_line: Vec<String>) -> Result<()> {
     let rules = Rules::new();
@@ -15,7 +16,7 @@ pub fn parse_command(razel: &mut Razel, command_line: Vec<String>) -> Result<()>
 }
 
 pub fn parse_batch_file(razel: &mut Razel, file_name: &String) -> Result<()> {
-    razel.set_workspace_dir(Path::new(file_name).parent().unwrap())?;
+    razel.set_workspace_dir(Path::new(file_name).parent().unwrap());
     let mut rules = Rules::new();
     let file = File::open(file_name).with_context(|| file_name.clone())?;
     let file_buffered = BufReader::new(file);
@@ -57,7 +58,7 @@ fn create_command(
     mut command_line: Vec<String>,
 ) -> Result<()> {
     if command_line.first().unwrap() == config::EXECUTABLE {
-        parse_cli_within_file(razel, command_line, &name, vec![])?
+        parse_cli_within_file(razel, command_line, name, vec![])?
     } else {
         let (stdout, stderr) = parse_redirects(&mut command_line)?;
         let mut i = command_line.into_iter();
@@ -68,18 +69,18 @@ fn create_command(
         } else {
             (Default::default(), Default::default())
         };
-        razel.push_custom_command(
+        razel.push_json_command(RazelJsonCommand {
             name,
             executable,
             args,
-            Default::default(),
+            env: Default::default(),
             inputs,
             outputs,
             stdout,
             stderr,
-            vec![],
-            vec![],
-        )?;
+            deps: vec![],
+            tags: vec![],
+        })?;
     }
     Ok(())
 }

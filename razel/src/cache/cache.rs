@@ -1,7 +1,8 @@
 use crate::bazel_remote_exec::{ActionResult, OutputFile};
 use crate::cache::{BlobDigest, GrpcRemoteCache, LocalCache, MessageDigest};
-use crate::CacheHit;
-use anyhow::{bail, Context, Error};
+use crate::types::CacheHit;
+use crate::SandboxDir;
+use anyhow::{bail, Context, Result};
 use itertools::Itertools;
 use log::info;
 use std::collections::HashMap;
@@ -22,7 +23,7 @@ pub struct Cache {
 }
 
 impl Cache {
-    pub fn new(cache_dir: PathBuf, out_dir: PathBuf) -> Result<Self, anyhow::Error> {
+    pub fn new(cache_dir: PathBuf, out_dir: PathBuf) -> Result<Self> {
         let local_cache =
             LocalCache::new(cache_dir).with_context(|| "Failed to create local cache")?;
         if out_dir.starts_with(&local_cache.dir) {
@@ -50,7 +51,7 @@ impl Cache {
         &mut self,
         urls: &[String],
         remote_cache_threshold: Option<u32>,
-    ) -> Result<bool, anyhow::Error> {
+    ) -> Result<bool> {
         for url in urls.iter().filter(|x| !x.is_empty()) {
             let uri: Uri = url
                 .parse()
@@ -120,7 +121,7 @@ impl Cache {
     async fn move_downloaded_files_to_cas(
         &mut self,
         files: &Vec<(BlobDigest, PathBuf)>,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         // store all downloaded files even if incomplete, might be used by other action
         for (_, path) in files {
             self.local_cache.prepare_file_to_move(path).await?;
@@ -163,9 +164,9 @@ impl Cache {
         &mut self,
         message_digest: &MessageDigest,
         action_result: &ActionResult,
-        sandbox_dir: Option<&PathBuf>,
+        sandbox_dir: &SandboxDir,
         use_remote_cache: bool,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<()> {
         let files = self
             .prepare_files_to_push(action_result, sandbox_dir)
             .await?;
@@ -194,16 +195,14 @@ impl Cache {
     async fn prepare_files_to_push(
         &self,
         action_result: &ActionResult,
-        sandbox_dir: Option<&PathBuf>,
-    ) -> Result<Vec<PushFileData>, anyhow::Error> {
+        sandbox_dir: &SandboxDir,
+    ) -> Result<Vec<PushFileData>> {
         let files = action_result
             .output_files
             .iter()
             .map(|file| PushFileData {
-                digest: file.digest.as_ref().unwrap().clone(),
-                out_path: sandbox_dir
-                    .map(|x| x.join(&self.out_dir).join(&file.path))
-                    .unwrap_or_else(|| self.out_dir.join(&file.path)),
+                digest: file.digest.as_ref().unwrap().into(),
+                out_path: sandbox_dir.join(&self.out_dir).join(&file.path),
                 cas_path: self.local_cache.cas_path(file.digest.as_ref().unwrap()),
             })
             .collect_vec();
@@ -223,7 +222,7 @@ impl Cache {
         remote_cache: Option<&GrpcRemoteCache>,
         file: PushFileData,
         cas_state: &mut CacheState,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         if *cas_state == CacheState::New {
             local_cache
                 .move_file_into_cache(&file.out_path, &file.digest)
@@ -244,7 +243,7 @@ impl Cache {
     pub async fn link_output_files_into_out_dir(
         &self,
         output_files: &Vec<OutputFile>,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<()> {
         self.local_cache
             .link_output_files_into_out_dir(output_files, &self.out_dir)
             .await

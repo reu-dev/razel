@@ -1,11 +1,11 @@
 use crate::force_remove_file;
-use anyhow::{bail, Context};
+use anyhow::{bail, Context, Result};
 use std::io;
 use std::path::PathBuf;
 use tokio::fs;
 
 /// Force creating a symlink: overwrite existing file and create parent directories
-pub async fn force_symlink(src: &PathBuf, dst: &PathBuf) -> Result<(), anyhow::Error> {
+pub async fn force_symlink(src: &PathBuf, dst: &PathBuf) -> Result<()> {
     {
         if src == dst {
             bail!("symlink dst must not equal src");

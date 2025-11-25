@@ -1,6 +1,6 @@
 use crate::executors::ExecutionResult;
-use crate::metadata::Tag;
-use crate::{config, Command, SchedulerStats};
+use crate::types::{Tag, Target};
+use crate::{config, SchedulerStats};
 use bstr::ByteSlice;
 use crossterm::cursor::{RestorePosition, SavePosition};
 use crossterm::style::{Attribute, Color, SetForegroundColor};
@@ -47,9 +47,9 @@ impl TUI {
         std::time::Duration::from_secs_f32(secs)
     }
 
-    pub fn command_succeeded(&mut self, command: &Command, execution_result: &ExecutionResult) {
-        if (!self.verbose && !command.tags.contains(&Tag::Verbose))
-            || command.tags.contains(&Tag::Quiet)
+    pub fn target_succeeded(&mut self, target: &Target, execution_result: &ExecutionResult) {
+        if (!self.verbose && !target.tags.contains(&Tag::Verbose))
+            || target.tags.contains(&Tag::Quiet)
         {
             return;
         }
@@ -65,10 +65,10 @@ impl TUI {
             if let Some(duration) = execution_result.exec_duration {
                 format!(
                     "{} {A_BOLD}{C_BLUE}{:?}{C_RESET}{A_RESET}",
-                    command.name, duration,
+                    target.name, duration,
                 )
             } else {
-                command.name.clone()
+                target.name.clone()
             },
         );
         let print_stream_name = !stdout.is_empty() && !stderr.is_empty();
@@ -84,23 +84,23 @@ impl TUI {
         );
     }
 
-    pub fn command_failed(&mut self, command: &Command, execution_result: &ExecutionResult) {
-        self.command_failed_impl(command, execution_result, false);
+    pub fn target_failed(&mut self, target: &Target, execution_result: &ExecutionResult) {
+        self.target_failed_impl(target, execution_result, false);
     }
 
-    pub fn command_retry(&mut self, command: &Command, execution_result: &ExecutionResult) {
-        self.command_failed_impl(command, execution_result, true);
+    pub fn target_retry(&mut self, target: &Target, execution_result: &ExecutionResult) {
+        self.target_failed_impl(target, execution_result, true);
     }
 
-    fn command_failed_impl(
+    fn target_failed_impl(
         &mut self,
-        command: &Command,
+        target: &Target,
         execution_result: &ExecutionResult,
         will_retry: bool,
     ) {
-        if command.tags.contains(&Tag::Condition)
+        if target.tags.contains(&Tag::Condition)
             && !self.verbose
-            && !command.tags.contains(&Tag::Verbose)
+            && !target.tags.contains(&Tag::Verbose)
         {
             return;
         }
@@ -115,7 +115,7 @@ impl TUI {
         Self::field(
             format!("{:<11}", format!("{:?} ", execution_result.status)).as_str(),
             color,
-            command.name.as_str(),
+            target.name.as_str(),
         );
         if let Some(e) = &execution_result.error.as_ref().map(|x| x.to_string()) {
             if will_retry {
@@ -129,14 +129,10 @@ impl TUI {
         Self::field(
             "command:   ",
             Color::Blue,
-            self.format_command_line(
-                &command
-                    .executor
-                    .command_line_with_redirects(&self.razel_executable),
-            )
-            .as_str(),
+            self.format_command_line(&target.kind.command_line_with_redirects())
+                .as_str(),
         );
-        if let Some(env) = command.executor.env() {
+        if let Some(env) = target.kind.env() {
             Self::field(
                 "env:       ",
                 Color::Blue,

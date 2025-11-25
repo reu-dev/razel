@@ -1,5 +1,5 @@
-use crate::CacheHit;
-use anyhow::{anyhow, Error};
+use crate::types::CacheHit;
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::time::Duration;
@@ -21,7 +21,7 @@ pub struct ExecutionResult {
 }
 
 impl ExecutionResult {
-    pub fn for_task(result: Result<(), Error>, execution_start: Instant) -> Self {
+    pub fn for_task(result: Result<()>, execution_start: Instant) -> Self {
         let exec_duration = Some(execution_start.elapsed());
         match result {
             Ok(()) => Self {
@@ -91,16 +91,17 @@ impl ExecutionResult {
     }
 
     #[cfg(test)]
-    pub fn assert_success(&mut self) {
-        use anyhow::Context;
+    pub fn assert_success(&self) {
         if self.success() {
             assert_eq!(self.exit_code, Some(0));
             assert!(self.error.is_none());
         } else {
             assert!(self.error.is_some());
-            Err::<(), Error>(self.error.take().unwrap())
-                .context(format!("Status: {:?}", self.status))
-                .unwrap();
+            panic!(
+                "assert_success(): status: {:?}, error: {:?}",
+                self.status,
+                self.error.as_ref().unwrap()
+            );
         }
     }
 }
@@ -126,7 +127,7 @@ impl fmt::Debug for ExecutionResult {
 pub enum ExecutionStatus {
     #[default]
     NotStarted,
-    /// Command could not be started because it depends on a failed condition
+    /// Target could not be started because it depends on a failed condition
     Skipped,
     FailedToStart,
     FailedToCreateResponseFile,

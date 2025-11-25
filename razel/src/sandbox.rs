@@ -1,7 +1,8 @@
 use crate::config::LinkType;
 use anyhow::bail;
-use anyhow::{Context, Error};
+use anyhow::{Context, Result};
 use async_trait::async_trait;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use tokio::fs;
 
@@ -9,18 +10,15 @@ pub type BoxedSandbox = Box<dyn Sandbox + Send>;
 
 #[async_trait]
 pub trait Sandbox {
-    fn dir(&self) -> &PathBuf;
+    fn dir(&self) -> SandboxDir;
 
     /// Create tmp dir, link inputs and create output directories
-    async fn create(&self, outputs: &[PathBuf]) -> Result<&PathBuf, anyhow::Error>;
+    async fn create(&self, outputs: &[PathBuf]) -> Result<&PathBuf>;
 
-    async fn move_output_files_into_out_dir(
-        &self,
-        output_paths: &[PathBuf],
-    ) -> Result<(), anyhow::Error>;
+    async fn move_output_files_into_out_dir(&self, output_paths: &[PathBuf]) -> Result<()>;
 
     /// Remove tmp dir
-    async fn destroy(&self) -> Result<(), anyhow::Error>;
+    async fn destroy(&self) -> Result<()>;
 }
 
 /// TODO sandbox does not stop writing to input files
@@ -45,11 +43,11 @@ impl TmpDirSandbox {
 
 #[async_trait]
 impl Sandbox for TmpDirSandbox {
-    fn dir(&self) -> &PathBuf {
-        &self.dir
+    fn dir(&self) -> SandboxDir {
+        SandboxDir::new(Some(self.dir.clone()))
     }
 
-    async fn create(&self, outputs: &[PathBuf]) -> Result<&PathBuf, anyhow::Error> {
+    async fn create(&self, outputs: &[PathBuf]) -> Result<&PathBuf> {
         fs::create_dir_all(&self.dir)
             .await
             .with_context(|| format!("Failed to create sandbox dir: {:?}", self.dir))?;
@@ -74,10 +72,7 @@ impl Sandbox for TmpDirSandbox {
         Ok(&self.dir)
     }
 
-    async fn move_output_files_into_out_dir(
-        &self,
-        output_paths: &[PathBuf],
-    ) -> Result<(), anyhow::Error> {
+    async fn move_output_files_into_out_dir(&self, output_paths: &[PathBuf]) -> Result<()> {
         for dst in output_paths {
             let src = self.dir.join(dst);
             tokio::fs::rename(&src, &dst)
@@ -87,7 +82,7 @@ impl Sandbox for TmpDirSandbox {
         Ok(())
     }
 
-    async fn destroy(&self) -> Result<(), anyhow::Error> {
+    async fn destroy(&self) -> Result<()> {
         fs::remove_dir_all(&self.dir)
             .await
             .with_context(|| format!("Failed to remove sandbox dir: {:?}", self.dir))?;
@@ -112,14 +107,15 @@ impl WasiSandbox {
 
 #[async_trait]
 impl Sandbox for WasiSandbox {
-    fn dir(&self) -> &PathBuf {
+    fn dir(&self) -> SandboxDir {
         self.tmp_dir_sandbox.dir()
     }
 
-    async fn create(&self, outputs: &[PathBuf]) -> Result<&PathBuf, anyhow::Error> {
-        fs::create_dir_all(&self.dir())
+    async fn create(&self, outputs: &[PathBuf]) -> Result<&PathBuf> {
+        let dir = &self.tmp_dir_sandbox.dir;
+        fs::create_dir_all(&dir)
             .await
-            .with_context(|| format!("Failed to create sandbox dir: {:?}", self.dir()))?;
+            .with_context(|| format!("Failed to create sandbox dir: {dir:?}"))?;
         for (input, cas_path) in &self.inputs {
             if input.starts_with("..") {
                 bail!("input file must be inside of workspace: {input:?}");
@@ -134,17 +130,53 @@ impl Sandbox for WasiSandbox {
                 .await
                 .with_context(|| format!("Failed to create sandbox output dir: {dir:?}"))?;
         }
-        Ok(self.dir())
+        Ok(dir)
     }
 
-    async fn move_output_files_into_out_dir(&self, output_paths: &[PathBuf]) -> Result<(), Error> {
+    async fn move_output_files_into_out_dir(&self, output_paths: &[PathBuf]) -> Result<()> {
         self.tmp_dir_sandbox
             .move_output_files_into_out_dir(output_paths)
             .await
     }
 
-    async fn destroy(&self) -> Result<(), Error> {
+    async fn destroy(&self) -> Result<()> {
         self.tmp_dir_sandbox.destroy().await
+    }
+}
+
+#[derive(Debug)]
+pub struct SandboxDir {
+    pub dir: Option<PathBuf>,
+}
+
+impl SandboxDir {
+    pub fn new(dir: Option<PathBuf>) -> Self {
+        Self { dir }
+    }
+
+    pub fn join<S: AsRef<OsStr> + ?Sized>(&self, path: &S) -> PathBuf {
+        let path = Path::new(&path);
+        self.dir
+            .as_ref()
+            .map_or_else(|| PathBuf::from(path), |s| s.join(path))
+    }
+}
+
+impl From<Option<PathBuf>> for SandboxDir {
+    fn from(dir: Option<PathBuf>) -> Self {
+        Self::new(dir)
+    }
+}
+
+impl From<PathBuf> for SandboxDir {
+    fn from(dir: PathBuf) -> Self {
+        Self::new(Some(dir))
+    }
+}
+
+impl From<&PathBuf> for SandboxDir {
+    fn from(dir: &PathBuf) -> Self {
+        Self::new(Some(dir.clone()))
     }
 }
 
@@ -152,7 +184,7 @@ impl Sandbox for WasiSandbox {
 mod tests {
     use super::*;
     use crate::new_tmp_dir;
-    use crate::tasks::ensure_equal;
+    use crate::test_utils::ensure_files_are_equal;
     use std::fs;
 
     const OUTPUT_FILE_CONTENT: &str = "OUTPUT_FILE_CONTENT";
@@ -181,7 +213,7 @@ mod tests {
         let sandbox_input = sandbox_dir.join(&input);
         let sandbox_output = sandbox_dir.join(&output);
         // check input file
-        ensure_equal(input, sandbox_input).unwrap();
+        ensure_files_are_equal(input, sandbox_input).unwrap();
         // check output file
         assert!(!sandbox_output.exists());
         fs::write(&sandbox_output, OUTPUT_FILE_CONTENT).unwrap();

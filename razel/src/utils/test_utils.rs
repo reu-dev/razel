@@ -1,5 +1,15 @@
+use anyhow::{bail, Result};
 use std::path::{Path, PathBuf};
 use std::{env, fs};
+
+pub fn ensure_files_are_equal(file1: PathBuf, file2: PathBuf) -> Result<()> {
+    let file1_bytes = fs::read(&file1)?;
+    let file2_bytes = fs::read(&file2)?;
+    if file1_bytes != file2_bytes {
+        bail!("Files {:?} and {:?} differ!", file1, file2);
+    }
+    Ok(())
+}
 
 /// Returns a unique test name to be used for temp file/directories
 #[macro_export]

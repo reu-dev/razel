@@ -1,10 +1,10 @@
+use crate::cli::HttpRemoteExecConfig;
 use crate::executors::{ExecutionResult, ExecutionStatus};
-use anyhow::anyhow;
-use itertools::Itertools;
+use crate::types::HttpRemoteExecTask;
+use anyhow::{anyhow, Result};
+use itertools::{zip_eq, Itertools};
 use log::warn;
 use reqwest::{multipart, Client, Url};
-use serde::Deserialize;
-use std::collections::HashMap;
 use std::ops::Not;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -12,24 +12,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::fs;
 
-type Domain = String;
-type Host = String;
-type Slots = usize;
-
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct HttpRemoteExecConfig(pub HashMap<Domain, HashMap<Host, Slots>>);
-
-impl std::str::FromStr for HttpRemoteExecConfig {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        serde_json::from_str(s).map_err(|e| e.to_string())
-    }
-}
-
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct HttpRemoteExecState {
-    domains: Vec<Arc<HttpRemoteExecDomain>>,
+    pub domains: Vec<Arc<HttpRemoteExecDomain>>,
 }
 
 impl HttpRemoteExecState {
@@ -111,13 +96,26 @@ struct HttpRemoteExecHost {
 
 #[derive(Clone)]
 pub struct HttpRemoteExecutor {
-    pub args: Vec<String>,
     pub state: Option<Arc<HttpRemoteExecDomain>>,
     pub url: Url,
     pub files: Vec<(String, PathBuf)>,
 }
 
 impl HttpRemoteExecutor {
+    pub fn new(task: &HttpRemoteExecTask, state: &HttpRemoteExecState) -> Self {
+        let state = state.for_url(&task.url);
+        let files = zip_eq(
+            task.file_names.iter().cloned(),
+            task.files.iter().map_into(),
+        )
+        .collect();
+        HttpRemoteExecutor {
+            state,
+            url: task.url.clone(),
+            files,
+        }
+    }
+
     pub async fn exec(&self) -> ExecutionResult {
         let result = if let Some(domain) = &self.state {
             self.exec_on_some_host_of_domain(domain).await
@@ -131,14 +129,10 @@ impl HttpRemoteExecutor {
         })
     }
 
-    pub fn args_with_executable(&self) -> Vec<String> {
-        self.args.clone()
-    }
-
     async fn exec_on_some_host_of_domain(
         &self,
         domain: &Arc<HttpRemoteExecDomain>,
-    ) -> anyhow::Result<ExecutionResult> {
+    ) -> Result<ExecutionResult> {
         assert!(!domain.hosts.is_empty());
         for host in domain
             .hosts
@@ -176,7 +170,7 @@ impl HttpRemoteExecutor {
         ))
     }
 
-    async fn build_form(&self) -> Result<multipart::Form, anyhow::Error> {
+    async fn build_form(&self) -> Result<multipart::Form> {
         let mut form = multipart::Form::new();
         for (name, path) in &self.files {
             let bytes = fs::read(path).await?;
@@ -186,7 +180,7 @@ impl HttpRemoteExecutor {
         Ok(form)
     }
 
-    async fn request(&self, client: &Client, url: Url) -> anyhow::Result<ExecutionResult> {
+    async fn request(&self, client: &Client, url: Url) -> Result<ExecutionResult> {
         let execution_start = Instant::now();
         let form = self.build_form().await?;
         let response = client.post(url).multipart(form).send().await?;

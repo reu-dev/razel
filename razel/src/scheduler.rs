@@ -1,5 +1,5 @@
-use crate::executors::{Executor, HttpRemoteExecDomain};
-use crate::{Command, CommandId};
+use crate::executors::{HttpRemoteExecDomain, HttpRemoteExecState};
+use crate::types::{Target, TargetId, TargetKind, Task};
 use itertools::Itertools;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -7,22 +7,23 @@ use std::sync::Arc;
 type Group = String;
 
 struct ReadyItem {
-    id: CommandId,
+    id: TargetId,
     group: Group,
     slots: usize,
 }
 
-/// Keeps track of ready/running commands and selects next to run depending on resources
+/// Keeps track of ready/running targets and selects next to run depending on resources
 pub struct Scheduler {
     available_slots: usize,
+    http_remote_exec_state: HttpRemoteExecState,
     used_slots: usize,
     // TODO sort by weight, e.g. recursive number of rdeps
     ready_items: Vec<ReadyItem>,
-    ready_for_remote_exec: Vec<(Arc<HttpRemoteExecDomain>, VecDeque<CommandId>)>,
+    ready_for_remote_exec: Vec<(Arc<HttpRemoteExecDomain>, VecDeque<TargetId>)>,
     ready_for_remote_exec_len: usize,
-    running_items: HashMap<CommandId, Group>,
+    running_items: HashMap<TargetId, Group>,
     running_with_remote_exec: usize,
-    /// groups commands by estimated resource requirement
+    /// groups targets by estimated resource requirement
     group_to_slots: HashMap<String, usize>,
 }
 
@@ -30,6 +31,7 @@ impl Scheduler {
     pub fn new(available_slots: usize) -> Self {
         Self {
             available_slots,
+            http_remote_exec_state: Default::default(),
             used_slots: 0,
             ready_items: Default::default(),
             ready_for_remote_exec: Default::default(),
@@ -40,11 +42,21 @@ impl Scheduler {
         }
     }
 
+    pub fn set_http_remote_exec_config(&mut self, http_remote_exec_state: HttpRemoteExecState) {
+        self.http_remote_exec_state = http_remote_exec_state;
+        self.ready_for_remote_exec = self
+            .http_remote_exec_state
+            .domains
+            .iter()
+            .map(|x| (x.clone(), Default::default()))
+            .collect();
+    }
+
     pub fn ready(&self) -> usize {
         self.ready_items.len() + self.ready_for_remote_exec_len
     }
 
-    pub fn ready_ids(&self) -> Vec<CommandId> {
+    pub fn ready_ids(&self) -> Vec<TargetId> {
         self.ready_items
             .iter()
             .map(|x| x.id)
@@ -71,44 +83,42 @@ impl Scheduler {
             && self.running_with_remote_exec == 0
     }
 
-    pub fn push_ready(&mut self, command: &Command) {
-        if self.push_ready_for_remote_exec(command) {
+    pub fn push_ready(&mut self, target: &Target) {
+        if self.push_ready_for_remote_exec(target) {
             return;
         }
-        let group = Self::group_for_command(command);
+        let group = Self::group_for_command(target);
         let slots = self.slots_for_group(&group);
         self.ready_items.push(ReadyItem {
-            id: command.id,
+            id: target.id,
             group,
             slots,
         });
     }
 
-    fn push_ready_for_remote_exec(&mut self, command: &Command) -> bool {
-        let Executor::HttpRemote(executor) = &command.executor else {
+    fn push_ready_for_remote_exec(&mut self, target: &Target) -> bool {
+        let TargetKind::HttpRemoteExecTask(task_target) = &target.kind else {
             return false;
         };
-        let Some(domain) = &executor.state else {
+        let Task::HttpRemoteExec(task) = &task_target.task else {
+            unreachable!()
+        };
+        let Some(domain) = self.http_remote_exec_state.for_url(&task.url) else {
             return false;
         };
-        let ready = match self
+        let Some(ready) = self
             .ready_for_remote_exec
             .iter_mut()
-            .find(|(x, _)| Arc::ptr_eq(x, domain))
-        {
-            Some(x) => &mut x.1,
-            _ => {
-                self.ready_for_remote_exec
-                    .push((domain.clone(), Default::default()));
-                &mut self.ready_for_remote_exec.last_mut().unwrap().1
-            }
+            .find(|(x, _)| Arc::ptr_eq(x, &domain))
+        else {
+            unreachable!()
         };
-        ready.push_back(command.id);
+        ready.1.push_back(target.id);
         self.ready_for_remote_exec_len += 1;
         true
     }
 
-    pub fn pop_ready_and_run(&mut self) -> Option<CommandId> {
+    pub fn pop_ready_and_run(&mut self) -> Option<TargetId> {
         if let Some(x) = self.pop_ready_and_run_remote_exec() {
             return Some(x);
         }
@@ -130,30 +140,30 @@ impl Scheduler {
         }
     }
 
-    fn pop_ready_and_run_remote_exec(&mut self) -> Option<CommandId> {
+    fn pop_ready_and_run_remote_exec(&mut self) -> Option<TargetId> {
         if self.ready_for_remote_exec_len == 0 {
             return None;
         }
         let id = self
             .ready_for_remote_exec
             .iter_mut()
-            .find(|(domain, commands)| !commands.is_empty() && domain.try_schedule())
-            .and_then(|(_, commands)| commands.pop_front())?;
+            .find(|(domain, targets)| !targets.is_empty() && domain.try_schedule())
+            .and_then(|(_, targets)| targets.pop_front())?;
         self.ready_for_remote_exec_len -= 1;
         self.running_with_remote_exec += 1;
         Some(id)
     }
 
-    pub fn set_finished_and_get_retry_flag(&mut self, command: &Command, oom_killed: bool) -> bool {
-        if self.unschedule_remote_exec(command) {
+    pub fn set_finished_and_get_retry_flag(&mut self, target: &Target, oom_killed: bool) -> bool {
+        if self.unschedule_remote_exec(target) {
             return false;
         }
-        let id = command.id;
+        let id = target.id;
         let group = self.running_items.remove(&id).unwrap();
         self.used_slots -= self.slots_for_group(&group);
         if oom_killed {
             self.scale_up_memory_requirement(&group);
-            // stop retry only when command was run exclusively
+            // stop retry only when target was run exclusively
             if !self.running_items.is_empty() {
                 let slots = self.slots_for_group(&group);
                 self.ready_items.push(ReadyItem { id, group, slots });
@@ -163,11 +173,14 @@ impl Scheduler {
         false
     }
 
-    fn unschedule_remote_exec(&mut self, command: &Command) -> bool {
-        let Executor::HttpRemote(executor) = &command.executor else {
+    fn unschedule_remote_exec(&mut self, target: &Target) -> bool {
+        let TargetKind::HttpRemoteExecTask(task_target) = &target.kind else {
             return false;
         };
-        let Some(domain) = &executor.state else {
+        let Task::HttpRemoteExec(task) = &task_target.task else {
+            unreachable!()
+        };
+        let Some(domain) = self.http_remote_exec_state.for_url(&task.url) else {
             return false;
         };
         assert!(self.running_with_remote_exec > 0);
@@ -200,15 +213,14 @@ impl Scheduler {
         *self.group_to_slots.get(group).unwrap_or(&1)
     }
 
-    fn group_for_command(command: &Command) -> Group {
+    fn group_for_command(target: &Target) -> Group {
         // assume resource requirements depends just on executable
         // could also use the command line with file arguments stripped
-        match &command.executor {
-            Executor::CustomCommand(c) => c.executable.clone(),
-            Executor::Wasi(x) => x.executable.clone(),
-            Executor::AsyncTask(_) => String::new(),
-            Executor::BlockingTask(_) => String::new(),
-            Executor::HttpRemote(_) => String::new(),
+        match &target.kind {
+            TargetKind::Command(c) => c.executable.clone(),
+            TargetKind::Wasi(c) => c.executable.clone(),
+            TargetKind::Task(_) => String::new(),
+            TargetKind::HttpRemoteExecTask(_) => String::new(),
         }
     }
 }
@@ -229,59 +241,55 @@ impl Drop for Scheduler {
 #[allow(clippy::bool_assert_comparison)]
 mod tests {
     use super::*;
-    use crate::executors::CustomCommandExecutor;
-    use crate::{Arena, ScheduleState};
+    use crate::types::CommandTarget;
 
-    fn create(available_slots: usize, executables: Vec<&str>) -> (Scheduler, Arena<Command>) {
+    fn create(available_slots: usize, executables: Vec<&str>) -> (Scheduler, Vec<Target>) {
         let mut scheduler = Scheduler::new(available_slots);
-        let mut commands: Arena<Command> = Default::default();
-        for executable in &executables {
-            let id = commands.alloc_with_id(|id| Command {
+        let mut targets = vec![];
+        for (id, executable) in executables.iter().enumerate() {
+            targets.push(Target {
                 id,
                 name: format!("cmd_{id}"),
+                kind: TargetKind::Command(CommandTarget {
+                    executable: executable.to_string(),
+                    ..Default::default()
+                }),
                 executables: vec![],
                 inputs: vec![],
                 outputs: vec![],
                 deps: vec![],
-                executor: Executor::CustomCommand(CustomCommandExecutor {
-                    executable: executable.to_string(),
-                    ..Default::default()
-                }),
                 tags: vec![],
                 is_excluded: false,
-                unfinished_deps: vec![],
-                reverse_deps: vec![],
-                schedule_state: ScheduleState::New,
             });
-            scheduler.push_ready(&commands[id]);
+            scheduler.push_ready(&targets[id]);
         }
         assert_eq!(scheduler.ready(), executables.len());
-        (scheduler, commands)
+        (scheduler, targets)
     }
 
     #[test]
     fn simple() {
-        let (mut s, commands) = create(3, vec!["exec_0", "exec_0", "exec_1", "exec_1"]);
+        let (mut s, targets) = create(3, vec!["exec_0", "exec_0", "exec_1", "exec_1"]);
         let c0 = s.pop_ready_and_run().unwrap();
         let c1 = s.pop_ready_and_run().unwrap();
         let c2 = s.pop_ready_and_run().unwrap();
         assert_eq!(s.pop_ready_and_run(), None);
         assert_eq!(s.used_slots, 3);
         assert_eq!(
-            s.set_finished_and_get_retry_flag(&commands[c1], false),
+            s.set_finished_and_get_retry_flag(&targets[c1], false),
             false
         );
         let c3 = s.pop_ready_and_run().unwrap();
         assert_eq!(
-            s.set_finished_and_get_retry_flag(&commands[c0], false),
+            s.set_finished_and_get_retry_flag(&targets[c0], false),
             false
         );
         assert_eq!(
-            s.set_finished_and_get_retry_flag(&commands[c2], false),
+            s.set_finished_and_get_retry_flag(&targets[c2], false),
             false
         );
         assert_eq!(
-            s.set_finished_and_get_retry_flag(&commands[c3], false),
+            s.set_finished_and_get_retry_flag(&targets[c3], false),
             false
         );
         assert_eq!(s.len(), 0);
@@ -290,19 +298,19 @@ mod tests {
 
     #[test]
     fn killed() {
-        let (mut s, commands) = create(3, vec!["exec_0", "exec_0", "exec_1", "exec_1"]);
+        let (mut s, targets) = create(3, vec!["exec_0", "exec_0", "exec_1", "exec_1"]);
         let c0 = s.pop_ready_and_run().unwrap();
         let c1 = s.pop_ready_and_run().unwrap();
         let c2 = s.pop_ready_and_run().unwrap();
         assert_eq!(s.pop_ready_and_run(), None);
         assert_eq!(s.used_slots, 3);
-        assert_eq!(s.set_finished_and_get_retry_flag(&commands[c1], true), true); // -> exec_0: 2 slots
+        assert_eq!(s.set_finished_and_get_retry_flag(&targets[c1], true), true); // -> exec_0: 2 slots
         assert_eq!(s.used_slots, 3); // c0 (2), c2 (1)
         assert_eq!(s.pop_ready_and_run(), None);
-        assert_eq!(s.set_finished_and_get_retry_flag(&commands[c0], true), true); // -> exec_0: 3 slots
+        assert_eq!(s.set_finished_and_get_retry_flag(&targets[c0], true), true); // -> exec_0: 3 slots
         assert_eq!(s.used_slots, 1); // c2 (1)
         assert_eq!(
-            s.set_finished_and_get_retry_flag(&commands[c2], false),
+            s.set_finished_and_get_retry_flag(&targets[c2], false),
             false
         );
         assert_eq!(s.used_slots, 0);
@@ -310,7 +318,7 @@ mod tests {
         assert_eq!(s.used_slots, 1); // c4 (1)
         assert_eq!(s.pop_ready_and_run(), None);
         assert_eq!(
-            s.set_finished_and_get_retry_flag(&commands[c3], false),
+            s.set_finished_and_get_retry_flag(&targets[c3], false),
             false
         );
         assert_eq!(s.used_slots, 0);
@@ -318,12 +326,12 @@ mod tests {
         assert_eq!(s.used_slots, 3);
         assert_eq!(s.pop_ready_and_run(), None);
         assert_eq!(
-            s.set_finished_and_get_retry_flag(&commands[c0_or_c1], false),
+            s.set_finished_and_get_retry_flag(&targets[c0_or_c1], false),
             false
         );
         let c0_or_c1 = s.pop_ready_and_run().unwrap();
         assert_eq!(
-            s.set_finished_and_get_retry_flag(&commands[c0_or_c1], true),
+            s.set_finished_and_get_retry_flag(&targets[c0_or_c1], true),
             false
         );
         assert_eq!(s.len(), 0);

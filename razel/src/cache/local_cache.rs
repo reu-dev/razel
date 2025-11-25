@@ -1,15 +1,14 @@
+use crate::bazel_remote_exec::{message_to_pb_buf, ActionResult, OutputFile};
+use crate::cache::DigestData;
+use crate::config::LinkType;
+use crate::types::Digest;
+use crate::{force_remove_file, set_file_readonly, write_gitignore};
+use anyhow::{bail, Context, Result};
+use log::warn;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-
-use anyhow::{bail, Context};
-use log::warn;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
-
-use crate::bazel_remote_exec::{ActionResult, Digest, OutputFile};
-use crate::cache::{message_to_pb_buf, BlobDigest, MessageDigest};
-use crate::config::LinkType;
-use crate::{force_remove_file, set_file_readonly, write_gitignore};
 
 #[derive(Clone)]
 pub struct LocalCache {
@@ -19,7 +18,7 @@ pub struct LocalCache {
 }
 
 impl LocalCache {
-    pub fn new(dir: PathBuf) -> Result<Self, anyhow::Error> {
+    pub fn new(dir: PathBuf) -> Result<Self> {
         let ac_dir = dir.join("ac");
         let cas_dir = dir.join("cas");
         std::fs::create_dir_all(&ac_dir)?;
@@ -32,12 +31,12 @@ impl LocalCache {
         })
     }
 
-    pub fn cas_path(&self, digest: &BlobDigest) -> PathBuf {
-        self.cas_dir.join(&digest.hash)
+    pub fn cas_path(&self, digest: &impl DigestData) -> PathBuf {
+        self.cas_dir.join(digest.hash())
     }
 
-    pub async fn get_action_result(&self, digest: &MessageDigest) -> Option<ActionResult> {
-        let path = self.ac_dir.join(&digest.hash);
+    pub async fn get_action_result(&self, digest: &impl DigestData) -> Option<ActionResult> {
+        let path = self.ac_dir.join(digest.hash());
         match Self::try_read_pb_file(&path).await {
             Ok(x) => x,
             Err(x) => {
@@ -50,16 +49,16 @@ impl LocalCache {
 
     pub async fn push_action_result(
         &self,
-        digest: &MessageDigest,
+        digest: &impl DigestData,
         result: &ActionResult,
-    ) -> Result<(), anyhow::Error> {
-        let path = self.ac_dir.join(&digest.hash);
+    ) -> Result<()> {
+        let path = self.ac_dir.join(digest.hash());
         Self::write_pb_file(&path, result)
             .await
             .with_context(|| format!("push_action_result(): {path:?}"))
     }
 
-    pub async fn is_blob_cached(&self, digest: &Digest) -> bool {
+    pub async fn is_blob_cached(&self, digest: &impl DigestData) -> bool {
         let path = self.cas_path(digest);
         if let Ok(metadata) = tokio::fs::metadata(&path).await {
             if !metadata.permissions().readonly() {
@@ -68,7 +67,7 @@ impl LocalCache {
                 return false;
             }
             let act_size = metadata.len();
-            let exp_size = digest.size_bytes as u64;
+            let exp_size = digest.size() as u64;
             if act_size != exp_size {
                 warn!("OutputFile has wrong size (act: {act_size}, exp:{exp_size}): {path:?}");
                 force_remove_file(path).await.ok();
@@ -81,18 +80,14 @@ impl LocalCache {
     }
 
     /// To be called before Self::move_file_into_cache() without mutex lock
-    pub async fn prepare_file_to_move(&self, src: &PathBuf) -> Result<(), anyhow::Error> {
+    pub async fn prepare_file_to_move(&self, src: &PathBuf) -> Result<()> {
         set_file_readonly(src)
             .await
             .with_context(|| format!("Error in set_readonly {src:?}"))
     }
 
     /// Self::prepare_file_for_moving_to_cache() must have been called before
-    pub async fn move_file_into_cache(
-        &self,
-        src: &PathBuf,
-        digest: &Digest,
-    ) -> Result<PathBuf, anyhow::Error> {
+    pub async fn move_file_into_cache(&self, src: &PathBuf, digest: &Digest) -> Result<PathBuf> {
         let dst = self.cas_path(digest);
         match tokio::fs::rename(src, &dst).await {
             Ok(()) => {}
@@ -111,7 +106,7 @@ impl LocalCache {
         &self,
         output_files: &Vec<OutputFile>,
         out_dir: &Path,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<()> {
         for file in output_files {
             let cas_path = self.cas_path(file.digest.as_ref().unwrap());
             let out_path = out_dir.join(&file.path);
@@ -123,9 +118,7 @@ impl LocalCache {
         Ok(())
     }
 
-    async fn try_read_pb_file<T: prost::Message + Default>(
-        path: &PathBuf,
-    ) -> Result<Option<T>, anyhow::Error> {
+    async fn try_read_pb_file<T: prost::Message + Default>(path: &PathBuf) -> Result<Option<T>> {
         let mut file = match File::open(path).await {
             Ok(file) => file,
             Err(err) => {
