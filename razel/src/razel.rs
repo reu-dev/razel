@@ -586,7 +586,7 @@ impl Razel {
                 (
                     ExecutionResult {
                         status: ExecutionStatus::SystemError,
-                        error: Some(e),
+                        error: Some(e.to_string()),
                         ..Default::default()
                     },
                     Default::default(),

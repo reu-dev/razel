@@ -117,7 +117,7 @@ impl TUI {
             color,
             target.name.as_str(),
         );
-        if let Some(e) = &execution_result.error.as_ref().map(|x| x.to_string()) {
+        if let Some(e) = &execution_result.error {
             if will_retry {
                 Self::field_with_hint("error:     ", color, e, "(will retry)");
             } else {

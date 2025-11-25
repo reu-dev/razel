@@ -78,7 +78,7 @@ impl LogFile {
             name: target.name.clone(),
             tags: custom_tags,
             status: execution_result.status,
-            error: execution_result.error.as_ref().map(|x| x.to_string()),
+            error: execution_result.error.clone(),
             cache: execution_result.cache_hit,
             exec: execution_result.exec_duration.map(|x| x.as_secs_f32()),
             total: execution_result.total_duration.map(|x| x.as_secs_f32()),

@@ -8,6 +8,7 @@ use std::path::PathBuf;
 pub type TargetId = usize;
 pub type FileId = usize;
 
+#[derive(Serialize, Deserialize)]
 pub struct File {
     pub id: FileId,
     pub path: PathBuf,
@@ -16,7 +17,7 @@ pub struct File {
     pub is_excluded: bool,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ExecutableType {
     ExecutableInWorkspace,
     ExecutableOutsideWorkspace,

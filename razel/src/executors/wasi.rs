@@ -56,7 +56,7 @@ impl WasiExecutor {
             .await
             .unwrap_or_else(|error| ExecutionResult {
                 status: ExecutionStatus::FailedToStart,
-                error: Some(error),
+                error: Some(error.to_string()),
                 ..Default::default()
             })
     }
@@ -92,7 +92,7 @@ impl WasiExecutor {
                     execution_result.exit_code = Some(exit_code.0);
                 } else {
                     execution_result.status = ExecutionStatus::Crashed;
-                    execution_result.error = Some(error);
+                    execution_result.error = Some(error.to_string());
                 }
             }
         }

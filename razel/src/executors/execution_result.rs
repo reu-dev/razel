@@ -1,16 +1,16 @@
 use crate::types::CacheHit;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::time::Duration;
 use std::time::Instant;
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct ExecutionResult {
     pub status: ExecutionStatus,
     pub exit_code: Option<i32>,
     pub signal: Option<i32>,
-    pub error: Option<anyhow::Error>,
+    pub error: Option<String>,
     pub cache_hit: Option<CacheHit>,
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
@@ -32,7 +32,7 @@ impl ExecutionResult {
             },
             Err(e) => Self {
                 status: ExecutionStatus::Failed,
-                error: Some(e),
+                error: Some(e.to_string()),
                 exec_duration,
                 ..Default::default()
             },
@@ -52,7 +52,7 @@ impl ExecutionResult {
             .improve_error_message_stderr()
             .or_else(|| self.improve_error_message_stdout())
         {
-            self.error = Some(anyhow!(error));
+            self.error = Some(error);
         }
     }
 
