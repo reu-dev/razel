@@ -1,4 +1,4 @@
-use crate::remote_exec::rpc_utils_client::new_client_endpoint;
+use crate::remote_exec::rpc_endpoint::new_client_endpoint;
 use crate::remote_exec::*;
 use anyhow::{anyhow, bail, Result};
 use quinn::Connection;
@@ -55,7 +55,7 @@ impl Client {
         } else {
             JobKind::Interactive(InteractiveJob { user: user()? })
         };
-        let request = Message::CreateJobRequest(CreateJobRequest {
+        let request = ClientMessage::CreateJobRequest(CreateJobRequest {
             job: Job {
                 ts: chrono::Utc::now(),
                 project: "".to_string(),
@@ -63,7 +63,8 @@ impl Client {
             },
             auth: "".to_string(),
         });
-        let Message::CreateJobResponse(response) = rpc_request(&self.connection, &request).await?
+        let ClientMessage::CreateJobResponse(response) =
+            rpc_request(&self.connection, &request).await?
         else {
             bail!("unexpected response type");
         };

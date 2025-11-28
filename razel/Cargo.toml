@@ -43,6 +43,7 @@ tonic = { version = "0.14", optional = true }
 tonic-prost = { version = "0.14", optional = true }
 tracing = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
 url = { workspace = true }
 wasmtime = { version = "31", default-features = false, features = ["async", "cranelift", "pooling-allocator", "runtime"], optional = true }
 wasmtime-wasi = { version = "31", optional = true }
@@ -68,7 +69,7 @@ full = ["dep:async-trait", "dep:crossterm", "dep:csv", "dep:directories", "dep:d
     "dep:reqwest", "dep:sha2", "dep:simplelog", "dep:tokio", "dep:tonic", "dep:tonic-prost", "dep:tracing", "dep:tracing-subscriber",
     "dep:wasmtime", "dep:wasmtime-wasi", "dep:procfs", "dep:tonic-prost-build"
 ]
-remote_exec = ["dep:chrono", "dep:postcard", "dep:quinn", "dep:rand"]
+remote_exec = ["dep:chrono", "dep:postcard", "dep:quinn", "dep:rand", "dep:uuid"]
 
 [[bin]]
 name = "razel"

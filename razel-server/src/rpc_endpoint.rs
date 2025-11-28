@@ -1,23 +1,20 @@
+use crate::config;
 use anyhow::{anyhow, bail, Context, Result};
 use quinn::crypto::rustls::QuicServerConfig;
 use quinn::rustls::pki_types::pem::PemObject;
 use quinn::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use quinn::{rustls, Endpoint};
+use razel::remote_exec::rpc_endpoint::new_client_config_with_dummy_certificate_verifier;
 use std::fs;
-use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::path::Path;
 use std::sync::Arc;
 use tracing::info;
 
-pub fn new_server_endpoint(
-    listen: SocketAddr,
-    cert_path: Option<PathBuf>,
-    key_path: Option<PathBuf>,
-) -> Result<Endpoint> {
-    let (certs, key) = match (cert_path, key_path) {
-        (Some(cert), Some(key)) => get_cert_from_custom_files(cert, key)?,
-        (None, None) => create_cert_in_default_dir()?,
-        _ => unreachable!(),
+pub fn new_server_endpoint(config: &config::Endpoint) -> Result<Endpoint> {
+    let (certs, key) = match &config.tls {
+        Some(tls) => get_cert_from_custom_files(&tls.cert, &tls.key)?,
+        None => create_cert_in_default_dir()?,
     };
     let server_crypto = rustls::ServerConfig::builder()
         .with_no_client_auth()
@@ -26,13 +23,15 @@ pub fn new_server_endpoint(
         quinn::ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(server_crypto)?));
     let transport_config = Arc::get_mut(&mut server_config.transport).unwrap();
     transport_config.max_concurrent_uni_streams(0_u8.into());
-    let endpoint = Endpoint::server(server_config, listen)?;
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), config.port);
+    let mut endpoint = Endpoint::server(server_config, addr)?;
+    endpoint.set_default_client_config(new_client_config_with_dummy_certificate_verifier()?);
     Ok(endpoint)
 }
 
 fn get_cert_from_custom_files(
-    cert_path: PathBuf,
-    key_path: PathBuf,
+    cert_path: &Path,
+    key_path: &Path,
 ) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)> {
     let key = if key_path.extension().is_some_and(|x| x == "der") {
         PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(

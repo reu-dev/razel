@@ -1,7 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
-pub type JobId = String;
+pub type JobId = Uuid;
 
 /// A razel remote exec job created by `razel exec` and sent to server
 #[derive(Serialize, Deserialize)]

@@ -1,18 +1,55 @@
-use anyhow::{bail, Context, Result};
+use crate::remote_exec::{ClientMessage, MessageVersion};
+use anyhow::{bail, ensure, Context, Result};
 use quinn::{Connection, RecvStream, SendStream};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use tracing::info;
-use tracing::instrument;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 type LengthPrefix = u32;
 const MAX_BUFFER_LEN: usize = 10 * 1024 * 1024;
 
-/// Send a message with postcard encoding and length prefix
-///
-/// TODO optimize using a scratch buffer?
-#[instrument(skip_all)]
-pub async fn rpc_send_message<T: Serialize>(stream: &mut SendStream, msg: &T) -> Result<()> {
+impl ClientMessage {
+    pub fn spawn_send(&self, stream: quinn::SendStream) -> Result<()> {
+        rpc_spawn_send(stream, MessageVersion::ClientServerV1, self)
+    }
+
+    pub async fn send(&self, stream: &mut quinn::SendStream) -> Result<()> {
+        rpc_send_impl(stream, MessageVersion::ClientServerV1, self).await
+    }
+
+    pub async fn recv(stream: &mut quinn::RecvStream) -> Result<Self> {
+        rpc_recv_impl(stream, MessageVersion::ClientServerV1).await
+    }
+}
+
+pub fn rpc_spawn_send<T: Serialize>(
+    mut stream: SendStream,
+    version: MessageVersion,
+    msg: &T,
+) -> Result<()> {
+    let data = postcard::to_stdvec(msg)?;
+    if data.len() > MAX_BUFFER_LEN {
+        bail!(
+            "rpc_send_message(): buffer too large: {}MB",
+            data.len() / 1024 / 1024
+        );
+    }
+    tokio::spawn(async move {
+        let len = data.len() as LengthPrefix;
+        let len_bytes = len.to_le_bytes();
+        stream.write_u8(version as u8).await.ok();
+        stream.write_all(&len_bytes).await.ok();
+        stream.write_all(&data).await.ok();
+        stream.finish().ok();
+    });
+    Ok(())
+}
+
+pub async fn rpc_send_impl<T: Serialize>(
+    stream: &mut SendStream,
+    version: MessageVersion,
+    msg: &T,
+) -> Result<()> {
     let data = postcard::to_stdvec(msg)?;
     if data.len() > MAX_BUFFER_LEN {
         bail!(
@@ -22,15 +59,21 @@ pub async fn rpc_send_message<T: Serialize>(stream: &mut SendStream, msg: &T) ->
     }
     let len = data.len() as LengthPrefix;
     let len_bytes = len.to_le_bytes();
-    info!(len);
+    stream.write_u8(version as u8).await?;
     stream.write_all(&len_bytes).await?;
     stream.write_all(&data).await?;
     Ok(())
 }
 
-/// Receive a message with postcard encoding and length prefix
-#[instrument(skip_all)]
-pub async fn rpc_recv_message<T: DeserializeOwned>(stream: &mut RecvStream) -> Result<T> {
+pub async fn rpc_recv_impl<T: DeserializeOwned>(
+    stream: &mut RecvStream,
+    exp_version: MessageVersion,
+) -> Result<T> {
+    let act_version = MessageVersion::from(stream.read_u8().await?);
+    ensure!(
+        act_version == exp_version,
+        "received message with unexpected version: {act_version:?}"
+    );
     let mut len_buf = [0u8; 4];
     stream.read_exact(&mut len_buf).await?;
     let len = LengthPrefix::from_le_bytes(len_buf) as usize;
@@ -41,7 +84,6 @@ pub async fn rpc_recv_message<T: DeserializeOwned>(stream: &mut RecvStream) -> R
             len / 1024 / 1024
         );
     }
-    info!(len);
     let mut buf = vec![0u8; len];
     stream
         .read_exact(&mut buf)
@@ -52,12 +94,12 @@ pub async fn rpc_recv_message<T: DeserializeOwned>(stream: &mut RecvStream) -> R
     Ok(msg)
 }
 
-pub async fn rpc_request<Request: Serialize, Response: DeserializeOwned>(
+pub async fn rpc_request(
     connection: &Connection,
-    request: &Request,
-) -> Result<Response> {
+    request: &ClientMessage,
+) -> Result<ClientMessage> {
     let (mut send, mut recv) = connection.open_bi().await?;
-    rpc_send_message(&mut send, request).await?;
+    request.send(&mut send).await?;
     send.finish()?;
-    rpc_recv_message(&mut recv).await
+    ClientMessage::recv(&mut recv).await
 }

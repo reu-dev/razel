@@ -28,7 +28,7 @@ serde_json = "1"
 tokio = { version = "1.48", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "local-time"] }
-
+uuid = { version = "1.18", features = ["serde", "v7"] }
 url = { version = "2", features = ["serde"] }
 
 # optimize some dependencies also for dev profile

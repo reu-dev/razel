@@ -6,16 +6,19 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 pub fn new_client_endpoint() -> Result<Endpoint> {
-    let client_config = ClientConfig::new(Arc::new(QuicClientConfig::try_from(
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
+    let mut endpoint = quinn::Endpoint::client(addr)?;
+    endpoint.set_default_client_config(new_client_config_with_dummy_certificate_verifier()?);
+    Ok(endpoint)
+}
+
+pub fn new_client_config_with_dummy_certificate_verifier() -> Result<ClientConfig> {
+    Ok(ClientConfig::new(Arc::new(QuicClientConfig::try_from(
         rustls::ClientConfig::builder()
             .dangerous()
             .with_custom_certificate_verifier(SkipServerVerification::new())
             .with_no_client_auth(),
-    )?));
-    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
-    let mut endpoint = quinn::Endpoint::client(addr)?;
-    endpoint.set_default_client_config(client_config);
-    Ok(endpoint)
+    )?)))
 }
 
 /// Dummy certificate verifier that treats any certificate as valid.

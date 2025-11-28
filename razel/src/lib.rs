@@ -80,9 +80,9 @@ pub mod metadata {
 pub mod remote_exec {
     mod client;
     mod job;
+    pub mod rpc_endpoint;
     mod rpc_messages;
     mod rpc_utils;
-    mod rpc_utils_client;
 
     pub use client::*;
     pub use job::*;

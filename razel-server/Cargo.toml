@@ -14,10 +14,13 @@ license.workspace = true
 razel = { path = "../razel", features = ["full", "remote_exec"] }
 anyhow = { workspace = true }
 clap = { workspace = true }
+directories = { workspace = true }
 quinn = { workspace = true }
 rcgen = "0.14"
+tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-tokio = { workspace = true }
+serde = { workspace = true }
+toml = "0.9"
 url = { workspace = true }
-directories = { workspace = true }
+uuid = { workspace = true }

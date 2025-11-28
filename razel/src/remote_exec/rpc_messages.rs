@@ -4,8 +4,27 @@ use crate::remote_exec::{Job, JobId};
 use crate::types::{Digest, File, Target};
 use serde::{Deserialize, Serialize};
 
+#[repr(u8)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub enum MessageVersion {
+    Unknown = 0x00,
+    ClientServerV1 = 0x01,
+    ServerServerV1 = 0x81,
+}
+
+impl From<u8> for MessageVersion {
+    fn from(v: u8) -> Self {
+        match v {
+            x if x == Self::ClientServerV1 as u8 => Self::ClientServerV1,
+            x if x == Self::ServerServerV1 as u8 => Self::ServerServerV1,
+            _ => MessageVersion::Unknown,
+        }
+    }
+}
+
+/// Messages exchanged between client and server
 #[derive(Serialize, Deserialize)]
-pub enum Message {
+pub enum ClientMessage {
     CreateJobRequest(CreateJobRequest),
     CreateJobResponse(CreateJobResponse),
     ExecuteTargetsRequest(ExecuteTargetsRequest),

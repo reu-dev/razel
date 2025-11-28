@@ -16,7 +16,7 @@ impl Razel {
     ) -> Result<SchedulerStats> {
         let client = Client::new(remote_exec).await?;
         let job = client.create_job().await?;
-        tracing::info!(job = job.id);
+        tracing::info!(job = ?job.id);
         todo!()
     }
 }
