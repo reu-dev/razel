@@ -16,8 +16,10 @@ impl Server {
         }
     }
 
+    #[instrument(skip(self))]
     pub fn accept_incoming_server_connections(&self) {
         let endpoint = self.server_endpoint.clone();
+        info!(addr=?endpoint.local_addr().as_ref().unwrap());
         let tx = self.tx.clone();
         tokio::spawn(async move {
             while let Some(conn) = endpoint.accept().await {
@@ -35,26 +37,29 @@ impl Server {
                         }
                     }
                     Err(e) => {
-                        warn!("accept_incoming_server_connections: {e}");
+                        warn!("{e}");
                         break;
                     }
                 }
             }
+            todo!("send QueueMsg::ServerConnectionLost");
         });
     }
 
+    #[instrument(skip(self))]
     pub fn accept_incoming_client_connections(&self) {
         let Some(endpoint) = self.client_endpoint.clone() else {
             return;
         };
+        info!(addr=?endpoint.local_addr().as_ref().unwrap());
         let tx = self.tx.clone();
         tokio::spawn(async move {
-            while let Some(conn) = endpoint.accept().await {
-                if !conn.remote_address_validated() {
-                    conn.retry().unwrap();
+            while let Some(incoming) = endpoint.accept().await {
+                if !incoming.remote_address_validated() {
+                    incoming.retry().unwrap();
                     continue;
                 }
-                match conn.await {
+                match incoming.await {
                     Ok(connection) => {
                         if tx
                             .send(QueueMsg::IncomingClientConnection(connection))
@@ -64,11 +69,12 @@ impl Server {
                         }
                     }
                     Err(e) => {
-                        warn!("accept_incoming_client_connections: {e}");
+                        warn!("{e}");
                         break;
                     }
                 }
             }
+            todo!("send QueueMsg::ClientConnectionLost");
         });
     }
 }

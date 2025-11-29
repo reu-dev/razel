@@ -20,10 +20,11 @@ impl Client {
         for url in urls {
             match Self::connect(&endpoint, &url).await {
                 Ok(connection) => {
+                    tracing::info!("connected to {}", url.as_str());
                     return Ok(Self {
                         endpoint,
                         connection,
-                    })
+                    });
                 }
                 Err(e) => {
                     tracing::info!("failed to connect to {}: {e}", url.as_str());

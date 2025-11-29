@@ -109,6 +109,7 @@ impl Server {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn handle_queue_msg(&mut self, queue_msg: QueueMsg) -> Result<()> {
         match queue_msg {
             QueueMsg::IncomingClientConnection(c) => {
@@ -125,7 +126,7 @@ impl Server {
                 tokio::spawn(async move { handle_client_connection(id, c, tx).await });
             }
             QueueMsg::ClientConnectionLost(_) => todo!(),
-            QueueMsg::IncomingServerConnection(_) => {}
+            QueueMsg::IncomingServerConnection(_) => todo!(),
             QueueMsg::ServerConnectionLost(_) => todo!(),
             QueueMsg::OutgoingConnection((i, c)) => {
                 self.nodes[i].connection = Some(c.clone());

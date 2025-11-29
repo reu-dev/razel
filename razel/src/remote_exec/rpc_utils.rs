@@ -1,5 +1,5 @@
 use crate::remote_exec::{ClientMessage, MessageVersion};
-use anyhow::{bail, ensure, Context, Result};
+use anyhow::{ensure, Context, Result};
 use quinn::{Connection, RecvStream, SendStream};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -28,12 +28,11 @@ pub fn rpc_spawn_send<T: Serialize>(
     msg: &T,
 ) -> Result<()> {
     let data = postcard::to_stdvec(msg)?;
-    if data.len() > MAX_BUFFER_LEN {
-        bail!(
-            "rpc_send_message(): buffer too large: {}MB",
-            data.len() / 1024 / 1024
-        );
-    }
+    ensure!(
+        data.len() <= MAX_BUFFER_LEN,
+        "rpc_spawn_send(): buffer too large: {}MB",
+        data.len() / 1024 / 1024
+    );
     tokio::spawn(async move {
         let len = data.len() as LengthPrefix;
         let len_bytes = len.to_le_bytes();
@@ -51,12 +50,11 @@ pub async fn rpc_send_impl<T: Serialize>(
     msg: &T,
 ) -> Result<()> {
     let data = postcard::to_stdvec(msg)?;
-    if data.len() > MAX_BUFFER_LEN {
-        bail!(
-            "rpc_send_message(): buffer too large: {}MB",
-            data.len() / 1024 / 1024
-        );
-    }
+    ensure!(
+        data.len() <= MAX_BUFFER_LEN,
+        "rpc_send_impl(): buffer too large: {}MB",
+        data.len() / 1024 / 1024
+    );
     let len = data.len() as LengthPrefix;
     let len_bytes = len.to_le_bytes();
     stream.write_u8(version as u8).await?;
@@ -78,12 +76,11 @@ pub async fn rpc_recv_impl<T: DeserializeOwned>(
     stream.read_exact(&mut len_buf).await?;
     let len = LengthPrefix::from_le_bytes(len_buf) as usize;
     // Safety check: Prevent allocating too much RAM if a malicious packet sends a huge length
-    if len > MAX_BUFFER_LEN {
-        bail!(
-            "rpc_recv_message(): buffer too large: {}MB",
-            len / 1024 / 1024
-        );
-    }
+    ensure!(
+        len <= MAX_BUFFER_LEN,
+        "rpc_recv_impl(): buffer too large: {}MB",
+        len / 1024 / 1024
+    );
     let mut buf = vec![0u8; len];
     stream
         .read_exact(&mut buf)
