@@ -8,7 +8,7 @@ use std::path::PathBuf;
 pub type TargetId = usize;
 pub type FileId = usize;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct File {
     pub id: FileId,
     pub path: PathBuf,
@@ -17,7 +17,7 @@ pub struct File {
     pub is_excluded: bool,
 }
 
-#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ExecutableType {
     ExecutableInWorkspace,
     ExecutableOutsideWorkspace,
@@ -34,7 +34,7 @@ pub struct Digest {
     pub size_bytes: i64,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Target {
     pub id: TargetId,
     pub name: String,
@@ -50,7 +50,7 @@ pub struct Target {
     pub is_excluded: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum TargetKind {
     Command(CommandTarget),
     Wasi(CommandTarget),
@@ -141,7 +141,7 @@ impl CommandTarget {
 }
 
 /// A razel builtin task, see `razel task`
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TaskTarget {
     pub args: Vec<String>,
     pub task: Task,

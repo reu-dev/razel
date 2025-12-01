@@ -71,7 +71,7 @@ impl SchedulerExecStats {
     }
 }
 
-type ExecutionResultChannel = (TargetId, ExecutionResult, Vec<OutputFile>, bool);
+pub type ExecutionResultChannel = (TargetId, ExecutionResult, Vec<OutputFile>, bool);
 
 pub struct Razel {
     pub read_cache: bool,
@@ -96,6 +96,7 @@ pub struct Razel {
     http_remote_exec_state: HttpRemoteExecState,
     wasi_module_by_executable: HashMap<FileId, wasmtime::Module>,
     scheduler: Scheduler,
+    running_remotely: usize,
     succeeded: Vec<TargetId>,
     failed: Vec<TargetId>,
     skipped: HashSet<TargetId>,
@@ -129,6 +130,7 @@ impl Razel {
             http_remote_exec_state: Default::default(),
             wasi_module_by_executable: Default::default(),
             scheduler: Scheduler::new(worker_threads),
+            running_remotely: 0,
             succeeded: vec![],
             failed: vec![],
             skipped: Default::default(),
@@ -231,13 +233,16 @@ impl Razel {
         remote_cache_threshold: Option<u32>,
         remote_exec: Vec<Url>,
     ) -> Result<SchedulerStats> {
+        if self.targets_builder.as_ref().unwrap().targets.is_empty() {
+            bail!("No targets added");
+        }
+        self.tui.verbose = verbose;
         if !remote_exec.is_empty() {
-            self.run_remotely(keep_going, verbose, group_by_tag, cache_dir, remote_exec)
+            self.run_remotely(keep_going, group_by_tag, cache_dir, remote_exec)
                 .await
         } else {
             self.run_locally(
                 keep_going,
-                verbose,
                 group_by_tag,
                 cache_dir,
                 remote_cache,
@@ -251,7 +256,6 @@ impl Razel {
     async fn run_remotely(
         &mut self,
         _keep_going: bool,
-        _verbose: bool,
         _group_by_tag: &str,
         _cache_dir: Option<PathBuf>,
         _remote_exec: Vec<Url>,
@@ -262,17 +266,12 @@ impl Razel {
     async fn run_locally(
         &mut self,
         keep_going: bool,
-        verbose: bool,
         group_by_tag: &str,
         cache_dir: Option<PathBuf>,
         remote_cache: Vec<String>,
         remote_cache_threshold: Option<u32>,
     ) -> Result<SchedulerStats> {
         let preparation_start = Instant::now();
-        if self.targets_builder.as_ref().unwrap().targets.is_empty() {
-            bail!("No targets added");
-        }
-        self.tui.verbose = verbose;
         self.prepare_run_locally(cache_dir, remote_cache, remote_cache_threshold)
             .await?;
         let (tx, mut rx) = mpsc::unbounded_channel();
@@ -528,7 +527,7 @@ impl Razel {
             self.succeeded.len(),
             self.cache_hits,
             self.failed.len(),
-            self.scheduler.running(),
+            self.scheduler.running() + self.running_remotely,
             self.dep_graph.waiting.len() + self.scheduler.ready(),
         );
         self.tui_dirty = false;

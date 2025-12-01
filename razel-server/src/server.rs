@@ -5,7 +5,7 @@ use crate::Node;
 use anyhow::{anyhow, bail, Result};
 use quinn::{Connection, Endpoint};
 use razel::remote_exec::rpc_endpoint::new_client_endpoint;
-use razel::remote_exec::{ClientMessage, CreateJobResponse};
+use razel::remote_exec::{ClientToServerMsg, CreateJobResponse, ServerToClientMsg};
 use std::{collections::HashMap, net::SocketAddr};
 use tokio::sync::mpsc;
 use tracing::{info, instrument};
@@ -22,7 +22,7 @@ pub enum QueueMsg {
     IncomingServerConnection(quinn::Connection),
     ServerConnectionLost(RemoteNodeId),
     OutgoingConnection((RemoteNodeId, quinn::Connection)),
-    ClientMsg((ClientId, ClientMessage, quinn::SendStream)),
+    ClientMsg((ClientId, ClientToServerMsg, quinn::SendStream)),
     ServerMsg((RemoteNodeId, ServerMessage, quinn::SendStream)),
 }
 
@@ -143,23 +143,22 @@ impl Server {
     async fn handle_client_msg(
         &mut self,
         client_id: ClientId,
-        msg: ClientMessage,
+        msg: ClientToServerMsg,
         send: quinn::SendStream,
     ) -> Result<()> {
         match msg {
-            ClientMessage::CreateJobRequest(_r) => {
+            ClientToServerMsg::CreateJobRequest(_r) => {
                 let job_id = Uuid::now_v7();
                 info!(?job_id, "CreateJobRequest");
-                ClientMessage::CreateJobResponse(CreateJobResponse {
-                    id: job_id,
+                ServerToClientMsg::CreateJobResponse(CreateJobResponse {
+                    job_id,
                     url: self.webui_job_url(&job_id),
                 })
                 .spawn_send(send)?;
             }
-            ClientMessage::CreateJobResponse(_) => todo!(),
-            ClientMessage::ExecuteTargetsRequest(_) => todo!(),
-            ClientMessage::ExecuteTargetResult(_) => todo!(),
-            ClientMessage::UploadFilesRequest(_) => todo!(),
+            ClientToServerMsg::ExecuteTargetsRequest(_) => todo!(),
+            ClientToServerMsg::ExecuteTargetsFinished => todo!(),
+            ClientToServerMsg::UploadFile => todo!(),
         }
         Ok(())
     }

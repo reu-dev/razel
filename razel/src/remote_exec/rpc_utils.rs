@@ -1,4 +1,4 @@
-use crate::remote_exec::{ClientMessage, MessageVersion};
+use crate::remote_exec::{ClientToServerMsg, MessageVersion, ServerToClientMsg};
 use anyhow::{ensure, Context, Result};
 use quinn::{Connection, RecvStream, SendStream};
 use serde::de::DeserializeOwned;
@@ -8,17 +8,45 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 type LengthPrefix = u32;
 const MAX_BUFFER_LEN: usize = 10 * 1024 * 1024;
 
-impl ClientMessage {
+impl ClientToServerMsg {
     pub fn spawn_send(&self, stream: quinn::SendStream) -> Result<()> {
-        rpc_spawn_send(stream, MessageVersion::ClientServerV1, self)
+        rpc_spawn_send(stream, MessageVersion::ClientToServerV1, self)
     }
 
     pub async fn send(&self, stream: &mut quinn::SendStream) -> Result<()> {
-        rpc_send_impl(stream, MessageVersion::ClientServerV1, self).await
+        rpc_send_impl(stream, MessageVersion::ClientToServerV1, self).await
+    }
+
+    pub async fn request(&self, connection: &Connection) -> Result<ServerToClientMsg> {
+        let (mut send, mut recv) = connection.open_bi().await?;
+        self.send(&mut send).await?;
+        send.finish()?;
+        ServerToClientMsg::recv(&mut recv).await
     }
 
     pub async fn recv(stream: &mut quinn::RecvStream) -> Result<Self> {
-        rpc_recv_impl(stream, MessageVersion::ClientServerV1).await
+        rpc_recv_impl(stream, MessageVersion::ClientToServerV1).await
+    }
+}
+
+impl ServerToClientMsg {
+    pub fn spawn_send(&self, stream: quinn::SendStream) -> Result<()> {
+        rpc_spawn_send(stream, MessageVersion::ServerToClientV1, self)
+    }
+
+    pub async fn send(&self, stream: &mut quinn::SendStream) -> Result<()> {
+        rpc_send_impl(stream, MessageVersion::ServerToClientV1, self).await
+    }
+
+    pub async fn request(&self, connection: &Connection) -> Result<ClientToServerMsg> {
+        let (mut send, mut recv) = connection.open_bi().await?;
+        self.send(&mut send).await?;
+        send.finish()?;
+        ClientToServerMsg::recv(&mut recv).await
+    }
+
+    pub async fn recv(stream: &mut quinn::RecvStream) -> Result<Self> {
+        rpc_recv_impl(stream, MessageVersion::ServerToClientV1).await
     }
 }
 
@@ -89,14 +117,4 @@ pub async fn rpc_recv_impl<T: DeserializeOwned>(
     assert_eq!(buf.len(), len);
     let msg = postcard::from_bytes(&buf).context("rpc_recv_message() from_bytes")?;
     Ok(msg)
-}
-
-pub async fn rpc_request(
-    connection: &Connection,
-    request: &ClientMessage,
-) -> Result<ClientMessage> {
-    let (mut send, mut recv) = connection.open_bi().await?;
-    request.send(&mut send).await?;
-    send.finish()?;
-    ClientMessage::recv(&mut recv).await
 }

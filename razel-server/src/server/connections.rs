@@ -2,7 +2,7 @@ use super::*;
 use crate::rpc_messages::ServerMessage;
 use anyhow::Result;
 use quinn::{Connection, Endpoint};
-use razel::remote_exec::ClientMessage;
+use razel::remote_exec::ClientToServerMsg;
 use tracing::{error, info, instrument, warn};
 
 impl Server {
@@ -136,7 +136,7 @@ pub async fn handle_client_connection(id: ClientId, connection: quinn::Connectio
             Ok((send, mut recv)) => {
                 let tx = tx.clone();
                 tokio::spawn(async move {
-                    match ClientMessage::recv(&mut recv).await {
+                    match ClientToServerMsg::recv(&mut recv).await {
                         Ok(m) => {
                             tx.send(QueueMsg::ClientMsg((id, m, send))).ok();
                         }
