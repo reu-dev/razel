@@ -9,6 +9,7 @@ use rand::rng;
 use rand::seq::SliceRandom;
 use std::net::ToSocketAddrs;
 use tokio::sync::mpsc::UnboundedSender;
+use tracing::instrument;
 use url::Url;
 use uuid::Uuid;
 
@@ -35,7 +36,7 @@ impl Client {
                     });
                 }
                 Err(e) => {
-                    tracing::info!("failed to connect to {}: {e}", url.as_str());
+                    tracing::info!("failed to connect to server {}: {e}", url.as_str());
                 }
             }
         }
@@ -44,10 +45,11 @@ impl Client {
     }
 
     async fn connect(endpoint: &Endpoint, url: &Url) -> Result<Connection> {
-        let host = url.host_str().unwrap();
+        let host = strip_ipv6_brackets(url.host_str().unwrap());
         let addr = (host, url.port().unwrap_or(4433))
             .to_socket_addrs()?
-            .next()
+            .into_iter()
+            .find(|x| x.is_ipv4())
             .ok_or_else(|| anyhow!("couldn't resolve address"))?;
         let connection = endpoint.connect(addr, host)?.await?;
         Ok(connection)
@@ -83,6 +85,7 @@ impl Client {
         Ok(response)
     }
 
+    #[instrument(skip_all)]
     pub fn spawn_exec(
         &self,
         targets: Vec<Target>,
@@ -96,11 +99,13 @@ impl Client {
             if let Err(e) =
                 Self::spawn_exec_impl(connection, job_id, targets, files, keep_going, tx).await
             {
+                tracing::warn!("{e:?}");
                 todo!("{e:?}"); // TODO handle losing connection to server
             }
         });
     }
 
+    #[instrument(skip_all)]
     async fn spawn_exec_impl(
         connection: Connection,
         job_id: JobId,
@@ -120,6 +125,7 @@ impl Client {
         .await?;
         send.finish()?;
         loop {
+            tracing::warn!("loop");
             match ServerToClientMsg::recv(&mut recv).await? {
                 ServerToClientMsg::CreateJobResponse(_) => {
                     unreachable!("CreateJobResponse should be handled before starting execution")
@@ -137,11 +143,14 @@ impl Client {
                 ServerToClientMsg::UploadFilesRequest(_) => todo!(),
             }
         }
+        tracing::warn!("finished");
         Ok(())
     }
 
-    pub async fn close(self) {
-        self.connection.close(0u32.into(), b"done");
+    #[instrument(skip(self))]
+    pub async fn close(self, reason: &str) {
+        tracing::info!("");
+        self.connection.close(0u32.into(), reason.as_bytes());
         self.endpoint.wait_idle().await;
     }
 }

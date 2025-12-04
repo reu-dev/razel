@@ -24,3 +24,4 @@ serde = { workspace = true }
 toml = "0.9"
 url = { workspace = true }
 uuid = { workspace = true }
+wasmtime = { workspace = true }

@@ -1,15 +1,14 @@
-use crate::config::Config;
+use crate::config::{Config, Storage};
 use crate::rpc_endpoint::new_server_endpoint;
 use crate::rpc_messages::ServerMessage;
-use crate::Node;
+use crate::{JobWorker, Node};
 use anyhow::{anyhow, bail, Result};
 use quinn::{Connection, Endpoint};
 use razel::remote_exec::rpc_endpoint::new_client_endpoint;
-use razel::remote_exec::{ClientToServerMsg, CreateJobResponse, ServerToClientMsg};
+use razel::remote_exec::{ClientToServerMsg, ExecuteTargetResult, ExecuteTargetsRequest};
 use std::{collections::HashMap, net::SocketAddr};
 use tokio::sync::mpsc;
 use tracing::{info, instrument};
-use uuid::Uuid;
 
 type Tx = mpsc::UnboundedSender<QueueMsg>;
 type Rx = mpsc::UnboundedReceiver<QueueMsg>;
@@ -24,6 +23,8 @@ pub enum QueueMsg {
     OutgoingConnection((RemoteNodeId, quinn::Connection)),
     ClientMsg((ClientId, ClientToServerMsg, quinn::SendStream)),
     ServerMsg((RemoteNodeId, ServerMessage, quinn::SendStream)),
+    ExecuteTargetsRequest(ExecuteTargetsRequest),
+    ExecuteTargetResult(ExecuteTargetResult),
 }
 
 pub struct Server {
@@ -31,8 +32,10 @@ pub struct Server {
     node: Node,
     client_endpoint: Option<Endpoint>,
     server_endpoint: Endpoint,
+    storage: Vec<Storage>,
     /// other servers to connect to
     nodes: Vec<RemoteNode>,
+    scheduler: Option<Scheduler>,
     clients: HashMap<ClientId, ClientConnection>,
     next_client_id: ClientId,
     tx: Tx,
@@ -69,8 +72,7 @@ impl Server {
                 .physical_machine
                 .map_or(name.clone(), |x| x.clone()),
             max_parallelism: self_config
-                .worker
-                .and_then(|w| w.max_parallelism)
+                .max_parallelism
                 .map_or(available_parallelism, |max| max.min(available_parallelism)),
         };
         let nodes = config
@@ -86,12 +88,15 @@ impl Server {
                 })
             })
             .collect();
+        let scheduler = self_config.scheduler.map(|_| Scheduler::new());
         let (tx, rx) = mpsc::unbounded_channel();
         Ok(Self {
             node,
             client_endpoint,
             server_endpoint,
+            storage: self_config.storage,
             nodes,
+            scheduler,
             clients: Default::default(),
             next_client_id: 0,
             tx,
@@ -115,6 +120,7 @@ impl Server {
             QueueMsg::IncomingClientConnection(c) => {
                 let id = self.next_client_id;
                 self.next_client_id += 1;
+                info!(id, "IncomingClientConnection");
                 self.clients.insert(
                     id,
                     ClientConnection {
@@ -125,7 +131,10 @@ impl Server {
                 let tx = self.tx.clone();
                 tokio::spawn(async move { handle_client_connection(id, c, tx).await });
             }
-            QueueMsg::ClientConnectionLost(_) => todo!(),
+            QueueMsg::ClientConnectionLost(id) => {
+                info!(id, "ClientConnectionLost");
+                self.clients.remove(&id);
+            }
             QueueMsg::IncomingServerConnection(_) => todo!(),
             QueueMsg::ServerConnectionLost(_) => todo!(),
             QueueMsg::OutgoingConnection((i, c)) => {
@@ -133,41 +142,28 @@ impl Server {
                 let tx = self.tx.clone();
                 tokio::spawn(async move { handle_server_connection(i, c, tx).await });
             }
-            QueueMsg::ClientMsg((id, msg, send)) => self.handle_client_msg(id, msg, send).await?,
+            QueueMsg::ClientMsg((_id, msg, send)) => self.handle_client_msg(msg, send)?,
             QueueMsg::ServerMsg(_) => todo!(),
+            QueueMsg::ExecuteTargetsRequest(_) => todo!(),
+            QueueMsg::ExecuteTargetResult(m) => self.handle_execute_target_result(m),
         }
         Ok(())
     }
 
-    #[instrument(skip(self, msg, send))]
-    async fn handle_client_msg(
+    pub fn handle_client_msg(
         &mut self,
-        client_id: ClientId,
         msg: ClientToServerMsg,
         send: quinn::SendStream,
     ) -> Result<()> {
         match msg {
-            ClientToServerMsg::CreateJobRequest(_r) => {
-                let job_id = Uuid::now_v7();
-                info!(?job_id, "CreateJobRequest");
-                ServerToClientMsg::CreateJobResponse(CreateJobResponse {
-                    job_id,
-                    url: self.webui_job_url(&job_id),
-                })
-                .spawn_send(send)?;
+            ClientToServerMsg::CreateJobRequest(r) => self.handle_create_job_request(send, r)?,
+            ClientToServerMsg::ExecuteTargetsRequest(r) => {
+                self.handle_execute_targets_request(send, r)?
             }
-            ClientToServerMsg::ExecuteTargetsRequest(_) => todo!(),
             ClientToServerMsg::ExecuteTargetsFinished => todo!(),
             ClientToServerMsg::UploadFile => todo!(),
         }
         Ok(())
-    }
-
-    fn webui_job_url(&self, job_id: &Uuid) -> String {
-        let host = &self.node.host;
-        let port = self.node.client_port.unwrap();
-        let job_id = job_id.as_simple();
-        format!("http://{host}:{port}/job/{job_id}")
     }
 }
 
@@ -196,3 +192,5 @@ struct ClientConnection {
 
 mod connections;
 use connections::*;
+mod scheduler;
+use scheduler::*;

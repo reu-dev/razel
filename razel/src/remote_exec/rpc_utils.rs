@@ -98,7 +98,7 @@ pub async fn rpc_recv_impl<T: DeserializeOwned>(
     let act_version = MessageVersion::from(stream.read_u8().await?);
     ensure!(
         act_version == exp_version,
-        "received message with unexpected version: {act_version:?}"
+        "rpc_recv_impl(): received message with unexpected version: {act_version:?}"
     );
     let mut len_buf = [0u8; 4];
     stream.read_exact(&mut len_buf).await?;
@@ -113,8 +113,18 @@ pub async fn rpc_recv_impl<T: DeserializeOwned>(
     stream
         .read_exact(&mut buf)
         .await
-        .context("rpc_recv_message() read_exact")?;
+        .context("rpc_recv_impl(): read_exact")?;
     assert_eq!(buf.len(), len);
-    let msg = postcard::from_bytes(&buf).context("rpc_recv_message() from_bytes")?;
+    let msg = postcard::from_bytes(&buf).context("rpc_recv_impl(): from_bytes")?;
     Ok(msg)
+}
+
+/// An IPv6 url looks like `https://[::1]:4433/Cargo.toml`, wherein the host `[::1]` is the
+/// IPv6 address `::1` wrapped in brackets, per RFC 2732. This strips those.
+pub fn strip_ipv6_brackets(host: &str) -> &str {
+    if host.starts_with('[') && host.ends_with(']') {
+        &host[1..host.len() - 1]
+    } else {
+        host
+    }
 }

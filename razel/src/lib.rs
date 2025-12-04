@@ -13,7 +13,7 @@ pub use scheduler::*;
 pub use utils::*;
 
 #[cfg(feature = "full")]
-mod bazel_remote_exec;
+pub mod bazel_remote_exec;
 #[cfg(feature = "full")]
 pub mod cli;
 pub mod config;

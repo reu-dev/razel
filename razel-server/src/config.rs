@@ -25,6 +25,7 @@ pub struct Config {
 pub struct Node {
     pub physical_machine: Option<String>,
     pub server_endpoint: Option<Endpoint>,
+    pub max_parallelism: Option<usize>,
     pub scheduler: Option<Scheduler>,
     pub worker: Option<Worker>,
     pub storage: Vec<Storage>,
@@ -54,7 +55,6 @@ pub struct Scheduler {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Worker {
-    pub max_parallelism: Option<usize>,
     pub tags: Vec<String>,
 }
 

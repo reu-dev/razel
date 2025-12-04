@@ -32,23 +32,26 @@ impl Razel {
             tx,
         );
         let mut remote_exec_finished = false;
-        while !remote_exec_finished && self.scheduler.running() != 0 {
+        while !remote_exec_finished || self.scheduler.running() != 0 {
             tokio::select! {
                 msg = rx.recv() => {
                     match msg {
                         Some(ClientChannelMsg::Result(r)) => {
                             let output_files = vec![]; // TODO
                             let output_files_cached = false; // TODO
-                            self.on_command_finished(r.id, &r.result, output_files, output_files_cached);
+                            self.on_command_finished(r.target_id, &r.result, output_files, output_files_cached);
                         }
-                        Some(ClientChannelMsg::Stats(s)) => { self.running_remotely = s.running; }
+                        Some(ClientChannelMsg::Stats(s)) => {
+                            self.running_remotely = s.running;
+                            self.tui_dirty = true;
+                        }
                         Some(ClientChannelMsg::Finished) | None => remote_exec_finished = true,
                     }
                 },
                 _ = interval.tick() => self.update_status(),
             }
         }
-        client.close().await;
+        client.close("done").await;
         self.remove_outputs_of_not_run_actions_from_out_dir();
         TmpDirSandbox::cleanup(self.sandbox_dir.as_ref().unwrap());
         self.push_logs_for_not_started_targets();
@@ -56,7 +59,7 @@ impl Razel {
             exec: SchedulerExecStats {
                 succeeded: self.succeeded.len(),
                 failed: self.failed.len(),
-                skipped: self.skipped.len(),
+                skipped: self.dep_graph.skipped.len(),
                 not_run: self.dep_graph.waiting.len() + self.scheduler.ready(),
             },
             cache_hits: self.cache_hits,

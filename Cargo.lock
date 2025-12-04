@@ -2320,6 +2320,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+ "wasmtime",
 ]
 
 [[package]]

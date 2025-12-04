@@ -140,19 +140,20 @@ pub async fn handle_client_connection(id: ClientId, connection: quinn::Connectio
                         Ok(m) => {
                             tx.send(QueueMsg::ClientMsg((id, m, send))).ok();
                         }
-                        Err(e) => error!("handle_client_connection(): {e}"),
+                        Err(e) => error!("{e:?}"),
                     }
                 });
             }
-            Err(quinn::ConnectionError::ApplicationClosed { .. }) => {
-                info!("handle_client_connection: Connection closed by peer");
+            Err(quinn::ConnectionError::ApplicationClosed(x)) => {
+                info!("Connection closed by peer: {x:?}");
                 break;
             }
             Err(e) => {
-                error!("handle_client_connection: Error accepting stream: {e}");
+                error!("Error accepting stream: {e:?}");
                 break;
             }
         }
     }
+    tracing::warn!("ClientConnectionLost");
     tx.send(QueueMsg::ClientConnectionLost(id)).ok();
 }

@@ -14,6 +14,7 @@ pub struct DependencyGraph {
     pub reverse_deps: Vec<Vec<TargetId>>,
     pub ready: Vec<TargetId>,
     pub waiting: HashSet<TargetId>,
+    pub skipped: HashSet<TargetId>,
 }
 
 impl DependencyGraph {
@@ -27,9 +28,22 @@ impl DependencyGraph {
             reverse_deps: Default::default(),
             ready: vec![],
             waiting: Default::default(),
+            skipped: Default::default(),
         };
         instance.create();
         instance
+    }
+
+    pub fn push_targets(&mut self, targets: Vec<Target>, files: Vec<File>) {
+        assert!(self.targets.is_empty());
+        for target in &targets {
+            for output in target.outputs.iter().cloned() {
+                let old = self.creator_for_file.insert(output, target.id);
+                assert!(old.is_none());
+            }
+        }
+        self.targets = targets;
+        self.files = files;
     }
 
     pub fn get_target_with_deps(&self, name: &str) -> Result<Vec<TargetId>> {
@@ -81,7 +95,44 @@ impl DependencyGraph {
         })
     }
 
-    pub fn create(&mut self) {
+    /// Returns the list of newly ready targets
+    pub fn set_succeeded(&mut self, id: TargetId) -> Vec<TargetId> {
+        self.ready
+            .remove(self.ready.iter().find_position(|x| **x == id).unwrap().0);
+        let mut ready = vec![];
+        for rdep_id in self.reverse_deps[id].clone() {
+            let deps = self.deps.get_mut(rdep_id).unwrap();
+            assert!(!deps.is_empty());
+            deps.swap_remove(deps.iter().position(|x| *x == id).unwrap());
+            if deps.is_empty() {
+                self.waiting.remove(&rdep_id);
+                ready.push(rdep_id);
+            }
+        }
+        self.ready.extend_from_slice(&ready);
+        ready
+    }
+
+    /// Returns the list of newly skipped targets
+    pub fn set_failed(&mut self, id: TargetId) -> Vec<TargetId> {
+        self.ready
+            .remove(self.ready.iter().find_position(|x| **x == id).unwrap().0);
+        let mut skipped = vec![];
+        let mut to_skip = self.reverse_deps[id].clone();
+        while let Some(id) = to_skip.pop() {
+            if self.skipped.contains(&id) {
+                continue;
+            }
+            skipped.push(id);
+            assert!(!self.deps[id].is_empty());
+            self.waiting.remove(&id);
+            self.skipped.insert(id);
+            to_skip.extend(self.reverse_deps[id].iter());
+        }
+        skipped
+    }
+
+    fn create(&mut self) {
         assert!(self.deps.is_empty());
         self.deps.resize(self.targets.len(), Vec::new());
         self.reverse_deps.resize(self.targets.len(), Vec::new());

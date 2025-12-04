@@ -1,5 +1,7 @@
 use anyhow::Result;
-use razel::remote_exec::{rpc_recv_impl, rpc_send_impl, MessageVersion};
+use razel::remote_exec::{
+    rpc_recv_impl, rpc_send_impl, ExecuteTargetResult, ExecuteTargetsRequest, JobId, MessageVersion,
+};
 use serde::{Deserialize, Serialize};
 
 /// Messages exchanged between servers
@@ -7,6 +9,8 @@ use serde::{Deserialize, Serialize};
 pub enum ServerMessage {
     NodeRequest,
     NodeResponse,
+    ExecuteTargetsRequest(ExecuteTargetsRequest),
+    ExecuteTargetResult((JobId, ExecuteTargetResult)),
 }
 
 impl ServerMessage {

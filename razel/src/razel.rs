@@ -1,6 +1,4 @@
-use crate::bazel_remote_exec::{
-    ActionResult, BazelDigest, EnvironmentVariable, ExecutedActionMetadata, OutputFile,
-};
+use crate::bazel_remote_exec::{ActionResult, BazelDigest, ExecutedActionMetadata, OutputFile};
 use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::cli::HttpRemoteExecConfig;
 use crate::executors::{
@@ -23,9 +21,8 @@ use anyhow::{bail, Context, Result};
 use itertools::{chain, Itertools};
 use log::{debug, warn};
 use serde::{Deserialize, Serialize};
-use std::collections::{hash_map, HashMap, HashSet};
+use std::collections::{hash_map, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use std::{env, fs};
 use tokio::sync::mpsc;
@@ -99,7 +96,6 @@ pub struct Razel {
     running_remotely: usize,
     succeeded: Vec<TargetId>,
     failed: Vec<TargetId>,
-    skipped: HashSet<TargetId>,
     cache_hits: usize,
     tui: TUI,
     tui_dirty: bool,
@@ -133,7 +129,6 @@ impl Razel {
             running_remotely: 0,
             succeeded: vec![],
             failed: vec![],
-            skipped: Default::default(),
             cache_hits: 0,
             tui: TUI::new(),
             tui_dirty: false,
@@ -303,7 +298,7 @@ impl Razel {
             exec: SchedulerExecStats {
                 succeeded: self.succeeded.len(),
                 failed: self.failed.len(),
-                skipped: self.skipped.len(),
+                skipped: self.dep_graph.skipped.len(),
                 not_run: self.dep_graph.waiting.len() + self.scheduler.ready(),
             },
             cache_hits: self.cache_hits,
@@ -357,21 +352,11 @@ impl Razel {
 
     fn create_dependency_graph(&mut self) {
         assert!(self.dep_graph.targets.is_empty());
-        let builder = self.targets_builder.take().unwrap();
+        let mut builder = self.targets_builder.take().unwrap();
         assert_eq!(builder.current_dir, self.current_dir);
         assert_eq!(builder.out_dir, self.out_dir);
-        self.file_by_path = builder.file_by_path;
-        self.dep_graph = DependencyGraph {
-            targets: builder.targets,
-            files: builder.files,
-            creator_for_file: builder.creator_for_file,
-            target_by_name: builder.target_by_name,
-            deps: vec![],
-            reverse_deps: Default::default(),
-            ready: vec![],
-            waiting: Default::default(),
-        };
-        self.dep_graph.create();
+        self.file_by_path = std::mem::take(&mut builder.file_by_path);
+        self.dep_graph = DependencyGraph::from_builder(builder);
         for target in self
             .dep_graph
             .ready
@@ -514,7 +499,7 @@ impl Razel {
 
     fn start_ready_targets(&mut self, tx: &UnboundedSender<ExecutionResultChannel>) {
         while let Some(id) = self.scheduler.pop_ready_and_run() {
-            self.start_next_command(id, tx.clone());
+            self.start_target(id, tx.clone());
             self.tui_dirty = true;
         }
     }
@@ -584,16 +569,20 @@ impl Razel {
     /// Execute a target in a worker thread with caching.
     ///
     /// If the executed target failed, action_result will be None and the action will not be cached.
-    fn start_next_command(&mut self, id: TargetId, tx: UnboundedSender<ExecutionResultChannel>) {
+    fn start_target(&mut self, id: TargetId, tx: UnboundedSender<ExecutionResultChannel>) {
         let total_duration_start = Instant::now();
         let target = &self.dep_graph.targets[id];
         assert_eq!(self.dep_graph.deps[id].len(), 0);
-        let (bzl_command, bzl_input_root) = self.get_bzl_action_for_target(target);
+        let executor = self.new_executor(target);
+        let (bzl_command, bzl_input_root) = bazel_remote_exec::bzl_action_for_target(
+            target,
+            &self.dep_graph.files,
+            executor.digest(),
+        );
         let no_cache_tag = target.tags.contains(&Tag::NoCache);
         let cache = (!no_cache_tag).then(|| self.cache.as_ref().unwrap().clone());
         let read_cache = self.read_cache;
         let use_remote_cache = cache.is_some() && !target.tags.contains(&Tag::NoRemoteCache);
-        let executor = self.new_executor(target);
         // make sure output files are written on the same mountpoint as local cache to speed up moving files into cache
         let use_sandbox = !target.outputs.is_empty();
         let sandbox = (use_sandbox && !target.tags.contains(&Tag::NoSandbox))
@@ -998,17 +987,11 @@ impl Razel {
         if execution_result.cache_hit.is_some() {
             self.cache_hits += 1;
         }
-        let dep_graph = &mut self.dep_graph;
-        let target = &dep_graph.targets[id];
+        let target = &self.dep_graph.targets[id];
         self.tui.target_succeeded(target, execution_result);
-        for rdep_id in dep_graph.reverse_deps[id].clone() {
-            let deps = dep_graph.deps.get_mut(rdep_id).unwrap();
-            assert!(!deps.is_empty());
-            deps.swap_remove(deps.iter().position(|x| *x == id).unwrap());
-            if deps.is_empty() {
-                dep_graph.waiting.remove(&rdep_id);
-                self.scheduler.push_ready(&dep_graph.targets[rdep_id]);
-            }
+        for ready_id in self.dep_graph.set_succeeded(id) {
+            let ready = &self.dep_graph.targets[ready_id];
+            self.scheduler.push_ready(ready);
         }
     }
 
@@ -1024,101 +1007,13 @@ impl Razel {
     }
 
     fn on_condition_failed(&mut self, id: TargetId, execution_result: &ExecutionResult) {
-        let dep_graph = &mut self.dep_graph;
-        let target = &dep_graph.targets[id];
+        let target = &self.dep_graph.targets[id];
         self.tui.target_failed(target, execution_result);
-        let mut ids_to_skip = dep_graph.reverse_deps[id].clone();
-        while let Some(id_to_skip) = ids_to_skip.pop() {
-            if self.skipped.contains(&id_to_skip) {
-                continue;
-            }
-            let to_skip = &dep_graph.targets[id_to_skip];
-            assert!(!dep_graph.deps[id_to_skip].is_empty());
+        for skipped_id in self.dep_graph.set_failed(id) {
+            let skipped = &self.dep_graph.targets[skipped_id];
             self.log_file
-                .push_not_run(to_skip, ExecutionStatus::Skipped);
-            dep_graph.waiting.remove(&id_to_skip);
-            self.skipped.insert(id_to_skip);
-            ids_to_skip.extend(dep_graph.reverse_deps[id_to_skip].iter());
+                .push_not_run(skipped, ExecutionStatus::Skipped);
         }
-    }
-
-    fn get_bzl_action_for_target(
-        &self,
-        target: &Target,
-    ) -> (bazel_remote_exec::Command, bazel_remote_exec::Directory) {
-        let bzl_command = bazel_remote_exec::Command {
-            arguments: target.kind.args_with_executable(),
-            environment_variables: target
-                .kind
-                .env()
-                .map(|x| {
-                    x.clone()
-                        .into_iter()
-                        .map(|(name, value)| EnvironmentVariable { name, value })
-                        .sorted_unstable_by(|a, b| Ord::cmp(&a.name, &b.name))
-                        .collect()
-                })
-                .unwrap_or_default(),
-            output_paths: target
-                .outputs
-                .iter()
-                .map(|x| self.dep_graph.files[*x].path.to_str().unwrap())
-                .sorted_unstable()
-                .dedup()
-                .map_into()
-                .collect(),
-            working_directory: "".to_string(),
-            ..Default::default()
-        };
-        // TODO properly build bazel_remote_exec::Directory tree
-        let bzl_input_root = bazel_remote_exec::Directory {
-            files: chain(target.executables.iter(), target.inputs.iter())
-                .map(|x| {
-                    let file = &self.dep_graph.files[*x];
-                    assert!(file.digest.is_some(), "digest missing for {:?}", file.path);
-                    bazel_remote_exec::FileNode {
-                        name: file.path.to_str().unwrap().into(),
-                        digest: Some(file.digest.as_ref().unwrap().into()),
-                        is_executable: file.executable.is_some(),
-                        node_properties: None,
-                    }
-                })
-                .chain(Self::razel_file_node_for_target(&target.kind))
-                .sorted_unstable_by(|a, b| Ord::cmp(&a.name, &b.name))
-                .collect(),
-            directories: vec![],
-            symlinks: vec![],
-            node_properties: None,
-        };
-        (bzl_command, bzl_input_root)
-    }
-
-    /// used in Action::input_root_digest for versioning breaking changes in task/wasi executors
-    ///
-    /// Not using the digest of the razel executable to allow cache hits across platforms and razel versions.
-    fn razel_file_node_for_target(target_kind: &TargetKind) -> Option<bazel_remote_exec::FileNode> {
-        static WASI_EXECUTOR_DIGEST: OnceLock<BazelDigest> = OnceLock::new();
-        static TASK_EXECUTOR_DIGEST: OnceLock<BazelDigest> = OnceLock::new();
-        static HTTP_REMOTE_EXECUTOR_DIGEST: OnceLock<BazelDigest> = OnceLock::new();
-
-        let digest = match &target_kind {
-            TargetKind::Command(_) => return None,
-            TargetKind::Wasi(_) => {
-                WASI_EXECUTOR_DIGEST.get_or_init(|| BazelDigest::for_string("1"))
-            }
-            TargetKind::Task(_) => {
-                TASK_EXECUTOR_DIGEST.get_or_init(|| BazelDigest::for_string("1"))
-            }
-            TargetKind::HttpRemoteExecTask(_) => {
-                HTTP_REMOTE_EXECUTOR_DIGEST.get_or_init(|| BazelDigest::for_string("1"))
-            }
-        };
-        Some(bazel_remote_exec::FileNode {
-            name: "razel".to_string(),
-            digest: Some(digest.clone()),
-            is_executable: true,
-            node_properties: None,
-        })
     }
 
     fn push_logs_for_not_started_targets(&mut self) {

@@ -68,7 +68,8 @@ pub struct ExecuteTargetsRequest {
 
 #[derive(Serialize, Deserialize)]
 pub struct ExecuteTargetResult {
-    pub id: TargetId,
+    pub job_id: JobId,
+    pub target_id: TargetId,
     pub action_digest: MessageDigest,
     pub result: ExecutionResult,
     pub output_files: Vec<File>,
