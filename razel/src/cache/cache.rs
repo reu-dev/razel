@@ -1,6 +1,6 @@
 use crate::bazel_remote_exec::{ActionResult, OutputFile};
 use crate::cache::{BlobDigest, GrpcRemoteCache, LocalCache, MessageDigest};
-use crate::types::CacheHit;
+use crate::types::{CacheHit, File};
 use crate::SandboxDir;
 use anyhow::{bail, Context, Result};
 use itertools::Itertools;
@@ -240,12 +240,9 @@ impl Cache {
     }
 
     // TODO integrate in other functions?
-    pub async fn link_output_files_into_out_dir(
-        &self,
-        output_files: &Vec<OutputFile>,
-    ) -> Result<()> {
+    pub async fn link_output_files_into_out_dir(&self, files: &Vec<File>) -> Result<()> {
         self.local_cache
-            .link_output_files_into_out_dir(output_files, &self.out_dir)
+            .link_output_files_into_out_dir(files, &self.out_dir)
             .await
     }
 

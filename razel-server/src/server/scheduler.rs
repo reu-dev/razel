@@ -120,7 +120,8 @@ impl Server {
         let scheduler = self.scheduler.as_mut().unwrap();
         for job in &mut scheduler.jobs {
             while let Some(target) = job.ready.pop_front().map(|x| &job.dep_graph.targets[x]) {
-                job.worker.push_target(target, &job.dep_graph.files);
+                job.worker
+                    .push_target(target, &job.dep_graph.files, self.tx.clone());
             }
         }
     }

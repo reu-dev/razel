@@ -1,13 +1,12 @@
-use crate::bazel_remote_exec::{message_to_pb_buf, ActionResult, OutputFile};
+use crate::bazel_remote_exec::{message_to_pb_buf, ActionResult};
 use crate::cache::DigestData;
 use crate::config::LinkType;
-use crate::types::Digest;
+use crate::types::{Digest, File};
 use crate::{force_remove_file, set_file_readonly, write_gitignore};
 use anyhow::{bail, Context, Result};
 use log::warn;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 
 #[derive(Clone)]
@@ -104,10 +103,10 @@ impl LocalCache {
 
     pub async fn link_output_files_into_out_dir(
         &self,
-        output_files: &Vec<OutputFile>,
+        files: &Vec<File>,
         out_dir: &Path,
     ) -> Result<()> {
-        for file in output_files {
+        for file in files {
             let cas_path = self.cas_path(file.digest.as_ref().unwrap());
             let out_path = out_dir.join(&file.path);
             match crate::config::OUT_DIR_LINK_TYPE {
@@ -119,7 +118,7 @@ impl LocalCache {
     }
 
     async fn try_read_pb_file<T: prost::Message + Default>(path: &PathBuf) -> Result<Option<T>> {
-        let mut file = match File::open(path).await {
+        let mut file = match tokio::fs::File::open(path).await {
             Ok(file) => file,
             Err(err) => {
                 if err.kind() == ErrorKind::NotFound {

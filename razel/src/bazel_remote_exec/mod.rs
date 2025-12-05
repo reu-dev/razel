@@ -17,6 +17,7 @@ use tokio::fs::File;
 pub type BazelDigest = build::bazel::remote::execution::v2::Digest;
 pub type BazelMessageDigest = BazelDigest;
 pub type BazelBlobDigest = BazelDigest;
+pub type Duration = prost_types::Duration;
 
 impl BazelDigest {
     pub async fn for_file(file: File) -> Result<Self> {
@@ -78,6 +79,30 @@ impl From<&BazelDigest> for Digest {
         Self {
             hash: value.hash.clone(),
             size_bytes: value.size_bytes,
+        }
+    }
+}
+
+impl From<crate::types::File> for OutputFile {
+    fn from(value: crate::types::File) -> Self {
+        Self {
+            path: value.path.to_string_lossy().to_string(),
+            digest: value.digest.map(|d| d.into()),
+            is_executable: value.executable.is_some(),
+            contents: vec![],
+            node_properties: None,
+        }
+    }
+}
+
+impl From<&crate::types::File> for OutputFile {
+    fn from(value: &crate::types::File) -> Self {
+        Self {
+            path: value.path.to_string_lossy().to_string(),
+            digest: value.digest.as_ref().map(|d| d.into()),
+            is_executable: value.executable.is_some(),
+            contents: vec![],
+            node_properties: None,
         }
     }
 }

@@ -10,7 +10,7 @@ use std::{collections::HashMap, net::SocketAddr};
 use tokio::sync::mpsc;
 use tracing::{info, instrument};
 
-type Tx = mpsc::UnboundedSender<QueueMsg>;
+pub type Tx = mpsc::UnboundedSender<QueueMsg>;
 type Rx = mpsc::UnboundedReceiver<QueueMsg>;
 type RemoteNodeId = usize;
 type ClientId = usize;

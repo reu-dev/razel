@@ -9,8 +9,8 @@ use crate::metadata::{LogFile, Measurements, Profile, Report};
 use crate::targets_builder::TargetsBuilder;
 use crate::tui::TUI;
 use crate::types::{
-    CommandTarget, DependencyGraph, Digest, FileId, RazelJson, RazelJsonCommand, RazelJsonHandler,
-    Tag, Target, TargetId, TargetKind, Task, TaskTarget,
+    CommandTarget, DependencyGraph, Digest, ExecutableType, File, FileId, RazelJson,
+    RazelJsonCommand, RazelJsonHandler, Tag, Target, TargetId, TargetKind, Task, TaskTarget,
 };
 use crate::{
     bazel_remote_exec, config, create_cgroup, force_remove_file, is_file_executable,
@@ -730,6 +730,20 @@ impl Razel {
             .context("exec_action_without_sandbox()")?
         };
         if let Some(cache) = cache.as_ref().filter(|_| execution_result.success()) {
+            let output_files = output_files
+                .iter()
+                .map(|f| File {
+                    id: 0, // doesn't matter here
+                    path: PathBuf::from(f.path.clone()),
+                    digest: Some(f.digest.as_ref().unwrap().into()),
+                    executable: if f.is_executable {
+                        Some(ExecutableType::ExecutableInWorkspace)
+                    } else {
+                        None
+                    },
+                    is_excluded: false,
+                })
+                .collect();
             cache
                 .link_output_files_into_out_dir(&output_files)
                 .await
@@ -910,7 +924,7 @@ impl Razel {
             exit_code: execution_result.exit_code.unwrap_or_default(),
             execution_metadata: Some(ExecutedActionMetadata {
                 virtual_execution_duration: execution_result.exec_duration.map(|x| {
-                    prost_types::Duration {
+                    bazel_remote_exec::Duration {
                         seconds: x.as_secs() as i64,
                         nanos: x.subsec_nanos() as i32,
                     }
