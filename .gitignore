@@ -1,10 +1,12 @@
+/benches/
+/data/
+/target/
+/tmp/
+
 __pycache__/
 .idea/
 .vscode/
+.tmp/
+razel-out/
 
 .env.local
-.tmp
-razel-out/
-/benches/
-/target
-/tmp

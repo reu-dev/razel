@@ -6,7 +6,7 @@ use razel::remote_exec::{
 };
 use razel::types::{DependencyGraph, Tag, TargetId};
 use std::collections::VecDeque;
-use tracing::info;
+use tracing::{debug, info};
 use uuid::Uuid;
 
 pub struct Scheduler {
@@ -20,6 +20,7 @@ impl Scheduler {
         }
     }
 
+    #[instrument(skip_all)]
     pub fn handle_execute_targets_request(&mut self, msg: ExecuteTargetsRequest) -> Result<()> {
         let Some(job) = self.jobs.iter_mut().find(|x| x.id == msg.job_id) else {
             return Ok(());
@@ -27,26 +28,43 @@ impl Scheduler {
         job.dep_graph.push_targets(msg.targets, msg.files);
         job.keep_going = msg.keep_going;
         job.ready.extend(&job.dep_graph.ready);
+        debug!(job_id=?job.id, ready=job.dep_graph.ready.len(), waiting=job.dep_graph.waiting.len());
         Ok(())
     }
 
+    #[instrument(skip_all)]
     pub fn handle_execute_target_result(&mut self, msg: ExecuteTargetResult) {
         let Some(job) = self.jobs.iter_mut().find(|x| x.id == msg.job_id) else {
             return;
         };
         let target_id = msg.target_id;
+        debug!(job_id=?job.id, target_id, result=?msg.result);
         if msg.result.success() {
             job.succeeded.push(target_id);
-            // TODO  self.set_output_file_digests(output_files, output_files_cached);
+            for file in &msg.output_files {
+                assert!(file.digest.is_some());
+                assert!(job.dep_graph.files[file.id].digest.is_none());
+                job.dep_graph.files[file.id].digest = file.digest.clone();
+            }
             let ready = job.dep_graph.set_succeeded(target_id);
             job.ready.extend(&ready);
-        } else if job.dep_graph.targets[target_id]
-            .tags
-            .contains(&Tag::Condition)
-        {
-            job.dep_graph.set_failed(target_id);
         } else {
-            job.failed.push(target_id);
+            job.dep_graph.set_failed(target_id);
+            if !job.dep_graph.targets[target_id]
+                .tags
+                .contains(&Tag::Condition)
+            {
+                job.failed.push(target_id);
+            }
+        }
+        ServerToClientMsg::ExecuteTargetResult(msg)
+            .spawn_send_uni(job.client.clone())
+            .unwrap();
+        if job.dep_graph.ready.is_empty() {
+            info!(job_id=?job.id, "finished");
+            ServerToClientMsg::ExecuteTargetsFinished
+                .spawn_send_uni(job.client.clone())
+                .unwrap();
         }
     }
 }
@@ -60,12 +78,14 @@ struct JobData {
     ready: VecDeque<TargetId>,
     succeeded: Vec<TargetId>,
     failed: Vec<TargetId>,
+    client: quinn::Connection,
     worker: JobWorker,
 }
 
 impl Server {
     pub fn handle_create_job_request(
         &mut self,
+        client: ClientId,
         send: SendStream,
         request: CreateJobRequest,
     ) -> Result<()> {
@@ -85,6 +105,7 @@ impl Server {
             ready: Default::default(),
             succeeded: vec![],
             failed: vec![],
+            client: self.clients[&client].connection.clone(),
             worker,
         });
         ServerToClientMsg::CreateJobResponse(CreateJobResponse {
@@ -95,11 +116,7 @@ impl Server {
         Ok(())
     }
 
-    pub fn handle_execute_targets_request(
-        &mut self,
-        _send: SendStream,
-        request: ExecuteTargetsRequest,
-    ) -> Result<()> {
+    pub fn handle_execute_targets_request(&mut self, request: ExecuteTargetsRequest) -> Result<()> {
         self.scheduler
             .as_mut()
             .unwrap()
@@ -119,6 +136,7 @@ impl Server {
     fn start_ready_targets(&mut self) {
         let scheduler = self.scheduler.as_mut().unwrap();
         for job in &mut scheduler.jobs {
+            tracing::warn!(ready = job.ready.len(), "start_ready_targets");
             while let Some(target) = job.ready.pop_front().map(|x| &job.dep_graph.targets[x]) {
                 job.worker
                     .push_target(target, &job.dep_graph.files, self.tx.clone());

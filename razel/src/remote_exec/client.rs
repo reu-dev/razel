@@ -114,7 +114,7 @@ impl Client {
         keep_going: bool,
         tx: UnboundedSender<ClientChannelMsg>,
     ) -> Result<()> {
-        let (mut send, mut recv) = connection.open_bi().await?;
+        let (mut send, _recv) = connection.open_bi().await?;
         ClientToServerMsg::ExecuteTargetsRequest(ExecuteTargetsRequest {
             job_id,
             targets,
@@ -126,6 +126,10 @@ impl Client {
         send.finish()?;
         loop {
             tracing::warn!("loop");
+            let (send, mut recv) = tokio::select! {
+                r = connection.accept_bi() => r.map(|(send, recv)| (Some(send), recv)),
+                r = connection.accept_uni() => r.map(|recv| (None, recv)),
+            }?;
             match ServerToClientMsg::recv(&mut recv).await? {
                 ServerToClientMsg::CreateJobResponse(_) => {
                     unreachable!("CreateJobResponse should be handled before starting execution")
@@ -140,7 +144,7 @@ impl Client {
                     tx.send(ClientChannelMsg::Finished).ok();
                     break;
                 }
-                ServerToClientMsg::UploadFilesRequest(_) => todo!(),
+                ServerToClientMsg::UploadFilesRequest(r) => upload_file(r, send.unwrap()),
             }
         }
         tracing::warn!("finished");
@@ -173,4 +177,8 @@ fn user() -> Result<String> {
     } else {
         bail!("failed to get user from environment");
     }
+}
+
+fn upload_file(_request: UploadFilesRequest, _stream: quinn::SendStream) {
+    todo!();
 }

@@ -124,7 +124,6 @@ impl Server {
                 self.clients.insert(
                     id,
                     ClientConnection {
-                        id,
                         connection: c.clone(),
                     },
                 );
@@ -142,7 +141,7 @@ impl Server {
                 let tx = self.tx.clone();
                 tokio::spawn(async move { handle_server_connection(i, c, tx).await });
             }
-            QueueMsg::ClientMsg((_id, msg, send)) => self.handle_client_msg(msg, send)?,
+            QueueMsg::ClientMsg((id, msg, send)) => self.handle_client_msg(id, msg, send)?,
             QueueMsg::ServerMsg(_) => todo!(),
             QueueMsg::ExecuteTargetsRequest(_) => todo!(),
             QueueMsg::ExecuteTargetResult(m) => self.handle_execute_target_result(m),
@@ -152,13 +151,16 @@ impl Server {
 
     pub fn handle_client_msg(
         &mut self,
+        client: ClientId,
         msg: ClientToServerMsg,
         send: quinn::SendStream,
     ) -> Result<()> {
         match msg {
-            ClientToServerMsg::CreateJobRequest(r) => self.handle_create_job_request(send, r)?,
+            ClientToServerMsg::CreateJobRequest(r) => {
+                self.handle_create_job_request(client, send, r)?
+            }
             ClientToServerMsg::ExecuteTargetsRequest(r) => {
-                self.handle_execute_targets_request(send, r)?
+                self.handle_execute_targets_request(r)?
             }
             ClientToServerMsg::ExecuteTargetsFinished => todo!(),
             ClientToServerMsg::UploadFile => todo!(),
@@ -184,9 +186,6 @@ impl RemoteNode {
 }
 
 struct ClientConnection {
-    #[allow(dead_code)]
-    id: ClientId,
-    #[allow(dead_code)]
     connection: quinn::Connection,
 }
 

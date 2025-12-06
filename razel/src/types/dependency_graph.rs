@@ -44,6 +44,7 @@ impl DependencyGraph {
         }
         self.targets = targets;
         self.files = files;
+        self.create();
     }
 
     pub fn get_target_with_deps(&self, name: &str) -> Result<Vec<TargetId>> {

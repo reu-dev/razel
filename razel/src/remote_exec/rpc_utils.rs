@@ -34,6 +34,10 @@ impl ServerToClientMsg {
         rpc_spawn_send(stream, MessageVersion::ServerToClientV1, self)
     }
 
+    pub fn spawn_send_uni(&self, connection: Connection) -> Result<()> {
+        rpc_spawn_send_uni(connection, MessageVersion::ServerToClientV1, self)
+    }
+
     pub async fn send(&self, stream: &mut quinn::SendStream) -> Result<()> {
         rpc_send_impl(stream, MessageVersion::ServerToClientV1, self).await
     }
@@ -48,6 +52,31 @@ impl ServerToClientMsg {
     pub async fn recv(stream: &mut quinn::RecvStream) -> Result<Self> {
         rpc_recv_impl(stream, MessageVersion::ServerToClientV1).await
     }
+}
+
+pub fn rpc_spawn_send_uni<T: Serialize>(
+    connection: Connection,
+    version: MessageVersion,
+    msg: &T,
+) -> Result<()> {
+    let data = postcard::to_stdvec(msg)?;
+    ensure!(
+        data.len() <= MAX_BUFFER_LEN,
+        "rpc_spawn_send(): buffer too large: {}MB",
+        data.len() / 1024 / 1024
+    );
+    tokio::spawn(async move {
+        let Ok(mut stream) = connection.open_uni().await else {
+            return;
+        };
+        let len = data.len() as LengthPrefix;
+        let len_bytes = len.to_le_bytes();
+        stream.write_u8(version as u8).await.ok();
+        stream.write_all(&len_bytes).await.ok();
+        stream.write_all(&data).await.ok();
+        stream.finish().ok();
+    });
+    Ok(())
 }
 
 pub fn rpc_spawn_send<T: Serialize>(
