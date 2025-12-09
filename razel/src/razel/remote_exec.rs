@@ -4,14 +4,39 @@ use crate::remote_exec::{Client, ClientChannelMsg, CreateJobResponse};
 use crate::{
     select_cache_dir, select_sandbox_dir, SchedulerExecStats, SchedulerStats, TmpDirSandbox,
 };
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use std::path::PathBuf;
 use std::time::Instant;
 use tokio::sync::mpsc;
+use tokio::task::JoinSet;
 use tracing::debug;
 use url::Url;
 
 impl Razel {
+    pub async fn check_remote_exec_servers(&self, urls: Vec<Url>) -> Result<()> {
+        let mut set = JoinSet::new();
+        for url in urls {
+            set.spawn(async move {
+                match Client::new(vec![url.clone()]).await {
+                    Ok(_) => {
+                        println!("{url} ok");
+                        true
+                    }
+                    Err(x) => {
+                        println!("{url} {x:?}");
+                        false
+                    }
+                }
+            });
+        }
+        let failed = set.join_all().await.into_iter().filter(|x| !x).count();
+        match failed {
+            0 => Ok(()),
+            1 => bail!("{failed} remote execution server is not available"),
+            _ => bail!("{failed} remote execution servers are not available"),
+        }
+    }
+
     pub(crate) async fn run_remotely(
         &mut self,
         keep_going: bool,
