@@ -1,5 +1,6 @@
 use crate::{QueueMsg, Tx};
 use anyhow::{bail, Context, Result};
+use itertools::chain;
 use razel::cache::{Cache, MessageDigest};
 use razel::executors::{
     CommandExecutor, ExecutionResult, ExecutionStatus, Executor, SharedWasiExecutorState,
@@ -11,7 +12,6 @@ use razel::{
     bazel_remote_exec, force_remove_file, is_file_executable, BoxedSandbox, CGroup, SandboxDir,
     TmpDirSandbox, WasiSandbox,
 };
-use std::iter::chain;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tracing::log::debug;

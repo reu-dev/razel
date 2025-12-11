@@ -2310,6 +2310,7 @@ dependencies = [
  "anyhow",
  "clap",
  "directories",
+ "itertools 0.14.0",
  "quinn",
  "razel",
  "rcgen",
@@ -2320,7 +2321,6 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
- "wasmtime",
 ]
 
 [[package]]
