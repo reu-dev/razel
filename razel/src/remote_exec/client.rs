@@ -80,7 +80,6 @@ impl Client {
         else {
             bail!("unexpected response type");
         };
-        tracing::info!(job = ?response.job_id);
         self.job_id = Some(response.job_id);
         Ok(response)
     }
@@ -96,11 +95,14 @@ impl Client {
         let connection = self.connection.clone();
         let job_id = self.job_id.unwrap();
         tokio::spawn(async move {
-            if let Err(e) =
-                Self::spawn_exec_impl(connection, job_id, targets, files, keep_going, tx).await
+            match Self::spawn_exec_impl(connection, job_id, targets, files, keep_going, tx.clone())
+                .await
             {
-                tracing::warn!("{e:?}");
-                todo!("{e:?}"); // TODO handle losing connection to server
+                Ok(()) => {}
+                Err(_) if tx.is_closed() => {}
+                Err(e) => {
+                    tx.send(ClientChannelMsg::Error(e.to_string())).ok();
+                }
             }
         });
     }
@@ -125,7 +127,6 @@ impl Client {
         .await?;
         send.finish()?;
         loop {
-            tracing::warn!("loop");
             let (send, mut recv) = tokio::select! {
                 r = connection.accept_bi() => r.map(|(send, recv)| (Some(send), recv)),
                 r = connection.accept_uni() => r.map(|recv| (None, recv)),
@@ -135,20 +136,14 @@ impl Client {
                     unreachable!("CreateJobResponse should be handled before starting execution")
                 }
                 ServerToClientMsg::ExecuteTargetResult(r) => {
-                    tx.send(ClientChannelMsg::Result(r)).ok();
+                    tx.send(ClientChannelMsg::Result(r))?;
                 }
                 ServerToClientMsg::ExecuteStats(s) => {
-                    tx.send(ClientChannelMsg::Stats(s)).ok();
-                }
-                ServerToClientMsg::ExecuteTargetsFinished => {
-                    tx.send(ClientChannelMsg::Finished).ok();
-                    break;
+                    tx.send(ClientChannelMsg::Stats(s))?;
                 }
                 ServerToClientMsg::UploadFilesRequest(r) => upload_file(r, send.unwrap()),
             }
         }
-        tracing::warn!("finished");
-        Ok(())
     }
 
     #[instrument(skip(self))]
@@ -162,7 +157,7 @@ impl Client {
 pub enum ClientChannelMsg {
     Result(ExecuteTargetResult),
     Stats(ExecuteStats),
-    Finished,
+    Error(String),
 }
 
 fn env_var(key: &str) -> Result<String> {

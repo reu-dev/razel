@@ -21,8 +21,15 @@ async fn run_client_and_server(
     tracing_subscriber::fmt()
         .with_max_level(Level::DEBUG)
         .with_target(false)
+        .with_writer(std::io::stderr)
         .try_init()
         .ok();
+    // exit on panic in any thread
+    let default_panic = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        default_panic(info);
+        std::process::exit(1);
+    }));
     let cargo_workspace_dir = Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap())
         .parent()
         .unwrap()

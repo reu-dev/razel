@@ -3,7 +3,7 @@ use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::cli::HttpRemoteExecConfig;
 use crate::executors::{
     CommandExecutor, ExecutionResult, ExecutionStatus, Executor, HttpRemoteExecState,
-    HttpRemoteExecutor, TaskExecutor, WasiExecutor,
+    HttpRemoteExecutor, SharedWasiExecutorState, TaskExecutor, WasiExecutor,
 };
 use crate::metadata::{LogFile, Measurements, Profile, Report};
 use crate::targets_builder::TargetsBuilder;
@@ -21,7 +21,7 @@ use anyhow::{bail, Context, Result};
 use itertools::{chain, Itertools};
 use log::{debug, warn};
 use serde::{Deserialize, Serialize};
-use std::collections::{hash_map, HashMap};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use std::{env, fs};
@@ -91,7 +91,7 @@ pub struct Razel {
     /// single Linux cgroup for all commands to trigger OOM killer
     cgroup: Option<CGroup>,
     http_remote_exec_state: HttpRemoteExecState,
-    wasi_module_by_executable: HashMap<FileId, wasmtime::Module>,
+    wasi_state: SharedWasiExecutorState,
     scheduler: Scheduler,
     running_remotely: usize,
     succeeded: Vec<TargetId>,
@@ -124,7 +124,7 @@ impl Razel {
             excluded_targets_len: 0,
             cgroup: None,
             http_remote_exec_state: Default::default(),
-            wasi_module_by_executable: Default::default(),
+            wasi_state: SharedWasiExecutorState::new(),
             scheduler: Scheduler::new(worker_threads),
             running_remotely: 0,
             succeeded: vec![],
@@ -346,7 +346,6 @@ impl Razel {
             .ok();
         self.digest_input_files().await?;
         self.create_output_dirs()?;
-        self.create_wasi_modules()?;
         Ok(())
     }
 
@@ -379,7 +378,7 @@ impl Razel {
                     if self
                         .file_by_path
                         .get(path_wo_prefix)
-                        .map_or(true, |x| self.dep_graph.files[*x].is_excluded)
+                        .is_none_or(|x| self.dep_graph.files[*x].is_excluded)
                         && path_wo_prefix.to_string_lossy() != GITIGNORE_FILENAME
                     {
                         fs::remove_file(path).ok();
@@ -472,28 +471,6 @@ impl Razel {
                 .with_context(|| format!("Failed to create output directory: {x:?}"))?;
         }
         write_gitignore(&self.out_dir);
-        Ok(())
-    }
-
-    fn create_wasi_modules(&mut self) -> Result<()> {
-        let mut engine = None;
-        for target in self
-            .dep_graph
-            .targets
-            .iter()
-            .filter(|t| matches!(&t.kind, TargetKind::Wasi(_)))
-        {
-            let executable_id = *target.executables.first().unwrap();
-            if let hash_map::Entry::Vacant(x) = self.wasi_module_by_executable.entry(executable_id)
-            {
-                if engine.is_none() {
-                    engine = Some(WasiExecutor::create_engine()?);
-                }
-                let path = &self.dep_graph.files[executable_id].path;
-                let module = WasiExecutor::create_module(engine.as_ref().unwrap(), path)?;
-                x.insert(module);
-            }
-        }
         Ok(())
     }
 
@@ -653,8 +630,6 @@ impl Razel {
     }
 
     fn new_wasi_executor(&self, target: &Target, command: &CommandTarget) -> Executor {
-        let executable_id = *target.executables.first().unwrap();
-        let module = self.wasi_module_by_executable[&executable_id].clone();
         let mut read_dirs = vec![];
         for dir in target.inputs.iter().map(|id| {
             self.dep_graph.files[*id]
@@ -672,8 +647,8 @@ impl Razel {
             - command.stderr_file.is_some() as usize)
             != 0;
         Executor::Wasi(WasiExecutor::new(
+            self.wasi_state.clone(),
             command.clone(),
-            module,
             read_dirs,
             write_dir,
         ))
@@ -1018,6 +993,7 @@ impl Razel {
         self.failed.push(id);
         let target = &self.dep_graph.targets[id];
         self.tui.target_failed(target, execution_result);
+        self.dep_graph.set_failed(id);
     }
 
     fn on_condition_failed(&mut self, id: TargetId, execution_result: &ExecutionResult) {

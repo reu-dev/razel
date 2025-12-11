@@ -114,7 +114,6 @@ impl Server {
         Ok(())
     }
 
-    #[instrument(skip_all)]
     async fn handle_queue_msg(&mut self, queue_msg: QueueMsg) -> Result<()> {
         match queue_msg {
             QueueMsg::IncomingClientConnection(c) => {
@@ -162,7 +161,6 @@ impl Server {
             ClientToServerMsg::ExecuteTargetsRequest(r) => {
                 self.handle_execute_targets_request(r)?
             }
-            ClientToServerMsg::ExecuteTargetsFinished => todo!(),
             ClientToServerMsg::UploadFile => todo!(),
         }
         Ok(())

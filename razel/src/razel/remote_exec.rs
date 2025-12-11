@@ -1,6 +1,9 @@
 use super::Razel;
+use crate::bazel_remote_exec::OutputFile;
 use crate::cache::Cache;
+use crate::executors::ExecutionResult;
 use crate::remote_exec::{Client, ClientChannelMsg, CreateJobResponse};
+use crate::types::{Tag, TargetId};
 use crate::{
     select_cache_dir, select_sandbox_dir, SchedulerExecStats, SchedulerStats, TmpDirSandbox,
 };
@@ -56,27 +59,35 @@ impl Razel {
             keep_going,
             tx,
         );
-        let mut remote_exec_finished = false;
-        while !remote_exec_finished || self.scheduler.running() != 0 {
-            tokio::select! {
+        loop {
+            let msg = tokio::select! {
                 msg = rx.recv() => {
                     match msg {
-                        Some(ClientChannelMsg::Result(r)) => {
-                            let output_files = vec![]; // TODO
-                            let output_files_cached = false; // TODO
-                            self.on_command_finished(r.target_id, &r.result, output_files, output_files_cached);
-                        }
-                        Some(ClientChannelMsg::Stats(s)) => {
-                            self.running_remotely = s.running;
-                            self.tui_dirty = true;
-                        }
-                        Some(ClientChannelMsg::Finished) | None => remote_exec_finished = true,
+                        Some(msg) => msg,
+                        None => break,
                     }
                 },
-                _ = interval.tick() => self.update_status(),
+                _ = interval.tick() => {
+                    self.update_status();
+                    continue;
+                }
+            };
+            match msg {
+                ClientChannelMsg::Result(r) => {
+                    let output_files = vec![]; //TODO
+                    self.on_command_finished_remotely(r.target_id, &r.result, output_files);
+                    if self.dep_graph.is_finished() {
+                        break;
+                    }
+                }
+                ClientChannelMsg::Stats(s) => {
+                    self.running_remotely = s.running;
+                    self.tui_dirty = true;
+                }
+                ClientChannelMsg::Error(e) => bail!(e),
             }
         }
-        client.close("done").await;
+        drop(rx);
         self.remove_outputs_of_not_run_actions_from_out_dir();
         TmpDirSandbox::cleanup(self.sandbox_dir.as_ref().unwrap());
         self.push_logs_for_not_started_targets();
@@ -85,7 +96,7 @@ impl Razel {
                 succeeded: self.succeeded.len(),
                 failed: self.failed.len(),
                 skipped: self.dep_graph.skipped.len(),
-                not_run: self.dep_graph.waiting.len() + self.scheduler.ready(),
+                not_run: self.dep_graph.waiting.len(),
             },
             cache_hits: self.cache_hits,
             preparation_duration: execution_start.duration_since(preparation_start),
@@ -133,5 +144,33 @@ impl Razel {
         debug!("remote executor:   {}", client.url.as_str());
         debug!("job link:          {}", response.url);
         Ok(client)
+    }
+
+    fn on_command_finished_remotely(
+        &mut self,
+        id: TargetId,
+        execution_result: &ExecutionResult,
+        output_files: Vec<OutputFile>,
+    ) {
+        let target = &self.dep_graph.targets[id];
+        let measurements = self.measurements.collect(&target.name, execution_result);
+        self.profile.collect(target, execution_result);
+        let output_size = output_files
+            .iter()
+            .map(|x| x.digest.as_ref().unwrap().size_bytes as u64)
+            .sum::<u64>()
+            + execution_result.stdout.len() as u64
+            + execution_result.stderr.len() as u64;
+        self.log_file
+            .push(target, execution_result, Some(output_size), measurements);
+        if execution_result.success() {
+            self.set_output_file_digests(output_files, false);
+            self.on_command_succeeded(id, execution_result);
+        } else if target.tags.contains(&Tag::Condition) {
+            self.on_condition_failed(id, execution_result);
+        } else {
+            self.on_command_failed(id, execution_result);
+        }
+        self.tui_dirty = true;
     }
 }

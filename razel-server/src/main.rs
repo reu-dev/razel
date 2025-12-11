@@ -25,6 +25,7 @@ async fn main() -> Result<()> {
                     .with_default_directive(LevelFilter::INFO.into())
                     .from_env_lossy(),
             )
+            .with_writer(std::io::stderr)
             .finish(),
     )
     .unwrap();

@@ -2,15 +2,15 @@ use crate::{QueueMsg, Tx};
 use anyhow::{bail, Context, Result};
 use razel::cache::{Cache, MessageDigest};
 use razel::executors::{
-    CommandExecutor, ExecutionResult, ExecutionStatus, Executor, TaskExecutor, WasiExecutor,
+    CommandExecutor, ExecutionResult, ExecutionStatus, Executor, SharedWasiExecutorState,
+    TaskExecutor, WasiExecutor,
 };
 use razel::remote_exec::{ExecuteTargetResult, JobId};
-use razel::types::{CommandTarget, Digest, ExecutableType, File, FileId, Tag, Target, TargetKind};
+use razel::types::{CommandTarget, Digest, ExecutableType, File, Tag, Target, TargetKind};
 use razel::{
     bazel_remote_exec, force_remove_file, is_file_executable, BoxedSandbox, CGroup, SandboxDir,
     TmpDirSandbox, WasiSandbox,
 };
-use std::collections::HashMap;
 use std::iter::chain;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -26,16 +26,17 @@ pub struct JobWorker {
     sandbox_dir: PathBuf,
     /// single Linux cgroup for all commands to trigger OOM killer
     cgroup: Option<CGroup>,
-    wasi_module_by_executable: HashMap<FileId, wasmtime::Module>,
+    wasi_state: SharedWasiExecutorState,
 }
 
 impl JobWorker {
     pub fn new(job_id: JobId, max_parallelism: usize, storage: &Path) -> Result<Self> {
         let job_dir = storage.join(format!("job-{}", job_id.as_u128()));
         let current_dir = job_dir.join("ws");
-        let out_dir = current_dir.join("razel-out");
+        let out_dir = PathBuf::new();
         let cache_dir = job_dir.join("cache");
         let sandbox_dir = job_dir.join("sandbox");
+        debug!("job directory:     {job_dir:?}");
         debug!("cache directory:   {cache_dir:?}");
         debug!("sandbox directory: {sandbox_dir:?}");
         let cache = Cache::new(cache_dir, out_dir.clone())?;
@@ -46,13 +47,13 @@ impl JobWorker {
             current_dir,
             sandbox_dir,
             cgroup: None,
-            wasi_module_by_executable: Default::default(),
+            wasi_state: SharedWasiExecutorState::new(),
         })
     }
 
     pub fn push_target(&mut self, target: &Target, files: &Vec<File>, tx: Tx) {
         let total_duration_start = Instant::now();
-        let job_id = self.job_id.clone();
+        let job_id = self.job_id;
         let target_id = target.id;
         let executor = self.new_executor(target, files);
         let (bzl_command, bzl_input_root) =
@@ -89,7 +90,7 @@ impl JobWorker {
             .await
             .unwrap_or_else(|e| ExecutionResult {
                 status: ExecutionStatus::SystemError,
-                error: Some(e.to_string()),
+                error: Some(format!("{e:?}")),
                 ..Default::default()
             });
             execution_result.total_duration = Some(total_duration_start.elapsed());
@@ -105,14 +106,14 @@ impl JobWorker {
         });
     }
 
-    fn new_sandbox(&self, target: &Target, files: &Vec<File>) -> BoxedSandbox {
+    fn new_sandbox(&self, target: &Target, files: &[File]) -> BoxedSandbox {
         match target.kind {
             TargetKind::Wasi(_) => self.new_wasi_sandbox(target, files),
             _ => self.new_tmp_dir_sandbox(target, files),
         }
     }
 
-    fn new_tmp_dir_sandbox(&self, target: &Target, files: &Vec<File>) -> BoxedSandbox {
+    fn new_tmp_dir_sandbox(&self, target: &Target, files: &[File]) -> BoxedSandbox {
         let inputs = chain(target.executables.iter(), target.inputs.iter())
             .map(|x| files[*x].path.clone())
             .filter(|x| x.is_relative())
@@ -124,7 +125,7 @@ impl JobWorker {
         ))
     }
 
-    fn new_wasi_sandbox(&self, target: &Target, files: &Vec<File>) -> BoxedSandbox {
+    fn new_wasi_sandbox(&self, target: &Target, files: &[File]) -> BoxedSandbox {
         //let cache = &self.cache;
         let inputs = target
             .inputs
@@ -145,7 +146,7 @@ impl JobWorker {
         ))
     }
 
-    fn collect_output_files(&self, target: &Target, files: &Vec<File>) -> Vec<File> {
+    fn collect_output_files(&self, target: &Target, files: &[File]) -> Vec<File> {
         target.outputs.iter().map(|x| files[*x].clone()).collect()
     }
 
@@ -179,8 +180,6 @@ impl JobWorker {
         files: &[File],
         command: &CommandTarget,
     ) -> Executor {
-        let executable_id = *target.executables.first().unwrap();
-        let module = self.wasi_module_by_executable[&executable_id].clone();
         let mut read_dirs = vec![];
         for dir in target
             .inputs
@@ -196,8 +195,8 @@ impl JobWorker {
             - command.stderr_file.is_some() as usize)
             != 0;
         Executor::Wasi(WasiExecutor::new(
+            self.wasi_state.clone(),
             command.clone(),
-            module,
             read_dirs,
             write_dir,
         ))
@@ -258,7 +257,7 @@ impl JobWorker {
         action_digest: &MessageDigest,
         cache: Option<&mut Cache>,
         use_remote_cache: bool,
-        output_files: &mut Vec<File>,
+        output_files: &mut [File],
     ) -> Option<ExecutionResult> {
         let cache = cache?;
         if let Some((action_result, cache_hit)) = cache
@@ -381,7 +380,7 @@ impl JobWorker {
     async fn cache_action_result(
         action_digest: &MessageDigest,
         execution_result: &ExecutionResult,
-        output_files: &Vec<File>,
+        output_files: &[File],
         sandbox_dir: &SandboxDir,
         cache: &mut Cache,
         use_remote_cache: bool,

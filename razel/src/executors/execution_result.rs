@@ -108,18 +108,28 @@ impl ExecutionResult {
 
 impl fmt::Debug for ExecutionResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{:?} ({:?}), stdout: '{}', stderr: '{}'",
-            self.status,
-            self.exit_code,
-            std::str::from_utf8(&self.stdout)
-                .unwrap()
-                .replace('\n', "\\n"),
-            std::str::from_utf8(&self.stderr)
-                .unwrap()
-                .replace('\n', "\\n"),
-        )
+        write!(f, "{:?}", self.status)?;
+        if let Some(exit_code) = self.exit_code {
+            write!(f, " exit_code={exit_code}")?;
+        }
+        if self.success() {
+            return Ok(());
+        }
+        if let Some(error) = &self.error {
+            write!(f, " error={error:?}")?;
+        } else {
+            write!(
+                f,
+                " stdout: '{}', stderr: '{}'",
+                std::str::from_utf8(&self.stdout)
+                    .unwrap()
+                    .replace('\n', "\\n"),
+                std::str::from_utf8(&self.stderr)
+                    .unwrap()
+                    .replace('\n', "\\n"),
+            )?;
+        }
+        Ok(())
     }
 }
 

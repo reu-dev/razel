@@ -28,7 +28,7 @@ impl Scheduler {
         job.dep_graph.push_targets(msg.targets, msg.files);
         job.keep_going = msg.keep_going;
         job.ready.extend(&job.dep_graph.ready);
-        debug!(job_id=?job.id, ready=job.dep_graph.ready.len(), waiting=job.dep_graph.waiting.len());
+        debug!(job_id=?job.id, ready=job.dep_graph.ready.len(), waiting=job.dep_graph.waiting.len(), "ExecuteTargetsRequest");
         Ok(())
     }
 
@@ -60,12 +60,6 @@ impl Scheduler {
         ServerToClientMsg::ExecuteTargetResult(msg)
             .spawn_send_uni(job.client.clone())
             .unwrap();
-        if job.dep_graph.ready.is_empty() {
-            info!(job_id=?job.id, "finished");
-            ServerToClientMsg::ExecuteTargetsFinished
-                .spawn_send_uni(job.client.clone())
-                .unwrap();
-        }
     }
 }
 
@@ -136,7 +130,6 @@ impl Server {
     fn start_ready_targets(&mut self) {
         let scheduler = self.scheduler.as_mut().unwrap();
         for job in &mut scheduler.jobs {
-            tracing::warn!(ready = job.ready.len(), "start_ready_targets");
             while let Some(target) = job.ready.pop_front().map(|x| &job.dep_graph.targets[x]) {
                 job.worker
                     .push_target(target, &job.dep_graph.files, self.tx.clone());

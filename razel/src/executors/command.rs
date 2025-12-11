@@ -38,12 +38,13 @@ impl CommandExecutor {
                 return result;
             }
         };
+        let args = response_file_args.as_ref().unwrap_or(&self.command.args);
         let cwd = sandbox_dir.dir.clone().unwrap_or_else(|| ".".into());
         let execution_start = Instant::now();
         let child = match tokio::process::Command::new(&self.command.executable)
             .env_clear()
             .envs(&self.command.env)
-            .args(response_file_args.as_ref().unwrap_or(&self.command.args))
+            .args(args)
             .current_dir(&cwd)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

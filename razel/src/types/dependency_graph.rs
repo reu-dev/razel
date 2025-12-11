@@ -133,6 +133,10 @@ impl DependencyGraph {
         skipped
     }
 
+    pub fn is_finished(&self) -> bool {
+        self.waiting.is_empty() && self.ready.is_empty()
+    }
+
     fn create(&mut self) {
         assert!(self.deps.is_empty());
         self.deps.resize(self.targets.len(), Vec::new());

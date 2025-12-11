@@ -29,7 +29,6 @@ impl From<u8> for MessageVersion {
 pub enum ClientToServerMsg {
     CreateJobRequest(CreateJobRequest),
     ExecuteTargetsRequest(ExecuteTargetsRequest),
-    ExecuteTargetsFinished,
     UploadFile,
 }
 
@@ -39,7 +38,6 @@ pub enum ServerToClientMsg {
     CreateJobResponse(CreateJobResponse),
     ExecuteTargetResult(ExecuteTargetResult),
     ExecuteStats(ExecuteStats),
-    ExecuteTargetsFinished,
     UploadFilesRequest(UploadFilesRequest),
 }
 
