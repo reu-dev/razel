@@ -100,7 +100,7 @@ impl WasiExecutor {
                     status: ExecutionStatus::FailedToStart,
                     error: Some(e.to_string()),
                     ..Default::default()
-                }
+                };
             }
         };
         self.wasi_exec(module, cwd, sandbox_dir)
