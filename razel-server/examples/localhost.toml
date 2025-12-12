@@ -3,4 +3,4 @@
 server_endpoint = { port = 4433 }
 scheduler = { client_endpoint = { port = 4434 }, webui = true }
 worker = { tags = [] }
-storage = [{ path = "data" }]
+storage = { path = "data" }

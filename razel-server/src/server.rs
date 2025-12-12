@@ -2,10 +2,12 @@ use crate::config::{Config, Storage};
 use crate::rpc_endpoint::new_server_endpoint;
 use crate::rpc_messages::ServerMessage;
 use crate::{JobWorker, Node};
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use quinn::{Connection, Endpoint};
 use razel::remote_exec::rpc_endpoint::new_client_endpoint;
 use razel::remote_exec::{ClientToServerMsg, ExecuteTargetResult, ExecuteTargetsRequest};
+use std::env::current_dir;
+use std::fs::create_dir_all;
 use std::{collections::HashMap, net::SocketAddr};
 use tokio::sync::mpsc;
 use tracing::{info, instrument};
@@ -32,7 +34,7 @@ pub struct Server {
     node: Node,
     client_endpoint: Option<Endpoint>,
     server_endpoint: Endpoint,
-    storage: Vec<Storage>,
+    storage: Storage,
     /// other servers to connect to
     nodes: Vec<RemoteNode>,
     scheduler: Option<Scheduler>,
@@ -44,19 +46,25 @@ pub struct Server {
 
 impl Server {
     pub fn new(mut config: Config, name: String) -> Result<Self> {
-        let Some(self_config) = config.node.remove(&name) else {
+        let Some(mut self_config) = config.node.remove(&name) else {
             bail!("config missing for node name: {name}");
         };
-        let client_endpoint =
-            if let Some(x) = self_config.scheduler.as_ref().map(|x| &x.client_endpoint) {
-                Some(new_server_endpoint(x)?)
-            } else {
-                None
-            };
-        let server_endpoint = if let Some(x) = &self_config.server_endpoint {
-            new_server_endpoint(x)?
+        if self_config.storage.path.is_relative() {
+            let cwd = current_dir().context("failed to get current_dir")?;
+            self_config.storage.path = cwd.join(&self_config.storage.path).to_path_buf();
+        }
+        create_dir_all(&self_config.storage.path)?;
+        let client_endpoint = if let Some(x) =
+            self_config.scheduler.as_ref().map(|x| &x.client_endpoint)
+        {
+            Some(new_server_endpoint(x).with_context(|| format!("endpoint for client: {x:?}"))?)
         } else {
-            new_client_endpoint()?
+            None
+        };
+        let server_endpoint = if let Some(x) = &self_config.server_endpoint {
+            new_server_endpoint(x).with_context(|| format!("endpoint for servers: {x:?}"))?
+        } else {
+            new_client_endpoint().context("endpoint for servers")?
         };
         let available_parallelism: usize = std::thread::available_parallelism().unwrap().into();
         let node = Node {

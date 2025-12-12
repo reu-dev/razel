@@ -28,17 +28,17 @@ pub struct Node {
     pub max_parallelism: Option<usize>,
     pub scheduler: Option<Scheduler>,
     pub worker: Option<Worker>,
-    pub storage: Vec<Storage>,
+    pub storage: Storage,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Endpoint {
     pub port: u16,
     pub tls: Option<Tls>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Tls {
     pub cert: PathBuf,
@@ -81,12 +81,6 @@ impl Config {
     pub fn check(&self) -> Result<()> {
         anyhow::ensure!(!self.node.is_empty(), "there should be at least one node");
         for (node_name, node) in &self.node {
-            if node.storage.is_empty() {
-                anyhow::ensure!(
-                    node.server_endpoint.is_some(),
-                    "storage on {node_name} needs server_endpoint"
-                );
-            }
             if let Some(scheduler) = &node.scheduler {
                 anyhow::ensure!(
                     node.server_endpoint.is_some(),
