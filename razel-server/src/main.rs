@@ -3,7 +3,6 @@ use clap::Parser;
 use razel_server::config::Config;
 use razel_server::Server;
 use std::path::PathBuf;
-use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -18,17 +17,14 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing::subscriber::set_global_default(
-        tracing_subscriber::FmtSubscriber::builder()
-            .with_env_filter(
-                EnvFilter::builder()
-                    .with_default_directive(LevelFilter::INFO.into())
-                    .from_env_lossy(),
-            )
-            .with_writer(std::io::stderr)
-            .finish(),
-    )
-    .unwrap();
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::builder()
+                .with_default_directive("info".parse().unwrap())
+                .from_env()
+                .unwrap(),
+        )
+        .init();
 
     // exit on panic in any thread
     let default_panic = std::panic::take_hook();
