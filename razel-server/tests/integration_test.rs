@@ -1,13 +1,12 @@
 use razel::cli::parse_cli;
-use razel::test_utils::ChangeDir;
+use razel::test_utils::{ChangeDir, TempDir};
 use razel::types::Tag;
-use razel::{config, Razel, SchedulerExecStats};
-use razel_server::config::Config;
-use razel_server::Server;
+use razel::{config, new_tmp_dir, Razel, SchedulerExecStats, SchedulerStats};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tokio::process::{Child, Command};
 use tokio::time::sleep;
-use tracing::{info, instrument, Level};
+use tracing::{instrument, Level};
 use url::Url;
 
 const PORT: u16 = 4434;
@@ -34,22 +33,21 @@ async fn run_client_and_server(
         .parent()
         .unwrap()
         .to_path_buf();
-    let _change_dir = ChangeDir::new(&cargo_workspace_dir);
-    tokio::spawn(run_server(
-        PathBuf::from(server_args.0),
-        server_args.1.to_string(),
-    ));
-    // give server some time to start
-    sleep(Duration::from_millis(100)).await;
-    run_client(client_args, exp_stats, additional_tag).await;
+    let act_stats = {
+        let _change_dir = ChangeDir::new(&cargo_workspace_dir);
+        let (server, _server_dir) =
+            spawn_server(PathBuf::from(server_args.0), server_args.1.to_string());
+        // give server some time to start
+        sleep(Duration::from_millis(100)).await;
+        let act_stats = run_client(client_args, additional_tag).await;
+        kill_server(server).await;
+        act_stats
+    };
+    assert_eq!(act_stats.exec, exp_stats);
 }
 
 #[instrument(skip_all)]
-async fn run_client(
-    args: Vec<&str>,
-    exp_stats: SchedulerExecStats,
-    additional_tag: Option<(&str, Tag)>,
-) {
+async fn run_client(args: Vec<&str>, additional_tag: Option<(&str, Tag)>) -> SchedulerStats {
     let mut razel = Razel::new();
     razel.clean();
     parse_cli(args.iter().map(|&x| x.into()).collect(), &mut razel)
@@ -59,7 +57,7 @@ async fn run_client(
     if let Some((name, tag)) = additional_tag {
         razel.add_tag_for_command(name, tag);
     }
-    let act_stats = razel
+    razel
         .run(
             false,
             true,
@@ -70,16 +68,36 @@ async fn run_client(
             vec![Url::parse(&format!("http://localhost:{PORT}")).unwrap()],
         )
         .await
-        .unwrap();
-    assert_eq!(act_stats.exec, exp_stats);
+        .unwrap()
 }
 
-#[instrument(skip_all)]
-async fn run_server(config: PathBuf, name: String) {
-    let config = Config::read(&config).unwrap();
-    let server = Server::new(config, name).unwrap();
-    server.run().await.unwrap();
-    info!("stopped server");
+fn spawn_server(config: PathBuf, name: String) -> (Child, TempDir) {
+    let target_dir = std::env::current_exe()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let exe_suffix = if cfg!(windows) { ".exe" } else { "" };
+    let server_path = target_dir.join(format!("razel-server{exe_suffix}"));
+    let tmp_dir = new_tmp_dir!();
+    let child = Command::new(server_path)
+        .arg("-c")
+        .arg(config.canonicalize().unwrap())
+        .arg("-n")
+        .arg(name)
+        .current_dir(tmp_dir.dir())
+        .env("RUST_LOG", "debug")
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    (child, tmp_dir)
+}
+
+async fn kill_server(mut child: Child) {
+    child.kill().await.unwrap();
+    child.wait().await.unwrap();
 }
 
 const RAZEL_JSONL_EXP_SUCCEEDED: usize = 12;
