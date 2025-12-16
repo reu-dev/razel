@@ -2,6 +2,7 @@ use crate::{QueueMsg, Tx};
 use anyhow::{bail, Context, Result};
 use itertools::chain;
 use razel::cache::{Cache, MessageDigest};
+use razel::config::LinkType;
 use razel::executors::{
     CommandExecutor, ExecutionResult, ExecutionStatus, Executor, SharedWasiExecutorState,
     TaskExecutor, WasiExecutor,
@@ -52,6 +53,21 @@ impl JobWorker {
             cgroup: None,
             wasi_state: SharedWasiExecutorState::new(),
         })
+    }
+
+    // TODO move to worker thread, drop async
+    pub async fn link_input_file_into_ws_dir(
+        &self,
+        cas_path: &PathBuf,
+        file_path: &PathBuf,
+    ) -> Result<()> {
+        let ws_path = self.ws_dir.join(file_path);
+        let link_type = LinkType::Symlink; // TODO move to config file
+        match link_type {
+            LinkType::Hardlink => razel::force_hardlink(cas_path, &ws_path).await?,
+            LinkType::Symlink => razel::force_symlink(cas_path, &ws_path).await?,
+        }
+        Ok(())
     }
 
     pub fn push_target(&mut self, target: &Target, files: &Vec<File>, tx: Tx) {

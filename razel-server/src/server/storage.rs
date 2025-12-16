@@ -1,7 +1,7 @@
 use super::*;
 use anyhow::{ensure, Result};
 use razel::remote_exec::{JobId, ServerToClientMsg};
-use razel::types::{Digest, DigestHash, File, FileId};
+use razel::types::{DigestHash, File, FileId};
 use razel::{force_remove_file_std, set_file_permissions};
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -19,17 +19,19 @@ pub struct Storage {
 }
 
 impl Storage {
-    pub fn new(path: PathBuf, max_size_gb: Option<usize>) -> Self {
+    pub fn new(path: PathBuf, max_size_gb: Option<usize>) -> Result<Self> {
         let cas_dir = path.join("cas");
         let download_dir = path.join("download");
-        Self {
+        std::fs::create_dir_all(&cas_dir)?;
+        std::fs::create_dir_all(&download_dir)?;
+        Ok(Self {
             path,
             cas_dir,
             download_dir,
             max_size_gb,
             locally_cached: Default::default(),
             requested_from_clients: Default::default(),
-        }
+        })
     }
 
     /// Returns true if file is locally cached, or requests the file from distributed cache or client.
@@ -55,7 +57,7 @@ impl Storage {
         let file = file.clone();
         let connection = connection.clone();
         let download_dir = self.download_dir.clone();
-        let cas_path = self.cas_path(digest);
+        let cas_path = self.cas_path(&digest.hash);
         let tx = tx.clone();
         tokio::spawn(async move {
             // TODO check distributed cache first
@@ -86,8 +88,8 @@ impl Storage {
         self.requested_from_clients.remove(&hash).unwrap();
     }
 
-    fn cas_path(&self, digest: &Digest) -> PathBuf {
-        self.cas_dir.join(&digest.hash)
+    pub fn cas_path(&self, hash: &DigestHash) -> PathBuf {
+        self.cas_dir.join(hash)
     }
 }
 
@@ -137,7 +139,7 @@ fn move_file_into_cache(src: &PathBuf, dst: &PathBuf, exp_size: u64) -> Result<(
 }
 
 fn is_blob_cached(path: &PathBuf, exp_size: u64) -> bool {
-    if let Ok(metadata) = std::fs::metadata(&path) {
+    if let Ok(metadata) = std::fs::metadata(path) {
         if !metadata.permissions().readonly() {
             // readonly flag was removed - assume file was modified
             force_remove_file_std(path).ok();

@@ -7,6 +7,7 @@ use razel::remote_exec::{
 };
 use razel::types::{DependencyGraph, File, FileId, Tag, Target, TargetId};
 use std::collections::{HashSet, VecDeque};
+use std::path::PathBuf;
 use tracing::{debug, info};
 use uuid::Uuid;
 
@@ -43,7 +44,7 @@ impl JobData {
         Self {
             client,
             id,
-            job: job,
+            job,
             dep_graph: Default::default(),
             targets_for_input_file: Default::default(),
             requested_files: Default::default(),
@@ -56,29 +57,12 @@ impl JobData {
         }
     }
 
-    pub fn set_file_requested(&mut self, file: FileId) {
-        self.requested_files.insert(file);
-        for target in self.targets_for_input_file[&file].iter().copied() {
-            self.requested_files_for_target
-                .entry(target)
-                .or_default()
-                .push(file);
-        }
-    }
-
-    pub fn set_file_received(&mut self, file: FileId) {
-        self.requested_files.remove(&file);
-        for target in self.targets_for_input_file[&file].iter().copied() {
-            let requests = self.requested_files_for_target.entry(target).or_default();
-            requests.swap_remove(requests.iter().position(|x| *x == file).unwrap());
-            if requests.is_empty() {
-                self.requested_files_for_target.remove(&target);
-                self.ready.push_back(target);
-            }
-        }
-    }
-
-    pub fn push_targets(&mut self, targets: Vec<Target>, files: Vec<File>) {
+    pub fn push_targets(
+        &mut self,
+        targets: Vec<Target>,
+        files: Vec<File>,
+        requested_files: Vec<FileId>,
+    ) {
         for target in &targets {
             for file in chain!(&target.executables, &target.inputs).copied() {
                 self.targets_for_input_file
@@ -88,8 +72,38 @@ impl JobData {
             }
         }
         self.dep_graph.push_targets(targets, files);
+        self.set_files_requested(requested_files);
         let ready = self.dep_graph.ready.clone();
         self.push_ready_from_dep_graph(ready);
+    }
+
+    fn set_files_requested(&mut self, files: Vec<FileId>) {
+        self.requested_files.extend(&files);
+        for file in files {
+            for target in self.targets_for_input_file[&file].iter().copied() {
+                self.requested_files_for_target
+                    .entry(target)
+                    .or_default()
+                    .push(file);
+            }
+        }
+    }
+
+    pub async fn set_file_received(&mut self, file: FileId, cas_path: &PathBuf) {
+        self.worker
+            .link_input_file_into_ws_dir(cas_path, &self.dep_graph.files[file].path)
+            .await
+            .unwrap();
+
+        self.requested_files.remove(&file);
+        for target in self.targets_for_input_file[&file].iter().copied() {
+            let requests = self.requested_files_for_target.entry(target).or_default();
+            requests.swap_remove(requests.iter().position(|x| *x == file).unwrap());
+            if requests.is_empty() {
+                self.requested_files_for_target.remove(&target);
+                self.ready.push_back(target);
+            }
+        }
     }
 
     fn push_ready_from_dep_graph(&mut self, targets: Vec<TargetId>) {
@@ -162,16 +176,17 @@ impl Server {
         let Some(job) = scheduler.jobs.iter_mut().find(|x| x.id == msg.job_id) else {
             return Ok(());
         };
+        let mut requested_files: Vec<FileId> = Default::default();
         for file in &msg.files {
             if file.digest.is_some()
                 && !self
                     .storage
                     .request_file_from_client(job.id, file, &job.client, &self.tx)
             {
-                job.set_file_requested(file.id);
+                requested_files.push(file.id);
             }
         }
-        job.push_targets(msg.targets, msg.files);
+        job.push_targets(msg.targets, msg.files, requested_files);
         job.keep_going = msg.keep_going;
         debug!(job_id=?job.id, ready=job.dep_graph.ready.len(), waiting=job.dep_graph.waiting.len(), "ExecuteTargetsRequest");
         self.start_ready_targets();
@@ -208,13 +223,14 @@ impl Server {
         format!("http://{host}:{port}/job/{job_id}")
     }
 
-    pub fn handle_request_file_finished(&mut self, hash: DigestHash) {
+    pub async fn handle_request_file_finished(&mut self, hash: DigestHash) {
+        let cas_path = self.storage.cas_path(&hash);
         let scheduler = self.scheduler.as_mut().unwrap();
         for (job_id, file) in self.storage.handle_request_file_finished(hash) {
             let Some(job) = scheduler.jobs.iter_mut().find(|x| x.id == job_id) else {
                 continue;
             };
-            job.set_file_received(file);
+            job.set_file_received(file, &cas_path).await;
         }
     }
 

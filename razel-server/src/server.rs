@@ -99,13 +99,14 @@ impl Server {
                 })
             })
             .collect();
+        let storage = Storage::new(self_config.storage.path, self_config.storage.max_size_gb)?;
         let scheduler = self_config.scheduler.map(|_| Scheduler::new());
         let (tx, rx) = mpsc::unbounded_channel();
         Ok(Self {
             node,
             client_endpoint,
             server_endpoint,
-            storage: Storage::new(self_config.storage.path, self_config.storage.max_size_gb),
+            storage,
             nodes,
             scheduler,
             clients: Default::default(),
@@ -125,6 +126,7 @@ impl Server {
         Ok(())
     }
 
+    // TODO drop async
     async fn handle_queue_msg(&mut self, queue_msg: QueueMsg) -> Result<()> {
         match queue_msg {
             QueueMsg::IncomingClientConnection(c) => {
@@ -155,7 +157,7 @@ impl Server {
             QueueMsg::ServerMsg(_) => todo!(),
             QueueMsg::ExecuteTargetsRequest(_) => todo!(),
             QueueMsg::ExecuteTargetResult(m) => self.handle_execute_target_result(m),
-            QueueMsg::RequestFileFinished(hash) => self.handle_request_file_finished(hash),
+            QueueMsg::RequestFileFinished(hash) => self.handle_request_file_finished(hash).await,
             QueueMsg::RequestFileFailed((hash, err)) => self.handle_request_file_failed(hash, err),
         }
         Ok(())

@@ -8,5 +8,6 @@
 {"name":"e.csv","executable":"bin/wasm32-wasi/cp.wasm","args":["d.csv","e.csv"],"inputs":["d.csv"],"outputs":["e.csv"],"tags":["copy"]}
 {"name":"e.csv##shouldEqual##data/a.csv","task":"ensure-equal","args":["e.csv","data/a.csv"]}
 {"name":"cmake-sleep","executable":"cmake","args":["-E","sleep","0.010"],"inputs":[],"outputs":[],"tags":["razel:no-cache","razel:timeout:2"]}
-{"name":"cmake-touch-files","executable":"cmake","args":["-E","touch","razel-out/cmake-touch-1","razel-out/cmake-touch-2"],"inputs":[],"outputs":[],"tags":["razel:no-sandbox"]}
 {"name":"cmake-env","executable":"cmake","args":["-E","environment"],"inputs":[],"outputs":[],"env":{"ONLY_ENV_VAR":"which is set"},"tags":["razel:verbose"]}
+{"name":"cmake-touch-sandbox","executable":"cmake","args":["-E","touch","cmake-touch-1"],"inputs":[],"outputs":["cmake-touch-1"]}
+{"name":"cmake-touch-no-sandbox","executable":"cmake","args":["-E","touch","razel-out/cmake-touch-2"],"inputs":[],"outputs":[],"tags":["razel:no-sandbox"]}
