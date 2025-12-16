@@ -9,9 +9,10 @@ use razel::executors::{
 use razel::remote_exec::{ExecuteTargetResult, JobId};
 use razel::types::{CommandTarget, Digest, ExecutableType, File, Tag, Target, TargetKind};
 use razel::{
-    bazel_remote_exec, force_remove_file, is_file_executable, BoxedSandbox, CGroup, SandboxDir,
-    TmpDirSandbox, WasiSandbox,
+    bazel_remote_exec, is_file_executable, BoxedSandbox, CGroup, SandboxDir, TmpDirSandbox,
+    WasiSandbox, WorkspaceDirSandbox,
 };
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tracing::log::debug;
@@ -22,8 +23,9 @@ pub struct JobWorker {
     #[allow(dead_code)]
     max_parallelism: usize,
     cache: Cache,
-    current_dir: PathBuf,
+    ws_dir: PathBuf,
     sandbox_dir: PathBuf,
+    created_dirs: HashSet<PathBuf>,
     /// single Linux cgroup for all commands to trigger OOM killer
     cgroup: Option<CGroup>,
     wasi_state: SharedWasiExecutorState,
@@ -32,7 +34,7 @@ pub struct JobWorker {
 impl JobWorker {
     pub fn new(job_id: JobId, max_parallelism: usize, storage: &Path) -> Result<Self> {
         let job_dir = storage.join(format!("job-{}", job_id.as_u128()));
-        let current_dir = job_dir.join("ws");
+        let ws_dir = job_dir.join("ws");
         let out_dir = PathBuf::new();
         let cache_dir = job_dir.join("cache");
         let sandbox_dir = job_dir.join("sandbox");
@@ -44,8 +46,9 @@ impl JobWorker {
             job_id,
             max_parallelism,
             cache,
-            current_dir,
+            ws_dir,
             sandbox_dir,
+            created_dirs: Default::default(),
             cgroup: None,
             wasi_state: SharedWasiExecutorState::new(),
         })
@@ -55,20 +58,16 @@ impl JobWorker {
         let total_duration_start = Instant::now();
         let job_id = self.job_id;
         let target_id = target.id;
+        self.create_dirs(files).unwrap(); // TODO error handling
         let executor = self.new_executor(target, files);
         let (bzl_command, bzl_input_root) =
             bazel_remote_exec::bzl_action_for_target(target, files, executor.digest());
         let no_cache_tag = target.tags.contains(&Tag::NoCache);
         let cache = (!no_cache_tag).then(|| self.cache.clone());
         let use_remote_cache = cache.is_some() && !target.tags.contains(&Tag::NoRemoteCache);
-        let use_sandbox = match target.kind {
-            TargetKind::Command(_) | TargetKind::Wasi(_) => true,
-            TargetKind::Task(_) | TargetKind::HttpRemoteExecTask(_) => false,
-        };
-        let sandbox = (use_sandbox && !target.tags.contains(&Tag::NoSandbox))
-            .then(|| self.new_sandbox(target, files));
+        let sandbox = self.new_sandbox(target, files);
         let mut output_files = self.collect_output_files(target, files);
-        let cwd = self.current_dir.clone();
+        let cwd = self.ws_dir.clone();
         tokio::task::spawn(async move {
             let action = bazel_remote_exec::Action {
                 command_digest: Some(bazel_remote_exec::BazelDigest::for_message(&bzl_command)),
@@ -107,9 +106,16 @@ impl JobWorker {
     }
 
     fn new_sandbox(&self, target: &Target, files: &[File]) -> BoxedSandbox {
+        let no_sandbox_tag = target.tags.contains(&Tag::NoSandbox);
         match target.kind {
+            TargetKind::Command(_) if no_sandbox_tag => {
+                Box::new(WorkspaceDirSandbox::new(self.ws_dir.clone()))
+            }
+            TargetKind::Command(_) => self.new_tmp_dir_sandbox(target, files),
             TargetKind::Wasi(_) => self.new_wasi_sandbox(target, files),
-            _ => self.new_tmp_dir_sandbox(target, files),
+            TargetKind::Task(_) | TargetKind::HttpRemoteExecTask(_) => {
+                Box::new(WorkspaceDirSandbox::new(self.ws_dir.clone()))
+            }
         }
     }
 
@@ -144,6 +150,26 @@ impl JobWorker {
             &target.id.to_string(),
             inputs,
         ))
+    }
+
+    fn create_dirs(&mut self, files: &[File]) -> Result<()> {
+        for file in files {
+            assert!(!file.is_excluded);
+            match file.executable {
+                Some(ExecutableType::SystemExecutable) => continue,
+                Some(ExecutableType::RazelExecutable) => unreachable!(),
+                _ => assert!(file.path.is_relative()),
+            }
+            let rel_dir = file.path.parent().unwrap();
+            if !self.created_dirs.contains(rel_dir) {
+                let abs_dir = self.ws_dir.join(rel_dir);
+                tracing::warn!("mkdir {abs_dir:?}");
+                std::fs::create_dir_all(&abs_dir)
+                    .with_context(|| format!("failed to create dir: {abs_dir:?}"))?;
+                self.created_dirs.insert(rel_dir.to_path_buf());
+            }
+        }
+        Ok(())
     }
 
     fn collect_output_files(&self, target: &Target, files: &[File]) -> Vec<File> {
@@ -208,7 +234,7 @@ impl JobWorker {
         use_remote_cache: bool,
         executor: &Executor,
         output_files: &mut Vec<File>,
-        sandbox: Option<BoxedSandbox>,
+        sandbox: BoxedSandbox,
         cwd: &Path,
     ) -> Result<ExecutionResult> {
         let execution_result = if let Some(x) = Self::get_action_from_cache(
@@ -220,7 +246,7 @@ impl JobWorker {
         .await
         {
             x
-        } else if let Some(sandbox) = sandbox {
+        } else {
             Self::exec_action_with_sandbox(
                 action_digest,
                 cache.as_mut(),
@@ -232,17 +258,6 @@ impl JobWorker {
             )
             .await
             .context("exec_action_with_sandbox()")?
-        } else {
-            Self::exec_action_without_sandbox(
-                action_digest,
-                cache.as_mut(),
-                use_remote_cache,
-                executor,
-                output_files,
-                cwd,
-            )
-            .await
-            .context("exec_action_without_sandbox()")?
         };
         if let Some(cache) = cache.as_ref().filter(|_| execution_result.success()) {
             cache
@@ -342,38 +357,6 @@ impl JobWorker {
             .destroy()
             .await
             .with_context(|| "Sandbox::destroy()")?;
-        Ok(execution_result)
-    }
-
-    async fn exec_action_without_sandbox(
-        action_digest: &MessageDigest,
-        cache: Option<&mut Cache>,
-        use_remote_cache: bool,
-        executor: &Executor,
-        output_files: &mut Vec<File>,
-        cwd: &Path,
-    ) -> Result<ExecutionResult> {
-        // remove expected output files, because symlinks will not be overwritten
-        for file in output_files.iter_mut() {
-            force_remove_file(&file.path).await?;
-        }
-        let sandbox_dir = SandboxDir::new(None);
-        let execution_result = executor.exec(cwd, &sandbox_dir).await;
-        if execution_result.success() {
-            set_output_files_digest(output_files, &sandbox_dir).await?;
-            if let Some(cache) = cache {
-                Self::cache_action_result(
-                    action_digest,
-                    &execution_result,
-                    output_files,
-                    &sandbox_dir,
-                    cache,
-                    use_remote_cache,
-                )
-                .await
-                .with_context(|| "cache_action_result()")?;
-            }
-        }
         Ok(execution_result)
     }
 

@@ -1,11 +1,12 @@
 use super::*;
 use anyhow::Result;
+use itertools::{chain, Itertools};
 use quinn::SendStream;
 use razel::remote_exec::{
     CreateJobRequest, CreateJobResponse, ExecuteTargetsRequest, Job, JobId, ServerToClientMsg,
 };
-use razel::types::{DependencyGraph, Tag, TargetId};
-use std::collections::VecDeque;
+use razel::types::{DependencyGraph, File, FileId, Tag, Target, TargetId};
+use std::collections::{HashSet, VecDeque};
 use tracing::{debug, info};
 use uuid::Uuid;
 
@@ -19,61 +20,115 @@ impl Scheduler {
             jobs: Default::default(),
         }
     }
-
-    #[instrument(skip_all)]
-    pub fn handle_execute_targets_request(&mut self, msg: ExecuteTargetsRequest) -> Result<()> {
-        let Some(job) = self.jobs.iter_mut().find(|x| x.id == msg.job_id) else {
-            return Ok(());
-        };
-        job.dep_graph.push_targets(msg.targets, msg.files);
-        job.keep_going = msg.keep_going;
-        job.ready.extend(&job.dep_graph.ready);
-        debug!(job_id=?job.id, ready=job.dep_graph.ready.len(), waiting=job.dep_graph.waiting.len(), "ExecuteTargetsRequest");
-        Ok(())
-    }
-
-    #[instrument(skip_all)]
-    pub fn handle_execute_target_result(&mut self, msg: ExecuteTargetResult) {
-        let Some(job) = self.jobs.iter_mut().find(|x| x.id == msg.job_id) else {
-            return;
-        };
-        let target_id = msg.target_id;
-        debug!(job_id=?job.id, target_id, result=?msg.result);
-        if msg.result.success() {
-            job.succeeded.push(target_id);
-            for file in &msg.output_files {
-                assert!(file.digest.is_some());
-                assert!(job.dep_graph.files[file.id].digest.is_none());
-                job.dep_graph.files[file.id].digest = file.digest.clone();
-            }
-            let ready = job.dep_graph.set_succeeded(target_id);
-            job.ready.extend(&ready);
-        } else {
-            job.dep_graph.set_failed(target_id);
-            if !job.dep_graph.targets[target_id]
-                .tags
-                .contains(&Tag::Condition)
-            {
-                job.failed.push(target_id);
-            }
-        }
-        ServerToClientMsg::ExecuteTargetResult(msg)
-            .spawn_send_uni(job.client.clone())
-            .unwrap();
-    }
 }
 
 struct JobData {
+    client: quinn::Connection,
     id: JobId,
     #[allow(dead_code)]
     job: Job,
     dep_graph: DependencyGraph,
-    keep_going: bool,
+    targets_for_input_file: HashMap<FileId, Vec<TargetId>>,
+    requested_files: HashSet<FileId>,
+    requested_files_for_target: HashMap<TargetId, Vec<FileId>>,
     ready: VecDeque<TargetId>,
     succeeded: Vec<TargetId>,
     failed: Vec<TargetId>,
-    client: quinn::Connection,
+    keep_going: bool,
     worker: JobWorker,
+}
+
+impl JobData {
+    pub fn new(client: quinn::Connection, id: JobId, job: Job, worker: JobWorker) -> Self {
+        Self {
+            client,
+            id,
+            job: job,
+            dep_graph: Default::default(),
+            targets_for_input_file: Default::default(),
+            requested_files: Default::default(),
+            requested_files_for_target: Default::default(),
+            ready: Default::default(),
+            succeeded: vec![],
+            failed: vec![],
+            keep_going: false,
+            worker,
+        }
+    }
+
+    pub fn set_file_requested(&mut self, file: FileId) {
+        self.requested_files.insert(file);
+        for target in self.targets_for_input_file[&file].iter().copied() {
+            self.requested_files_for_target
+                .entry(target)
+                .or_default()
+                .push(file);
+        }
+    }
+
+    pub fn set_file_received(&mut self, file: FileId) {
+        self.requested_files.remove(&file);
+        for target in self.targets_for_input_file[&file].iter().copied() {
+            let requests = self.requested_files_for_target.entry(target).or_default();
+            requests.swap_remove(requests.iter().position(|x| *x == file).unwrap());
+            if requests.is_empty() {
+                self.requested_files_for_target.remove(&target);
+                self.ready.push_back(target);
+            }
+        }
+    }
+
+    pub fn push_targets(&mut self, targets: Vec<Target>, files: Vec<File>) {
+        for target in &targets {
+            for file in chain!(&target.executables, &target.inputs).copied() {
+                self.targets_for_input_file
+                    .entry(file)
+                    .or_default()
+                    .push(target.id);
+            }
+        }
+        self.dep_graph.push_targets(targets, files);
+        let ready = self.dep_graph.ready.clone();
+        self.push_ready_from_dep_graph(ready);
+    }
+
+    fn push_ready_from_dep_graph(&mut self, targets: Vec<TargetId>) {
+        for target_id in targets {
+            let target = &self.dep_graph.targets[target_id];
+            let requested = chain!(&target.executables, &target.inputs)
+                .copied()
+                .filter(|x| self.requested_files.contains(x))
+                .collect_vec();
+            if requested.is_empty() {
+                self.ready.push_back(target_id);
+            } else {
+                self.requested_files_for_target.insert(target_id, requested);
+            }
+        }
+    }
+
+    pub fn handle_execute_target_result(&mut self, msg: &ExecuteTargetResult) {
+        let target_id = msg.target_id;
+        debug!(job_id=?self.id, target_id, result=?msg.result);
+        if msg.result.success() {
+            self.succeeded.push(target_id);
+            for file in &msg.output_files {
+                assert!(file.digest.is_some());
+                assert!(self.dep_graph.files[file.id].digest.is_none());
+                self.dep_graph.files[file.id].digest = file.digest.clone();
+            }
+            let ready = self.dep_graph.set_succeeded(target_id);
+            self.push_ready_from_dep_graph(ready);
+        } else {
+            self.dep_graph.set_failed(target_id);
+            if !self.dep_graph.targets[target_id]
+                .tags
+                .contains(&Tag::Condition)
+            {
+                self.failed.push(target_id);
+            }
+        }
+    }
 }
 
 impl Server {
@@ -87,17 +142,12 @@ impl Server {
         let job_id = Uuid::now_v7();
         info!(?job_id, "CreateJobRequest");
         let worker = JobWorker::new(job_id, self.node.max_parallelism, &self.storage.path)?;
-        scheduler.jobs.push(JobData {
-            id: job_id,
-            job: request.job,
-            dep_graph: Default::default(),
-            keep_going: false,
-            ready: Default::default(),
-            succeeded: vec![],
-            failed: vec![],
-            client: self.clients[&client].connection.clone(),
+        scheduler.jobs.push(JobData::new(
+            self.clients[&client].connection.clone(),
+            job_id,
+            request.job,
             worker,
-        });
+        ));
         ServerToClientMsg::CreateJobResponse(CreateJobResponse {
             job_id,
             url: self.webui_job_url(&job_id),
@@ -106,20 +156,38 @@ impl Server {
         Ok(())
     }
 
-    pub fn handle_execute_targets_request(&mut self, request: ExecuteTargetsRequest) -> Result<()> {
-        self.scheduler
-            .as_mut()
-            .unwrap()
-            .handle_execute_targets_request(request)?;
+    #[instrument(skip_all)]
+    pub fn handle_execute_targets_request(&mut self, msg: ExecuteTargetsRequest) -> Result<()> {
+        let scheduler = self.scheduler.as_mut().unwrap();
+        let Some(job) = scheduler.jobs.iter_mut().find(|x| x.id == msg.job_id) else {
+            return Ok(());
+        };
+        for file in &msg.files {
+            if file.digest.is_some()
+                && !self
+                    .storage
+                    .request_file_from_client(job.id, file, &job.client, &self.tx)
+            {
+                job.set_file_requested(file.id);
+            }
+        }
+        job.push_targets(msg.targets, msg.files);
+        job.keep_going = msg.keep_going;
+        debug!(job_id=?job.id, ready=job.dep_graph.ready.len(), waiting=job.dep_graph.waiting.len(), "ExecuteTargetsRequest");
         self.start_ready_targets();
         Ok(())
     }
 
+    #[instrument(skip_all)]
     pub fn handle_execute_target_result(&mut self, msg: ExecuteTargetResult) {
-        self.scheduler
-            .as_mut()
-            .unwrap()
-            .handle_execute_target_result(msg);
+        let scheduler = self.scheduler.as_mut().unwrap();
+        let Some(job) = scheduler.jobs.iter_mut().find(|x| x.id == msg.job_id) else {
+            return;
+        };
+        job.handle_execute_target_result(&msg);
+        ServerToClientMsg::ExecuteTargetResult(msg)
+            .spawn_send_uni(job.client.clone())
+            .unwrap();
         self.start_ready_targets();
     }
 
@@ -138,5 +206,22 @@ impl Server {
         let port = self.node.client_port.as_ref().unwrap();
         let job_id = job_id.as_simple();
         format!("http://{host}:{port}/job/{job_id}")
+    }
+
+    pub fn handle_request_file_finished(&mut self, hash: DigestHash) {
+        let scheduler = self.scheduler.as_mut().unwrap();
+        for (job_id, file) in self.storage.handle_request_file_finished(hash) {
+            let Some(job) = scheduler.jobs.iter_mut().find(|x| x.id == job_id) else {
+                continue;
+            };
+            job.set_file_received(file);
+        }
+    }
+
+    pub fn handle_request_file_failed(&mut self, hash: DigestHash, err: String) {
+        todo!(
+            "handle_request_file_failed: {err:?} files={:?}",
+            self.storage.handle_request_file_failed(hash)
+        );
     }
 }

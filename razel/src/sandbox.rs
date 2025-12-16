@@ -145,6 +145,36 @@ impl Sandbox for WasiSandbox {
 }
 
 #[derive(Debug)]
+pub struct WorkspaceDirSandbox {
+    dir: PathBuf,
+}
+
+impl WorkspaceDirSandbox {
+    pub fn new(dir: PathBuf) -> Self {
+        Self { dir }
+    }
+}
+
+#[async_trait]
+impl Sandbox for WorkspaceDirSandbox {
+    fn dir(&self) -> SandboxDir {
+        SandboxDir::new(Some(self.dir.clone()))
+    }
+
+    async fn create(&self, _outputs: &[PathBuf]) -> Result<&PathBuf> {
+        Ok(&self.dir)
+    }
+
+    async fn move_output_files_into_out_dir(&self, _output_paths: &[PathBuf]) -> Result<()> {
+        Ok(())
+    }
+
+    async fn destroy(&self) -> Result<()> {
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
 pub struct SandboxDir {
     pub dir: Option<PathBuf>,
 }

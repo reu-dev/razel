@@ -1,13 +1,17 @@
 use crate::remote_exec::rpc_endpoint::new_client_endpoint;
 use crate::remote_exec::*;
 use crate::types::File;
+use crate::types::FileId;
 use crate::types::Target;
 use anyhow::{anyhow, bail, Result};
 use quinn::Connection;
 use quinn::Endpoint;
 use rand::rng;
 use rand::seq::SliceRandom;
+use std::collections::HashMap;
 use std::net::ToSocketAddrs;
+use std::path::PathBuf;
+use tokio::spawn;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::instrument;
 use url::Url;
@@ -117,6 +121,8 @@ impl Client {
         tx: UnboundedSender<ClientChannelMsg>,
     ) -> Result<()> {
         let (mut send, _recv) = connection.open_bi().await?;
+        let inputs: HashMap<FileId, PathBuf> =
+            HashMap::from_iter(files.iter().map(|f| (f.id, f.path.clone())));
         ClientToServerMsg::ExecuteTargetsRequest(ExecuteTargetsRequest {
             job_id,
             targets,
@@ -141,7 +147,9 @@ impl Client {
                 ServerToClientMsg::ExecuteStats(s) => {
                     tx.send(ClientChannelMsg::Stats(s))?;
                 }
-                ServerToClientMsg::UploadFilesRequest(r) => upload_file(r, send.unwrap()),
+                ServerToClientMsg::UploadFileRequest(id) => {
+                    spawn_upload_file(inputs[&id].clone(), send.unwrap())
+                }
             }
         }
     }
@@ -174,6 +182,11 @@ fn user() -> Result<String> {
     }
 }
 
-fn upload_file(_request: UploadFilesRequest, _stream: quinn::SendStream) {
-    todo!();
+// TODO fix error handling
+fn spawn_upload_file(path: PathBuf, mut stream: quinn::SendStream) {
+    spawn(async move {
+        let mut file = tokio::fs::File::open(&path).await.unwrap();
+        tokio::io::copy(&mut file, &mut stream).await.unwrap();
+        stream.finish().unwrap();
+    });
 }

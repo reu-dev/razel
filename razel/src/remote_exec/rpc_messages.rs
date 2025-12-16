@@ -1,7 +1,7 @@
 use crate::cache::MessageDigest;
 use crate::executors::ExecutionResult;
 use crate::remote_exec::{Job, JobId};
-use crate::types::{Digest, File, Target, TargetId};
+use crate::types::{Digest, File, FileId, Target, TargetId};
 use serde::{Deserialize, Serialize};
 
 #[repr(u8)]
@@ -38,7 +38,7 @@ pub enum ServerToClientMsg {
     CreateJobResponse(CreateJobResponse),
     ExecuteTargetResult(ExecuteTargetResult),
     ExecuteStats(ExecuteStats),
-    UploadFilesRequest(UploadFilesRequest),
+    UploadFileRequest(FileId),
 }
 
 /// Send by client to server to register a job

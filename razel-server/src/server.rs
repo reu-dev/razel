@@ -1,4 +1,4 @@
-use crate::config::{Config, Storage};
+use crate::config::Config;
 use crate::rpc_endpoint::new_server_endpoint;
 use crate::rpc_messages::ServerMessage;
 use crate::{JobWorker, Node};
@@ -6,6 +6,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use quinn::{Connection, Endpoint};
 use razel::remote_exec::rpc_endpoint::new_client_endpoint;
 use razel::remote_exec::{ClientToServerMsg, ExecuteTargetResult, ExecuteTargetsRequest};
+use razel::types::DigestHash;
 use std::env::current_dir;
 use std::fs::create_dir_all;
 use std::{collections::HashMap, net::SocketAddr};
@@ -27,6 +28,8 @@ pub enum QueueMsg {
     ServerMsg((RemoteNodeId, ServerMessage, quinn::SendStream)),
     ExecuteTargetsRequest(ExecuteTargetsRequest),
     ExecuteTargetResult(ExecuteTargetResult),
+    RequestFileFinished(String),
+    RequestFileFailed((String, String)),
 }
 
 pub struct Server {
@@ -102,7 +105,7 @@ impl Server {
             node,
             client_endpoint,
             server_endpoint,
-            storage: self_config.storage,
+            storage: Storage::new(self_config.storage.path, self_config.storage.max_size_gb),
             nodes,
             scheduler,
             clients: Default::default(),
@@ -152,6 +155,8 @@ impl Server {
             QueueMsg::ServerMsg(_) => todo!(),
             QueueMsg::ExecuteTargetsRequest(_) => todo!(),
             QueueMsg::ExecuteTargetResult(m) => self.handle_execute_target_result(m),
+            QueueMsg::RequestFileFinished(hash) => self.handle_request_file_finished(hash),
+            QueueMsg::RequestFileFailed((hash, err)) => self.handle_request_file_failed(hash, err),
         }
         Ok(())
     }
@@ -199,3 +204,5 @@ mod connections;
 use connections::*;
 mod scheduler;
 use scheduler::*;
+mod storage;
+use storage::*;
