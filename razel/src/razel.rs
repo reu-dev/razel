@@ -722,7 +722,7 @@ impl Razel {
             cache
                 .link_output_files_into_out_dir(&output_files)
                 .await
-                .context("symlink_output_files_into_out_dir()")?;
+                .context("link_output_files_into_out_dir()")?;
         }
         Ok((execution_result, output_files))
     }

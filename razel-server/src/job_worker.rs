@@ -16,6 +16,7 @@ use razel::{
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+use tracing::instrument;
 use tracing::log::debug;
 
 /// Worker running within the server process
@@ -56,12 +57,14 @@ impl JobWorker {
     }
 
     // TODO move to worker thread, drop async
+    #[instrument(skip_all)]
     pub async fn link_input_file_into_ws_dir(
         &self,
         cas_path: &PathBuf,
         file_path: &PathBuf,
     ) -> Result<()> {
         let ws_path = self.ws_dir.join(file_path);
+        tracing::trace!(?cas_path, ?ws_path);
         let link_type = LinkType::Symlink; // TODO move to config file
         match link_type {
             LinkType::Hardlink => razel::force_hardlink(cas_path, &ws_path).await?,
@@ -70,6 +73,7 @@ impl JobWorker {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     pub fn push_target(&mut self, target: &Target, files: &Vec<File>, tx: Tx) {
         let total_duration_start = Instant::now();
         let job_id = self.job_id;
@@ -179,7 +183,6 @@ impl JobWorker {
             let rel_dir = file.path.parent().unwrap();
             if !self.created_dirs.contains(rel_dir) {
                 let abs_dir = self.ws_dir.join(rel_dir);
-                tracing::warn!("mkdir {abs_dir:?}");
                 std::fs::create_dir_all(&abs_dir)
                     .with_context(|| format!("failed to create dir: {abs_dir:?}"))?;
                 self.created_dirs.insert(rel_dir.to_path_buf());
@@ -279,7 +282,7 @@ impl JobWorker {
             cache
                 .link_output_files_into_out_dir(output_files)
                 .await
-                .context("symlink_output_files_into_out_dir()")?;
+                .context("link_output_files_into_out_dir()")?;
         }
         Ok(execution_result)
     }

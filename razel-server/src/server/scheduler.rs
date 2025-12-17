@@ -123,7 +123,7 @@ impl JobData {
 
     pub fn handle_execute_target_result(&mut self, msg: &ExecuteTargetResult) {
         let target_id = msg.target_id;
-        debug!(job_id=?self.id, target_id, result=?msg.result);
+        tracing::debug!(job_id=?self.id, target_id, result=?msg.result, output_files=?msg.output_files.iter().map(|x| x.id).collect_vec());
         if msg.result.success() {
             self.succeeded.push(target_id);
             for file in &msg.output_files {

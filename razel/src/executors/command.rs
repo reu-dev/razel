@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::time::Instant;
 use tokio::io::AsyncWriteExt;
+use tracing::instrument;
 
 pub struct CommandExecutor {
     command: CommandTarget,
@@ -27,6 +28,7 @@ impl CommandExecutor {
         }
     }
 
+    #[instrument(skip_all)]
     pub async fn exec(&self, sandbox_dir: &SandboxDir) -> ExecutionResult {
         let mut result: ExecutionResult = Default::default();
         let response_file_args = match self.maybe_use_response_file(sandbox_dir).await {
@@ -40,6 +42,7 @@ impl CommandExecutor {
         };
         let args = response_file_args.as_ref().unwrap_or(&self.command.args);
         let cwd = sandbox_dir.dir.clone().unwrap_or_else(|| ".".into());
+        tracing::trace!(?sandbox_dir, ?args, ?cwd);
         let execution_start = Instant::now();
         let child = match tokio::process::Command::new(&self.command.executable)
             .env_clear()

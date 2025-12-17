@@ -8,6 +8,7 @@ use log::warn;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncReadExt;
+use tracing::instrument;
 
 #[derive(Clone)]
 pub struct LocalCache {
@@ -86,8 +87,10 @@ impl LocalCache {
     }
 
     /// Self::prepare_file_for_moving_to_cache() must have been called before
+    #[instrument(skip_all)]
     pub async fn move_file_into_cache(&self, src: &PathBuf, digest: &Digest) -> Result<PathBuf> {
         let dst = self.cas_path(digest);
+        tracing::trace!(?src, ?dst);
         match tokio::fs::rename(src, &dst).await {
             Ok(()) => {}
             Err(e) => {
@@ -101,6 +104,7 @@ impl LocalCache {
         Ok(dst)
     }
 
+    #[instrument(skip_all)]
     pub async fn link_output_files_into_out_dir(
         &self,
         files: &Vec<File>,
@@ -109,6 +113,7 @@ impl LocalCache {
         for file in files {
             let cas_path = self.cas_path(file.digest.as_ref().unwrap());
             let out_path = out_dir.join(&file.path);
+            tracing::trace!(?cas_path, ?out_path);
             match crate::config::OUT_DIR_LINK_TYPE {
                 LinkType::Hardlink => crate::force_hardlink(&cas_path, &out_path).await?,
                 LinkType::Symlink => crate::force_symlink(&cas_path, &out_path).await?,

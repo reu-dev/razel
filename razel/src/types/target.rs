@@ -9,7 +9,7 @@ use std::path::PathBuf;
 pub type TargetId = usize;
 pub type FileId = usize;
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct File {
     pub id: FileId,
     pub path: PathBuf,

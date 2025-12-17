@@ -1,7 +1,6 @@
 use crate::types::{CsvConcatTask, CsvFilterTask};
 use crate::SandboxDir;
-use anyhow::{ensure, Result};
-use csv::{StringRecord, Writer};
+use anyhow::{anyhow, ensure, Result};
 use itertools::Itertools;
 use std::io;
 use tokio::task::spawn_blocking;
@@ -11,10 +10,12 @@ impl CsvConcatTask {
         let inputs = self.input.iter().map(|x| sandbox_dir.join(x)).collect_vec();
         let output = sandbox_dir.join(&self.output);
         spawn_blocking(move || {
-            let mut writer = csv::Writer::from_path(output)?;
-            let mut combined_headers: Option<StringRecord> = None;
+            let mut writer =
+                csv::Writer::from_path(&output).map_err(|e| anyhow!("{e}: {output:?}"))?;
+            let mut combined_headers: Option<csv::StringRecord> = None;
             for input in inputs {
-                let mut reader = csv::Reader::from_path(input)?;
+                let mut reader =
+                    csv::Reader::from_path(&input).map_err(|e| anyhow!("{e}: {input:?}"))?;
                 let curr_headers = reader.headers()?;
                 if let Some(combined_headers) = &combined_headers {
                     ensure!(curr_headers == combined_headers, "headers do not match!");
@@ -68,8 +69,8 @@ impl CsvFilterTask {
 }
 
 fn write_record_filtered<W: io::Write>(
-    writer: &mut Writer<W>,
-    record: &StringRecord,
+    writer: &mut csv::Writer<W>,
+    record: &csv::StringRecord,
     indices: &Vec<usize>,
 ) -> Result<()> {
     for i in indices {

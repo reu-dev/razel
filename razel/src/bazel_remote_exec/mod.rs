@@ -147,7 +147,12 @@ pub fn bzl_action_for_target(
         files: chain(target.executables.iter(), target.inputs.iter())
             .map(|x| {
                 let file = &files[*x];
-                assert!(file.digest.is_some(), "digest missing for {:?}", file.path);
+                assert!(
+                    file.digest.is_some(),
+                    "digest missing for file id={} path={:?}",
+                    file.id,
+                    file.path
+                );
                 FileNode {
                     name: file.path.to_str().unwrap().into(),
                     digest: Some(file.digest.as_ref().unwrap().into()),
