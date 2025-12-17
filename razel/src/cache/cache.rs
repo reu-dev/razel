@@ -202,7 +202,7 @@ impl Cache {
             .iter()
             .map(|file| PushFileData {
                 digest: file.digest.as_ref().unwrap().into(),
-                out_path: sandbox_dir.join(&self.out_dir).join(&file.path),
+                out_path: sandbox_dir.join(&file.path),
                 cas_path: self.local_cache.cas_path(file.digest.as_ref().unwrap()),
             })
             .collect_vec();

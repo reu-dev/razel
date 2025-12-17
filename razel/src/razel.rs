@@ -508,6 +508,7 @@ impl Razel {
             .filter(|x| x.is_relative())
             .collect();
         Box::new(TmpDirSandbox::new(
+            self.current_dir.clone(),
             self.sandbox_dir.as_ref().unwrap(),
             &target.id.to_string(),
             inputs,
@@ -529,6 +530,7 @@ impl Razel {
             })
             .collect();
         Box::new(WasiSandbox::new(
+            self.current_dir.clone(),
             self.sandbox_dir.as_ref().unwrap(),
             &target.id.to_string(),
             inputs,

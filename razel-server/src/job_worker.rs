@@ -37,13 +37,12 @@ impl JobWorker {
     pub fn new(job_id: JobId, max_parallelism: usize, storage: &Path) -> Result<Self> {
         let job_dir = storage.join(format!("job-{}", job_id.as_u128()));
         let ws_dir = job_dir.join("ws");
-        let out_dir = PathBuf::new();
         let cache_dir = job_dir.join("cache");
         let sandbox_dir = job_dir.join("sandbox");
         debug!("job directory:     {job_dir:?}");
         debug!("cache directory:   {cache_dir:?}");
         debug!("sandbox directory: {sandbox_dir:?}");
-        let cache = Cache::new(cache_dir, out_dir.clone())?;
+        let cache = Cache::new(cache_dir, ws_dir.clone())?;
         Ok(Self {
             job_id,
             max_parallelism,
@@ -63,6 +62,9 @@ impl JobWorker {
         cas_path: &PathBuf,
         file_path: &PathBuf,
     ) -> Result<()> {
+        if file_path.is_absolute() {
+            bail!("link_input_file_into_ws_dir: path must be relative: {file_path:?}");
+        }
         let ws_path = self.ws_dir.join(file_path);
         tracing::trace!(?cas_path, ?ws_path);
         let link_type = LinkType::Symlink; // TODO move to config file
@@ -78,7 +80,8 @@ impl JobWorker {
         let total_duration_start = Instant::now();
         let job_id = self.job_id;
         let target_id = target.id;
-        self.create_dirs(files).unwrap(); // TODO error handling
+        tracing::debug!(target_id, target = target.name);
+        self.create_dirs(target, files).unwrap(); // TODO move to worker thread and add error handling
         let executor = self.new_executor(target, files);
         let (bzl_command, bzl_input_root) =
             bazel_remote_exec::bzl_action_for_target(target, files, executor.digest());
@@ -141,10 +144,12 @@ impl JobWorker {
 
     fn new_tmp_dir_sandbox(&self, target: &Target, files: &[File]) -> BoxedSandbox {
         let inputs = chain(target.executables.iter(), target.inputs.iter())
-            .map(|x| files[*x].path.clone())
+            .map(|x| &files[*x].path)
             .filter(|x| x.is_relative())
+            .cloned()
             .collect();
         Box::new(TmpDirSandbox::new(
+            self.ws_dir.clone(),
             &self.sandbox_dir,
             &target.id.to_string(),
             inputs,
@@ -166,14 +171,16 @@ impl JobWorker {
             })
             .collect();
         Box::new(WasiSandbox::new(
+            self.ws_dir.clone(),
             &self.sandbox_dir,
             &target.id.to_string(),
             inputs,
         ))
     }
 
-    fn create_dirs(&mut self, files: &[File]) -> Result<()> {
-        for file in files {
+    fn create_dirs(&mut self, target: &Target, files: &[File]) -> Result<()> {
+        for file in chain!(&target.executables, &target.inputs, &target.outputs).map(|x| &files[*x])
+        {
             assert!(!file.is_excluded);
             match file.executable {
                 Some(ExecutableType::SystemExecutable) => continue,

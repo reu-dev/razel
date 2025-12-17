@@ -2,7 +2,7 @@ use crate::config::OUT_DIR;
 use crate::executors::{ExecutionResult, ExecutionStatus};
 use crate::types::CommandTarget;
 use crate::SandboxDir;
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -43,19 +43,18 @@ impl SharedWasiExecutorState {
         Ok(engine)
     }
 
-    async fn get_or_create_module(&self, file: impl AsRef<Path>) -> Result<Module> {
-        let file = file.as_ref();
+    async fn get_or_create_module(&self, file: PathBuf) -> Result<Module> {
         let mut state = self.0.lock().await;
-        if let Some(module) = state.modules.get(file) {
+        if let Some(module) = state.modules.get(&file) {
             return Ok(module.clone());
         }
         let engine = match &state.engine {
             Some(x) => x,
             None => state.engine.insert(Self::new_engine()?),
         };
-        let module = Module::from_file(engine, file)
-            .with_context(|| format!("create WASM module: {file:?}"))?;
-        state.modules.insert(file.into(), module.clone());
+        let module = Module::from_file(engine, &file)
+            .map_err(|e| anyhow!("create WASM module {file:?}: {e:?}"))?;
+        state.modules.insert(file, module.clone());
         Ok(module)
     }
 }
@@ -88,10 +87,10 @@ impl WasiExecutor {
         }
     }
 
-    pub async fn exec(&self, cwd: &Path, sandbox_dir: &SandboxDir) -> ExecutionResult {
+    pub async fn exec(&self, ws_dir: &Path, sandbox_dir: &SandboxDir) -> ExecutionResult {
         let module = match self
             .state
-            .get_or_create_module(&self.command.executable)
+            .get_or_create_module(ws_dir.join(&self.command.executable))
             .await
         {
             Ok(module) => module,
@@ -103,7 +102,7 @@ impl WasiExecutor {
                 };
             }
         };
-        self.wasi_exec(module, cwd, sandbox_dir)
+        self.wasi_exec(module, ws_dir, sandbox_dir)
             .await
             .unwrap_or_else(|error| ExecutionResult {
                 status: ExecutionStatus::FailedToStart,
@@ -115,7 +114,7 @@ impl WasiExecutor {
     async fn wasi_exec(
         &self,
         module: Module,
-        cwd: &Path,
+        ws_dir: &Path,
         sandbox_dir: &SandboxDir,
     ) -> Result<ExecutionResult> {
         let engine = module.engine();
@@ -123,8 +122,8 @@ impl WasiExecutor {
         add_to_linker_async(&mut linker, |x| x)?;
 
         let (ctx, stdout, stderr) = self
-            .create_wasi_ctx(cwd, sandbox_dir)
-            .with_context(|| format!("cwd: {cwd:?}, sandbox_dir: {sandbox_dir:?}"))
+            .create_wasi_ctx(ws_dir, sandbox_dir)
+            .with_context(|| format!("ws_dir: {ws_dir:?}, sandbox_dir: {sandbox_dir:?}"))
             .context("Error in create_wasi_ctx()")?;
         let mut store = Store::new(engine, ctx);
         let instance = linker
@@ -162,7 +161,7 @@ impl WasiExecutor {
 
     fn create_wasi_ctx(
         &self,
-        cwd: &Path,
+        ws_dir: &Path,
         sandbox_dir: &SandboxDir,
     ) -> Result<(WasiP1Ctx, MemoryOutputPipe, MemoryOutputPipe)> {
         let stdout = MemoryOutputPipe::new(4096);
@@ -180,7 +179,7 @@ impl WasiExecutor {
             assert!(dir.is_relative());
             preopen_dir_for_read(
                 &mut builder,
-                &cwd.join(dir),
+                &ws_dir.join(dir),
                 &wasi_path(dir.to_str().unwrap()),
             )?;
         }
