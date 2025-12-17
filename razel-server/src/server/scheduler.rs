@@ -5,7 +5,7 @@ use quinn::SendStream;
 use razel::remote_exec::{
     CreateJobRequest, CreateJobResponse, ExecuteTargetsRequest, Job, JobId, ServerToClientMsg,
 };
-use razel::types::{DependencyGraph, File, FileId, Tag, Target, TargetId};
+use razel::types::{DependencyGraph, ExecutableType, File, FileId, Tag, Target, TargetId};
 use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 use tracing::{debug, info};
@@ -31,7 +31,7 @@ struct JobData {
     dep_graph: DependencyGraph,
     targets_for_input_file: HashMap<FileId, Vec<TargetId>>,
     requested_files: HashSet<FileId>,
-    requested_files_for_target: HashMap<TargetId, Vec<FileId>>,
+    requested_files_for_ready_target: HashMap<TargetId, Vec<FileId>>,
     ready: VecDeque<TargetId>,
     succeeded: Vec<TargetId>,
     failed: Vec<TargetId>,
@@ -48,7 +48,7 @@ impl JobData {
             dep_graph: Default::default(),
             targets_for_input_file: Default::default(),
             requested_files: Default::default(),
-            requested_files_for_target: Default::default(),
+            requested_files_for_ready_target: Default::default(),
             ready: Default::default(),
             succeeded: vec![],
             failed: vec![],
@@ -79,14 +79,6 @@ impl JobData {
 
     fn set_files_requested(&mut self, files: Vec<FileId>) {
         self.requested_files.extend(&files);
-        for file in files {
-            for target in self.targets_for_input_file[&file].iter().copied() {
-                self.requested_files_for_target
-                    .entry(target)
-                    .or_default()
-                    .push(file);
-            }
-        }
     }
 
     pub async fn set_file_received(&mut self, file: FileId, cas_path: &PathBuf) {
@@ -94,14 +86,17 @@ impl JobData {
             .link_input_file_into_ws_dir(cas_path, &self.dep_graph.files[file].path)
             .await
             .unwrap();
-
         self.requested_files.remove(&file);
-        for target in self.targets_for_input_file[&file].iter().copied() {
-            let requests = self.requested_files_for_target.entry(target).or_default();
-            requests.swap_remove(requests.iter().position(|x| *x == file).unwrap());
-            if requests.is_empty() {
-                self.requested_files_for_target.remove(&target);
-                self.ready.push_back(target);
+        for target_id in self.targets_for_input_file[&file].iter().copied() {
+            let Some(requested_files) = self.requested_files_for_ready_target.get_mut(&target_id)
+            else {
+                continue;
+            };
+            requested_files.swap_remove(requested_files.iter().position(|x| *x == file).unwrap());
+            if requested_files.is_empty() {
+                self.requested_files_for_ready_target.remove(&target_id);
+                tracing::trace!(target_id, "target is ready after requesting files");
+                self.ready.push_back(target_id);
             }
         }
     }
@@ -109,14 +104,17 @@ impl JobData {
     fn push_ready_from_dep_graph(&mut self, targets: Vec<TargetId>) {
         for target_id in targets {
             let target = &self.dep_graph.targets[target_id];
-            let requested = chain!(&target.executables, &target.inputs)
+            let requested_files = chain!(&target.executables, &target.inputs)
                 .copied()
                 .filter(|x| self.requested_files.contains(x))
                 .collect_vec();
-            if requested.is_empty() {
+            if requested_files.is_empty() {
+                tracing::trace!(target_id, "target is ready");
                 self.ready.push_back(target_id);
             } else {
-                self.requested_files_for_target.insert(target_id, requested);
+                tracing::trace!(target_id, ?requested_files, "target is waiting for files");
+                self.requested_files_for_ready_target
+                    .insert(target_id, requested_files);
             }
         }
     }
@@ -232,6 +230,7 @@ impl Server {
             };
             job.set_file_received(file, &cas_path).await;
         }
+        self.start_ready_targets();
     }
 
     pub fn handle_request_file_failed(&mut self, hash: DigestHash, err: String) {
