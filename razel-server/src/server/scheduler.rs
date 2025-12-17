@@ -169,13 +169,23 @@ impl Server {
     }
 
     #[instrument(skip_all)]
-    pub fn handle_execute_targets_request(&mut self, msg: ExecuteTargetsRequest) -> Result<()> {
+    pub fn handle_execute_targets_request(&mut self, mut msg: ExecuteTargetsRequest) -> Result<()> {
         let scheduler = self.scheduler.as_mut().unwrap();
         let Some(job) = scheduler.jobs.iter_mut().find(|x| x.id == msg.job_id) else {
             return Ok(());
         };
         let mut requested_files: Vec<FileId> = Default::default();
-        for file in &msg.files {
+        for file in &mut msg.files {
+            if file
+                .executable
+                .is_some_and(|x| x == ExecutableType::SystemExecutable)
+            {
+                file.path = file.path.file_name().unwrap().into();
+                file.executable = Some(ExecutableType::ExecutableInWorkspace);
+            }
+            if file.path.is_absolute() || file.path.starts_with("..") {
+                bail!("file has scary path: {file:?}");
+            }
             if file.digest.is_some()
                 && !self
                     .storage
