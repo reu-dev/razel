@@ -88,11 +88,11 @@ impl WasiExecutor {
     }
 
     pub async fn exec(&self, ws_dir: &Path, sandbox_dir: &SandboxDir) -> ExecutionResult {
-        let module = match self
-            .state
-            .get_or_create_module(ws_dir.join(&self.command.executable))
-            .await
-        {
+        let mut module_path = PathBuf::from(&self.command.executable);
+        if module_path.is_relative() {
+            module_path = ws_dir.join(&module_path);
+        }
+        let module = match self.state.get_or_create_module(module_path).await {
             Ok(module) => module,
             Err(e) => {
                 return ExecutionResult {
@@ -235,8 +235,16 @@ mod tests {
     use crate::new_tmp_dir;
     use crate::test_utils::ensure_files_are_equal;
     use std::fs;
+    use std::sync::LazyLock;
 
-    static CP_MODULE_PATH: &str = "../examples/bin/wasm32-wasi/cp.wasm";
+    static CP_MODULE_PATH: LazyLock<String> = LazyLock::new(|| {
+        Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap())
+            .parent()
+            .unwrap()
+            .join("examples/bin/wasm32-wasi/cp.wasm")
+            .to_string_lossy()
+            .to_string()
+    });
     static SRC_PATH: &str = "src-file";
     static DST_PATH: &str = "dst-file";
     const SOURCE_CONTENTS: &str = "SOURCE_CONTENTS";
@@ -248,7 +256,7 @@ mod tests {
         let executor = WasiExecutor {
             state: SharedWasiExecutorState::new(),
             command: CommandTarget {
-                executable: CP_MODULE_PATH.into(),
+                executable: CP_MODULE_PATH.clone(),
                 args: vec!["-h".into()],
                 ..Default::default()
             },
@@ -275,7 +283,7 @@ mod tests {
         let executor = WasiExecutor {
             state: SharedWasiExecutorState::new(),
             command: CommandTarget {
-                executable: CP_MODULE_PATH.into(),
+                executable: CP_MODULE_PATH.clone(),
                 args: vec![SRC_PATH.into(), out_file],
                 ..Default::default()
             },
@@ -300,7 +308,7 @@ mod tests {
         let executor = WasiExecutor {
             state: SharedWasiExecutorState::new(),
             command: CommandTarget {
-                executable: CP_MODULE_PATH.into(),
+                executable: CP_MODULE_PATH.clone(),
                 args: vec![SRC_PATH.into(), out_file],
                 ..Default::default()
             },
@@ -329,7 +337,7 @@ mod tests {
         let executor = WasiExecutor {
             state: SharedWasiExecutorState::new(),
             command: CommandTarget {
-                executable: CP_MODULE_PATH.into(),
+                executable: CP_MODULE_PATH.clone(),
                 args: vec![file_outside_sandbox.to_str().unwrap().into(), out_file],
                 ..Default::default()
             },
@@ -356,7 +364,7 @@ mod tests {
         let executor = WasiExecutor {
             state: SharedWasiExecutorState::new(),
             command: CommandTarget {
-                executable: CP_MODULE_PATH.into(),
+                executable: CP_MODULE_PATH.clone(),
                 args: vec![SRC_PATH.into(), out_file.into()],
                 ..Default::default()
             },
