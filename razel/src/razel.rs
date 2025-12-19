@@ -593,7 +593,7 @@ impl Razel {
                 (
                     ExecutionResult {
                         status: ExecutionStatus::SystemError,
-                        error: Some(e.to_string()),
+                        error: Some(format!("{e:?}")),
                         ..Default::default()
                     },
                     Default::default(),
