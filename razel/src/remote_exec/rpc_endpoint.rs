@@ -6,7 +6,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 pub fn new_client_endpoint() -> Result<Endpoint> {
-    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
     let mut endpoint = quinn::Endpoint::client(addr)?;
     endpoint.set_default_client_config(new_client_config_with_dummy_certificate_verifier()?);
     Ok(endpoint)
