@@ -4,7 +4,7 @@ use crate::select_cache_dir;
 use anyhow::{bail, Result};
 
 impl Razel {
-    pub async fn check_remote_cache(&self, urls: Vec<String>) -> Result<()> {
+    pub async fn check_remote_cache_servers(&self, urls: Vec<String>) -> Result<()> {
         let mut failed = 0;
         let workspace_dir = &self.targets_builder.as_ref().unwrap().workspace_dir;
         let cache_dir = select_cache_dir(workspace_dir)?;

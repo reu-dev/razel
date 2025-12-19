@@ -8,7 +8,7 @@ use tokio::fs;
 pub async fn force_symlink(src: &PathBuf, dst: &PathBuf) -> Result<()> {
     {
         if src == dst {
-            bail!("symlink dst must not equal src");
+            bail!("symlink dst must not equal src: {src:?}");
         }
         let src_abs = fs::canonicalize(&src)
             .await

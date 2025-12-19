@@ -55,6 +55,7 @@ async fn main() -> Result<()> {
                 run_args.cache_dir,
                 run_args.remote_cache,
                 run_args.remote_cache_threshold,
+                run_args.remote_exec,
             )
             .await?;
         debug!(
@@ -85,11 +86,11 @@ mod main {
         exp_cache_hits: usize,
         additional_tag: Option<(&str, Tag)>,
     ) {
-        let cargo_workspaces_dir = Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap())
+        let cargo_workspace_dir = Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap())
             .parent()
             .unwrap()
             .to_path_buf();
-        let _change_dir = ChangeDir::new(&cargo_workspaces_dir);
+        let _change_dir = ChangeDir::new(&cargo_workspace_dir);
         let _ = env_logger::builder()
             .filter_level(log::LevelFilter::Debug)
             .filter_module("cranelift_codegen", log::LevelFilter::Warn)
@@ -117,7 +118,7 @@ mod main {
                 razel.add_tag_for_command(name, tag);
             }
             let act_stats = razel
-                .run(false, true, "", None, vec![], None)
+                .run(false, true, "", None, vec![], None, vec![])
                 .await
                 .unwrap();
             assert_eq!(act_stats.exec, exp_stats);
@@ -135,7 +136,7 @@ mod main {
                 razel.add_tag_for_command(name, tag);
             }
             let act_stats = razel
-                .run(false, true, "", None, vec![], None)
+                .run(false, true, "", None, vec![], None, vec![])
                 .await
                 .unwrap();
             assert_eq!(act_stats.exec, exp_stats);

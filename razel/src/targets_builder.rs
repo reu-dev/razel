@@ -325,7 +325,7 @@ impl TargetsBuilder {
         if let Some(id) = self.system_executable_by_name.get(arg) {
             return Ok(*id);
         }
-        let path = which(arg).with_context(|| format!("executable not found: {arg:?}"))?;
+        let path = which(arg).map_err(|e| anyhow!("executable {arg:?} not found: {e:?}"))?;
         debug!("which({arg}) => {path:?}");
         let id = self.push_file(path, Some(ExecutableType::SystemExecutable));
         let old = self.system_executable_by_name.insert(arg.to_string(), id);

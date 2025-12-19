@@ -28,8 +28,8 @@ impl Task {
             Task::CsvFilter(x) => x.exec(sandbox_dir).await,
             Task::WriteFile(x) => x.exec(sandbox_dir).await,
             Task::DownloadFile(x) => x.exec(sandbox_dir).await,
-            Task::EnsureEqual(x) => x.exec().await,
-            Task::EnsureNotEqual(x) => x.exec().await,
+            Task::EnsureEqual(x) => x.exec(sandbox_dir).await,
+            Task::EnsureNotEqual(x) => x.exec(sandbox_dir).await,
             Task::HttpRemoteExec(_) => unreachable!("should use HttpRemoteExecutor"),
         }
     }

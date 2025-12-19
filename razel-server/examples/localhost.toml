@@ -1,0 +1,6 @@
+# scheduler and worker on localhost
+[node.localhost]
+server_endpoint = { port = 4433 }
+scheduler = { client_endpoint = { port = 4434 }, webui = true }
+worker = { tags = [] }
+storage = { path = "data" }

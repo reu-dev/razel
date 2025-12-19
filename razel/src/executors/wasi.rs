@@ -2,43 +2,40 @@ use crate::config::OUT_DIR;
 use crate::executors::{ExecutionResult, ExecutionStatus};
 use crate::types::CommandTarget;
 use crate::SandboxDir;
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
+use tokio::sync::Mutex;
 use wasmtime::{Config, Engine, Linker, Module, Store};
 use wasmtime_wasi::pipe::MemoryOutputPipe;
 use wasmtime_wasi::preview1::{add_to_linker_async, WasiP1Ctx};
 use wasmtime_wasi::{DirPerms, FilePerms, I32Exit, WasiCtxBuilder};
 
-/// WASI filesystem:
-/// - preopen sandbox_dir for reading
-/// - preopen sandbox_dir/razel-out for writing
-/// - input files from cache: hardlink into sandbox
-/// - input files outside cache: preopen parent dirs for reading
-pub struct WasiExecutor {
-    command: CommandTarget,
-    /// WASM module, is internally shared between executors to compile just once
-    pub module: Module,
-    pub read_dirs: Vec<PathBuf>,
-    pub write_dir: bool,
+struct WasiExecutorState {
+    engine: Option<Engine>,
+    modules: HashMap<PathBuf, Module>,
 }
 
-impl WasiExecutor {
-    pub fn new(
-        command: CommandTarget,
-        module: Module,
-        read_dirs: Vec<PathBuf>,
-        write_dir: bool,
-    ) -> Self {
-        Self {
-            command,
-            module,
-            read_dirs,
-            write_dir,
-        }
+#[derive(Clone)]
+pub struct SharedWasiExecutorState(Arc<Mutex<WasiExecutorState>>);
+
+impl Default for SharedWasiExecutorState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SharedWasiExecutorState {
+    pub fn new() -> Self {
+        Self(Arc::new(Mutex::new(WasiExecutorState {
+            engine: None,
+            modules: Default::default(),
+        })))
     }
 
-    pub fn create_engine() -> Result<Engine> {
+    fn new_engine() -> Result<Engine> {
         let mut config = Config::new();
         config.async_support(true);
         config.cranelift_nan_canonicalization(true);
@@ -46,33 +43,91 @@ impl WasiExecutor {
         Ok(engine)
     }
 
-    pub fn create_module(engine: &Engine, file: impl AsRef<Path>) -> Result<Module> {
-        Module::from_file(engine, &file)
-            .with_context(|| format!("create WASM module: {:?}", file.as_ref()))
+    async fn get_or_create_module(&self, file: PathBuf) -> Result<Module> {
+        let mut state = self.0.lock().await;
+        if let Some(module) = state.modules.get(&file) {
+            return Ok(module.clone());
+        }
+        let engine = match &state.engine {
+            Some(x) => x,
+            None => state.engine.insert(Self::new_engine()?),
+        };
+        let module = Module::from_file(engine, &file)
+            .map_err(|e| anyhow!("create WASM module {file:?}: {e:?}"))?;
+        state.modules.insert(file, module.clone());
+        Ok(module)
+    }
+}
+
+/// WASI filesystem:
+/// - preopen sandbox_dir for reading
+/// - preopen sandbox_dir/razel-out for writing
+/// - input files from cache: hardlink into sandbox
+/// - input files outside cache: preopen parent dirs for reading
+pub struct WasiExecutor {
+    state: SharedWasiExecutorState,
+    command: CommandTarget,
+    /// WASM module, is internally shared between executors to compile just once
+    read_dirs: Vec<PathBuf>,
+    write_dir: bool,
+}
+
+impl WasiExecutor {
+    pub fn new(
+        state: SharedWasiExecutorState,
+        command: CommandTarget,
+        read_dirs: Vec<PathBuf>,
+        write_dir: bool,
+    ) -> Self {
+        Self {
+            state,
+            command,
+            read_dirs,
+            write_dir,
+        }
     }
 
-    pub async fn exec(&self, cwd: &Path, sandbox_dir: &SandboxDir) -> ExecutionResult {
-        self.wasi_exec(cwd, sandbox_dir)
+    pub async fn exec(&self, ws_dir: &Path, sandbox_dir: &SandboxDir) -> ExecutionResult {
+        let mut module_path = PathBuf::from(&self.command.executable);
+        if module_path.is_relative() {
+            module_path = ws_dir.join(&module_path);
+        }
+        let module = match self.state.get_or_create_module(module_path).await {
+            Ok(module) => module,
+            Err(e) => {
+                return ExecutionResult {
+                    status: ExecutionStatus::FailedToStart,
+                    error: Some(e.to_string()),
+                    ..Default::default()
+                };
+            }
+        };
+        self.wasi_exec(module, ws_dir, sandbox_dir)
             .await
             .unwrap_or_else(|error| ExecutionResult {
                 status: ExecutionStatus::FailedToStart,
-                error: Some(error),
+                error: Some(error.to_string()),
                 ..Default::default()
             })
     }
 
-    async fn wasi_exec(&self, cwd: &Path, sandbox_dir: &SandboxDir) -> Result<ExecutionResult> {
-        let engine = self.module.engine();
+    async fn wasi_exec(
+        &self,
+        module: Module,
+        ws_dir: &Path,
+        sandbox_dir: &SandboxDir,
+    ) -> Result<ExecutionResult> {
+        let engine = module.engine();
         let mut linker = Linker::new(engine);
         add_to_linker_async(&mut linker, |x| x)?;
 
         let (ctx, stdout, stderr) = self
-            .create_wasi_ctx(cwd, sandbox_dir)
-            .with_context(|| format!("cwd: {cwd:?}, sandbox_dir: {sandbox_dir:?}"))
+            .create_wasi_ctx(ws_dir, sandbox_dir)
+            .with_context(|| format!("ws_dir: {ws_dir:?}, sandbox_dir: {sandbox_dir:?}"))
             .context("Error in create_wasi_ctx()")?;
         let mut store = Store::new(engine, ctx);
         let instance = linker
-            .instantiate_async(&mut store, &self.module)
+            .instantiate_async(&mut store, &module)
             .await
             .context("linker.instantiate()")?;
         let func = instance
@@ -92,7 +147,7 @@ impl WasiExecutor {
                     execution_result.exit_code = Some(exit_code.0);
                 } else {
                     execution_result.status = ExecutionStatus::Crashed;
-                    execution_result.error = Some(error);
+                    execution_result.error = Some(error.to_string());
                 }
             }
         }
@@ -106,7 +161,7 @@ impl WasiExecutor {
 
     fn create_wasi_ctx(
         &self,
-        cwd: &Path,
+        ws_dir: &Path,
         sandbox_dir: &SandboxDir,
     ) -> Result<(WasiP1Ctx, MemoryOutputPipe, MemoryOutputPipe)> {
         let stdout = MemoryOutputPipe::new(4096);
@@ -124,7 +179,7 @@ impl WasiExecutor {
             assert!(dir.is_relative());
             preopen_dir_for_read(
                 &mut builder,
-                &cwd.join(dir),
+                &ws_dir.join(dir),
                 &wasi_path(dir.to_str().unwrap()),
             )?;
         }
@@ -180,28 +235,31 @@ mod tests {
     use crate::new_tmp_dir;
     use crate::test_utils::ensure_files_are_equal;
     use std::fs;
+    use std::sync::LazyLock;
 
-    static CP_MODULE_PATH: &str = "../examples/bin/wasm32-wasi/cp.wasm";
+    static CP_MODULE_PATH: LazyLock<String> = LazyLock::new(|| {
+        Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap())
+            .parent()
+            .unwrap()
+            .join("examples/bin/wasm32-wasi/cp.wasm")
+            .to_string_lossy()
+            .to_string()
+    });
     static SRC_PATH: &str = "src-file";
     static DST_PATH: &str = "dst-file";
     const SOURCE_CONTENTS: &str = "SOURCE_CONTENTS";
-
-    fn create_cp_module() -> Module {
-        let engine = WasiExecutor::create_engine().unwrap();
-        WasiExecutor::create_module(&engine, CP_MODULE_PATH).unwrap()
-    }
 
     #[tokio::test]
     async fn cp_help() {
         let workspace_dir = Path::new(".");
         let sandbox_dir = new_tmp_dir!();
         let executor = WasiExecutor {
+            state: SharedWasiExecutorState::new(),
             command: CommandTarget {
-                executable: CP_MODULE_PATH.into(),
+                executable: CP_MODULE_PATH.clone(),
                 args: vec!["-h".into()],
                 ..Default::default()
             },
-            module: create_cp_module(),
             read_dirs: vec![],
             write_dir: false,
         };
@@ -223,12 +281,12 @@ mod tests {
         let src = workspace_dir.join_and_write_file(SRC_PATH, SOURCE_CONTENTS);
         let dst = sandbox_dir.join_and_create_parent(&out_file);
         let executor = WasiExecutor {
+            state: SharedWasiExecutorState::new(),
             command: CommandTarget {
-                executable: CP_MODULE_PATH.into(),
+                executable: CP_MODULE_PATH.clone(),
                 args: vec![SRC_PATH.into(), out_file],
                 ..Default::default()
             },
-            module: create_cp_module(),
             read_dirs: vec![".".into()],
             write_dir: true,
         };
@@ -248,12 +306,12 @@ mod tests {
         let _dst = sandbox_dir.join_and_create_parent(&out_file);
         // not writing source file
         let executor = WasiExecutor {
+            state: SharedWasiExecutorState::new(),
             command: CommandTarget {
-                executable: CP_MODULE_PATH.into(),
+                executable: CP_MODULE_PATH.clone(),
                 args: vec![SRC_PATH.into(), out_file],
                 ..Default::default()
             },
-            module: create_cp_module(),
             read_dirs: vec![".".into()],
             write_dir: true,
         };
@@ -277,12 +335,12 @@ mod tests {
         let _dst = sandbox_dir.join_and_create_parent(&out_file);
         assert!(file_outside_sandbox.exists());
         let executor = WasiExecutor {
+            state: SharedWasiExecutorState::new(),
             command: CommandTarget {
-                executable: CP_MODULE_PATH.into(),
+                executable: CP_MODULE_PATH.clone(),
                 args: vec![file_outside_sandbox.to_str().unwrap().into(), out_file],
                 ..Default::default()
             },
-            module: create_cp_module(),
             read_dirs: vec![".".into()],
             write_dir: true,
         };
@@ -304,12 +362,12 @@ mod tests {
         workspace_dir.join_and_write_file(SRC_PATH, SOURCE_CONTENTS);
         sandbox_dir.join_and_create_parent(&format!("{OUT_DIR}/{DST_PATH}"));
         let executor = WasiExecutor {
+            state: SharedWasiExecutorState::new(),
             command: CommandTarget {
-                executable: CP_MODULE_PATH.into(),
+                executable: CP_MODULE_PATH.clone(),
                 args: vec![SRC_PATH.into(), out_file.into()],
                 ..Default::default()
             },
-            module: create_cp_module(),
             read_dirs: vec![".".into()],
             write_dir: true,
         };

@@ -38,9 +38,9 @@ impl WriteFileTask {
 }
 
 impl EnsureEqualTask {
-    pub async fn exec(&self) -> Result<()> {
-        let file1 = self.file1.clone();
-        let file2 = self.file2.clone();
+    pub async fn exec(&self, sandbox_dir: &SandboxDir) -> Result<()> {
+        let file1 = sandbox_dir.join(&self.file1);
+        let file2 = sandbox_dir.join(&self.file2);
         spawn_blocking(move || {
             let file1_bytes = std::fs::read(&file1)?;
             let file2_bytes = std::fs::read(&file2)?;
@@ -55,9 +55,9 @@ impl EnsureEqualTask {
 }
 
 impl EnsureNotEqualTask {
-    pub async fn exec(&self) -> Result<()> {
-        let file1 = self.file1.clone();
-        let file2 = self.file2.clone();
+    pub async fn exec(&self, sandbox_dir: &SandboxDir) -> Result<()> {
+        let file1 = sandbox_dir.join(&self.file1);
+        let file2 = sandbox_dir.join(&self.file2);
         spawn_blocking(move || {
             let file1_bytes = std::fs::read(&file1)?;
             let file2_bytes = std::fs::read(&file2)?;
