@@ -328,7 +328,10 @@ impl Razel {
         };
         debug!("cache directory:   {cache_dir:?}");
         let sandbox_dir = select_sandbox_dir(&cache_dir)?;
-        let mut cache = Cache::new(cache_dir, self.out_dir.clone())?;
+        let mut cache = Cache::new(
+            cache_dir,
+            PathBuf::new(), // output file paths contain razel-out prefix
+        )?;
         debug!("sandbox directory: {sandbox_dir:?}");
         debug!("worker threads:    {}", self.worker_threads);
         cache

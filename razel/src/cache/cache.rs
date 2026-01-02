@@ -30,7 +30,7 @@ impl Cache {
             bail!("out_dir should not be within cache dir: {:?}", out_dir);
         }
         Ok(Self {
-            out_dir: out_dir.clone(),
+            out_dir,
             local_cache,
             remote_cache: None,
             remote_cache_threshold: None,
