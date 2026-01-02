@@ -13,7 +13,7 @@ pub use scheduler::*;
 pub use utils::*;
 
 #[cfg(feature = "full")]
-mod bazel_remote_exec;
+pub mod bazel_remote_exec;
 #[cfg(feature = "full")]
 pub mod cli;
 pub mod config;
@@ -76,6 +76,20 @@ pub mod metadata {
     mod report;
 }
 
+#[cfg(feature = "remote_exec")]
+pub mod remote_exec {
+    mod client;
+    mod job;
+    pub mod rpc_endpoint;
+    mod rpc_messages;
+    mod rpc_utils;
+
+    pub use client::*;
+    pub use job::*;
+    pub use rpc_messages::*;
+    pub use rpc_utils::*;
+}
+
 #[cfg(feature = "full")]
 pub mod utils {
     pub mod test_utils;
@@ -85,6 +99,7 @@ pub mod utils {
     pub use helpers::*;
     pub use resources::*;
     pub use symlink::*;
+    pub use worker_utils::*;
 
     mod directories;
     mod file_permissions;
@@ -95,6 +110,7 @@ pub mod utils {
     mod resources;
     mod symlink;
     pub mod tui;
+    mod worker_utils;
 }
 
 pub mod types {

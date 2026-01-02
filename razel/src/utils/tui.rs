@@ -117,7 +117,7 @@ impl TUI {
             color,
             target.name.as_str(),
         );
-        if let Some(e) = &execution_result.error.as_ref().map(|x| x.to_string()) {
+        if let Some(e) = &execution_result.error {
             if will_retry {
                 Self::field_with_hint("error:     ", color, e, "(will retry)");
             } else {
@@ -174,11 +174,7 @@ impl TUI {
         }
         print!(
             "{A_BOLD}{C_BLUE}Status{C_RESET}{A_RESET}: {A_BOLD}{}{}{C_RESET}{A_RESET} succeeded ({} cached), {}{}{}{C_RESET}{A_RESET} failed, {} running, {} remaining",
-            if succeeded > 0 {
-                C_GREEN
-            } else {
-                C_RESET
-            },
+            if succeeded > 0 { C_GREEN } else { C_RESET },
             succeeded,
             cached,
             if failed > 0 { A_BOLD } else { A_RESET },

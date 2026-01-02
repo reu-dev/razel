@@ -2,11 +2,12 @@ use crate::config::RESPONSE_FILE_PREFIX;
 use crate::executors::{ExecutionResult, ExecutionStatus};
 use crate::types::CommandTarget;
 use crate::{CGroup, SandboxDir};
-use anyhow::{anyhow, ensure, Result};
+use anyhow::{ensure, Result};
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::time::Instant;
 use tokio::io::AsyncWriteExt;
+use tracing::instrument;
 
 pub struct CommandExecutor {
     command: CommandTarget,
@@ -27,6 +28,7 @@ impl CommandExecutor {
         }
     }
 
+    #[instrument(skip_all)]
     pub async fn exec(&self, sandbox_dir: &SandboxDir) -> ExecutionResult {
         let mut result: ExecutionResult = Default::default();
         let response_file_args = match self.maybe_use_response_file(sandbox_dir).await {
@@ -34,16 +36,18 @@ impl CommandExecutor {
             Ok(None) => None,
             Err(x) => {
                 result.status = ExecutionStatus::FailedToCreateResponseFile;
-                result.error = Some(x);
+                result.error = Some(x.to_string());
                 return result;
             }
         };
+        let args = response_file_args.as_ref().unwrap_or(&self.command.args);
         let cwd = sandbox_dir.dir.clone().unwrap_or_else(|| ".".into());
+        tracing::trace!(?sandbox_dir, ?args, ?cwd);
         let execution_start = Instant::now();
         let child = match tokio::process::Command::new(&self.command.executable)
             .env_clear()
             .envs(&self.command.env)
-            .args(response_file_args.as_ref().unwrap_or(&self.command.args))
+            .args(args)
             .current_dir(&cwd)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -53,7 +57,7 @@ impl CommandExecutor {
             Ok(child) => child,
             Err(e) => {
                 result.status = ExecutionStatus::FailedToStart;
-                result.error = Some(e.into());
+                result.error = Some(e.to_string());
                 return result;
             }
         };
@@ -80,7 +84,7 @@ impl CommandExecutor {
             }
             Err(e) => {
                 result.status = ExecutionStatus::Failed;
-                result.error = Some(e.into());
+                result.error = Some(e.to_string());
             }
         }
         result.exec_duration = Some(execution_start.elapsed());
@@ -111,24 +115,20 @@ impl CommandExecutor {
     }
 
     #[cfg(target_family = "windows")]
-    fn evaluate_status(
-        exit_status: ExitStatus,
-    ) -> (ExecutionStatus, Option<i32>, Option<anyhow::Error>) {
+    fn evaluate_status(exit_status: ExitStatus) -> (ExecutionStatus, Option<i32>, Option<String>) {
         if exit_status.success() {
             (ExecutionStatus::Success, None, None)
         } else {
             (
                 ExecutionStatus::Failed,
                 None,
-                Some(anyhow!("command failed: {}", exit_status)),
+                Some(format!("command failed: {exit_status}")),
             )
         }
     }
 
     #[cfg(target_family = "unix")]
-    fn evaluate_status(
-        exit_status: ExitStatus,
-    ) -> (ExecutionStatus, Option<i32>, Option<anyhow::Error>) {
+    fn evaluate_status(exit_status: ExitStatus) -> (ExecutionStatus, Option<i32>, Option<String>) {
         use std::os::unix::process::ExitStatusExt;
         if exit_status.success() {
             (ExecutionStatus::Success, None, None)
@@ -137,31 +137,31 @@ impl CommandExecutor {
             (
                 ExecutionStatus::Crashed,
                 Some(signal),
-                Some(anyhow!("command core dumped with signal {signal}")),
+                Some(format!("command core dumped with signal {signal}")),
             )
         } else if let Some(signal) = exit_status.stopped_signal() {
             (
                 ExecutionStatus::Crashed,
                 Some(signal),
-                Some(anyhow!("command stopped by signal {signal}")),
+                Some(format!("command stopped by signal {signal}")),
             )
         } else if let Some(signal) = exit_status.signal() {
             (
                 ExecutionStatus::Crashed,
                 Some(signal),
-                Some(anyhow!("command terminated by signal {signal}")),
+                Some(format!("command terminated by signal {signal}")),
             )
         } else if let Some(exit_code) = exit_status.code() {
             (
                 ExecutionStatus::Failed,
                 None,
-                Some(anyhow!("command failed with exit code {exit_code}")),
+                Some(format!("command failed with exit code {exit_code}")),
             )
         } else {
             (
                 ExecutionStatus::Failed,
                 None,
-                Some(anyhow!("command failed: {}", exit_status)),
+                Some(format!("command failed: {exit_status}")),
             )
         }
     }
@@ -211,7 +211,7 @@ impl CommandExecutor {
         .await
         {
             result.status = ExecutionStatus::FailedToWriteStdoutFile;
-            result.error = Some(e);
+            result.error = Some(e.to_string());
             return;
         }
         if let Err(e) = Self::maybe_write_redirect_file(
@@ -221,7 +221,7 @@ impl CommandExecutor {
         .await
         {
             result.status = ExecutionStatus::FailedToWriteStderrFile;
-            result.error = Some(e);
+            result.error = Some(e.to_string());
         }
     }
 

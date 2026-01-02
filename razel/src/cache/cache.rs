@@ -1,6 +1,6 @@
 use crate::bazel_remote_exec::{ActionResult, OutputFile};
 use crate::cache::{BlobDigest, GrpcRemoteCache, LocalCache, MessageDigest};
-use crate::types::CacheHit;
+use crate::types::{CacheHit, File};
 use crate::SandboxDir;
 use anyhow::{bail, Context, Result};
 use itertools::Itertools;
@@ -30,7 +30,7 @@ impl Cache {
             bail!("out_dir should not be within cache dir: {:?}", out_dir);
         }
         Ok(Self {
-            out_dir: out_dir.clone(),
+            out_dir,
             local_cache,
             remote_cache: None,
             remote_cache_threshold: None,
@@ -202,7 +202,7 @@ impl Cache {
             .iter()
             .map(|file| PushFileData {
                 digest: file.digest.as_ref().unwrap().into(),
-                out_path: sandbox_dir.join(&self.out_dir).join(&file.path),
+                out_path: sandbox_dir.join(&file.path),
                 cas_path: self.local_cache.cas_path(file.digest.as_ref().unwrap()),
             })
             .collect_vec();
@@ -240,12 +240,9 @@ impl Cache {
     }
 
     // TODO integrate in other functions?
-    pub async fn link_output_files_into_out_dir(
-        &self,
-        output_files: &Vec<OutputFile>,
-    ) -> Result<()> {
+    pub async fn link_output_files_into_out_dir(&self, files: &Vec<File>) -> Result<()> {
         self.local_cache
-            .link_output_files_into_out_dir(output_files, &self.out_dir)
+            .link_output_files_into_out_dir(files, &self.out_dir)
             .await
     }
 

@@ -1,8 +1,8 @@
 [package]
 name = "razel"
-authors = ["Stefan Reuschl <stefan@reu-dev.de>"]
-description = "a command executor with caching for data processing pipelines"
-categories = ["caching", "concurrency", "command-line-utilities", "development-tools::testing", "filesystem"]
+authors.workspace = true
+description.workspace = true
+categories.workspace = true
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -16,30 +16,37 @@ anyhow = { workspace = true }
 async-trait = { version = "0.1", optional = true }
 base16ct = { version = "0.2", features = ["alloc"] }
 bstr = "1"
+chrono = { workspace = true, optional = true }
 clap = { workspace = true }
 crossterm = { version = "0.29", optional = true }
 csv = { version = "1", optional = true }
-directories = { version = "6", optional = true }
+directories = { workspace = true, optional = true }
 dotenv-flow = { version = "0.16", optional = true }
 futures-util = { version = "0.3", optional = true }
 gethostname = { version = "1", optional = true }
 itertools = { workspace = true }
 log = { workspace = true }
 num_cpus = { version = "1", optional = true } # TODO replace with std::thread::available_parallelism() once it works in docker: https://github.com/rust-lang/rust/pull/97925
+postcard = { workspace = true, optional = true }
 prost = { version = "0.14", optional = true }
 prost-types = { version = "0.14", optional = true }
+quinn = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
 regex = { version = "1", optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["multipart", "rustls-tls", "stream"], optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { version = "0.10", optional = true }
-simplelog = { workspace = true, optional = true }
-tokio = { version = "1.48", features = ["full"], optional = true }
+simplelog = { version = "0.12", optional = true }
+tokio = { workspace = true, optional = true }
 tonic = { version = "0.14", optional = true }
 tonic-prost = { version = "0.14", optional = true }
-url = { version = "2", features = ["serde"] }
-wasmtime = { version = "31", default-features = false, features = ["async", "cranelift", "pooling-allocator", "runtime"], optional = true }
-wasmtime-wasi = { version = "31", optional = true }
+tracing = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
+url = { workspace = true }
+wasmtime = { workspace = true, optional = true }
+wasmtime-wasi = { workspace = true, optional = true }
 which = { version = "7" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -56,10 +63,13 @@ serde_json = { workspace = true }
 serial_test = "3"
 
 [features]
-default = ["full"]
+default = ["full", "remote_exec"]
 full = ["dep:async-trait", "dep:crossterm", "dep:csv", "dep:directories", "dep:dotenv-flow", "dep:futures-util",
-    "dep:gethostname", "dep:num_cpus", "dep:prost", "dep:prost-types", "dep:regex", "dep:reqwest", "dep:sha2",
-    "dep:simplelog", "dep:tokio", "dep:tonic", "dep:tonic-prost", "dep:wasmtime", "dep:wasmtime-wasi", "dep:procfs", "dep:tonic-prost-build"]
+    "dep:gethostname", "dep:num_cpus", "dep:prost", "dep:prost-types", "dep:regex",
+    "dep:reqwest", "dep:sha2", "dep:simplelog", "dep:tokio", "dep:tonic", "dep:tonic-prost", "dep:tracing", "dep:tracing-subscriber",
+    "dep:wasmtime", "dep:wasmtime-wasi", "dep:procfs", "dep:tonic-prost-build"
+]
+remote_exec = ["dep:chrono", "dep:postcard", "dep:quinn", "dep:rand", "dep:uuid"]
 
 [[bin]]
 name = "razel"

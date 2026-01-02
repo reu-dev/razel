@@ -8,6 +8,7 @@ use std::path::PathBuf;
 pub type TargetId = usize;
 pub type FileId = usize;
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct File {
     pub id: FileId,
     pub path: PathBuf,
@@ -16,7 +17,7 @@ pub struct File {
     pub is_excluded: bool,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ExecutableType {
     ExecutableInWorkspace,
     ExecutableOutsideWorkspace,
@@ -25,15 +26,17 @@ pub enum ExecutableType {
     RazelExecutable,
 }
 
+pub type DigestHash = String;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Digest {
     /// The hash, represented as a lowercase hexadecimal string, padded with
     /// leading zeroes up to the hash function length.
-    pub hash: String,
+    pub hash: DigestHash,
     pub size_bytes: i64,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Target {
     pub id: TargetId,
     pub name: String,
@@ -49,7 +52,7 @@ pub struct Target {
     pub is_excluded: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum TargetKind {
     Command(CommandTarget),
     Wasi(CommandTarget),
@@ -140,7 +143,7 @@ impl CommandTarget {
 }
 
 /// A razel builtin task, see `razel task`
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TaskTarget {
     pub args: Vec<String>,
     pub task: Task,

@@ -124,7 +124,7 @@ impl HttpRemoteExecutor {
         };
         result.unwrap_or_else(|error| ExecutionResult {
             status: ExecutionStatus::SystemError,
-            error: Some(error),
+            error: Some(error.to_string()),
             ..Default::default()
         })
     }
@@ -195,7 +195,7 @@ impl HttpRemoteExecutor {
             } else {
                 ExecutionStatus::Failed
             },
-            error: status.is_success().not().then(|| anyhow!(status)),
+            error: status.is_success().not().then(|| status.to_string()),
             stdout: text.into_bytes(),
             exec_duration: Some(execution_start.elapsed()),
             ..Default::default()

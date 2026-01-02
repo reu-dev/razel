@@ -24,7 +24,8 @@ pub trait Sandbox {
 /// TODO sandbox does not stop writing to input files
 #[derive(Debug)]
 pub struct TmpDirSandbox {
-    dir: PathBuf,
+    ws_dir: PathBuf,
+    tmp_dir: PathBuf,
     inputs: Vec<PathBuf>,
 }
 
@@ -33,9 +34,10 @@ impl TmpDirSandbox {
         std::fs::remove_dir_all(base_dir).ok();
     }
 
-    pub fn new(base_dir: &Path, command_id: &str, inputs: Vec<PathBuf>) -> Self {
+    pub fn new(ws_dir: PathBuf, base_dir: &Path, command_id: &str, inputs: Vec<PathBuf>) -> Self {
         Self {
-            dir: base_dir.join(command_id),
+            ws_dir,
+            tmp_dir: base_dir.join(command_id),
             inputs,
         }
     }
@@ -44,48 +46,51 @@ impl TmpDirSandbox {
 #[async_trait]
 impl Sandbox for TmpDirSandbox {
     fn dir(&self) -> SandboxDir {
-        SandboxDir::new(Some(self.dir.clone()))
+        SandboxDir::new(Some(self.tmp_dir.clone()))
     }
 
     async fn create(&self, outputs: &[PathBuf]) -> Result<&PathBuf> {
-        fs::create_dir_all(&self.dir)
+        fs::create_dir_all(&self.tmp_dir)
             .await
-            .with_context(|| format!("Failed to create sandbox dir: {:?}", self.dir))?;
+            .with_context(|| format!("Failed to create sandbox dir: {:?}", self.tmp_dir))?;
         for input in &self.inputs {
-            if input.starts_with("..") {
-                bail!("input file must be inside of workspace: {input:?}");
+            if input.is_absolute() || input.starts_with("..") {
+                bail!("TmpDirSandbox input file has scary path: {input:?}");
             }
-            let src = input;
-            let dst = self.dir.join(input);
+            let ws_path = self.ws_dir.join(input);
+            let tmp_path = self.tmp_dir.join(input);
             match crate::config::SANDBOX_LINK_TYPE {
-                LinkType::Hardlink => crate::force_hardlink(src, &dst).await?,
-                LinkType::Symlink => crate::force_symlink(src, &dst).await?,
+                LinkType::Hardlink => crate::force_hardlink(&ws_path, &tmp_path).await?,
+                LinkType::Symlink => crate::force_symlink(&ws_path, &tmp_path).await?,
             }
         }
         for output in outputs {
-            let output_abs = self.dir.join(output);
+            let output_abs = self.tmp_dir.join(output);
             let dir = output_abs.parent().unwrap();
             fs::create_dir_all(&dir)
                 .await
                 .with_context(|| format!("Failed to create sandbox output dir: {dir:?}"))?;
         }
-        Ok(&self.dir)
+        Ok(&self.tmp_dir)
     }
 
     async fn move_output_files_into_out_dir(&self, output_paths: &[PathBuf]) -> Result<()> {
-        for dst in output_paths {
-            let src = self.dir.join(dst);
-            tokio::fs::rename(&src, &dst)
+        for output in output_paths {
+            let ws_path = self.ws_dir.join(output);
+            let tmp_path = self.tmp_dir.join(output);
+            tokio::fs::rename(&tmp_path, &ws_path)
                 .await
-                .with_context(|| format!("move_output_files_into_out_dir {src:?} -> {dst:?}"))?;
+                .with_context(|| {
+                    format!("move_output_files_into_out_dir {tmp_path:?} -> {output:?}")
+                })?;
         }
         Ok(())
     }
 
     async fn destroy(&self) -> Result<()> {
-        fs::remove_dir_all(&self.dir)
+        fs::remove_dir_all(&self.tmp_dir)
             .await
-            .with_context(|| format!("Failed to remove sandbox dir: {:?}", self.dir))?;
+            .with_context(|| format!("Failed to remove sandbox dir: {:?}", self.tmp_dir))?;
         Ok(())
     }
 }
@@ -97,9 +102,14 @@ pub struct WasiSandbox {
 }
 
 impl WasiSandbox {
-    pub fn new(base_dir: &Path, command_id: &str, inputs: Vec<(PathBuf, Option<PathBuf>)>) -> Self {
+    pub fn new(
+        ws_dir: PathBuf,
+        base_dir: &Path,
+        command_id: &str,
+        inputs: Vec<(PathBuf, Option<PathBuf>)>,
+    ) -> Self {
         Self {
-            tmp_dir_sandbox: TmpDirSandbox::new(base_dir, command_id, vec![]),
+            tmp_dir_sandbox: TmpDirSandbox::new(ws_dir, base_dir, command_id, vec![]),
             inputs,
         }
     }
@@ -112,16 +122,21 @@ impl Sandbox for WasiSandbox {
     }
 
     async fn create(&self, outputs: &[PathBuf]) -> Result<&PathBuf> {
-        let dir = &self.tmp_dir_sandbox.dir;
-        fs::create_dir_all(&dir)
+        let tmp_dir = &self.tmp_dir_sandbox.tmp_dir;
+        fs::create_dir_all(&tmp_dir)
             .await
-            .with_context(|| format!("Failed to create sandbox dir: {dir:?}"))?;
+            .with_context(|| format!("Failed to create sandbox dir: {tmp_dir:?}"))?;
         for (input, cas_path) in &self.inputs {
-            if input.starts_with("..") {
-                bail!("input file must be inside of workspace: {input:?}");
+            if input.is_absolute() || input.starts_with("..") {
+                bail!("WasiSandbox input file has scary path: {input:?}");
             }
-            let src = cas_path.as_ref().unwrap_or(input);
-            crate::force_hardlink(src, &self.dir().join(input)).await?;
+            let src = if let Some(cas_path) = cas_path {
+                cas_path.to_path_buf()
+            } else {
+                self.tmp_dir_sandbox.ws_dir.join(input)
+            };
+            let tmp_path = self.dir().join(input);
+            crate::force_hardlink(&src, &tmp_path).await?;
         }
         for output in outputs {
             let output_abs = self.dir().join(output);
@@ -130,7 +145,7 @@ impl Sandbox for WasiSandbox {
                 .await
                 .with_context(|| format!("Failed to create sandbox output dir: {dir:?}"))?;
         }
-        Ok(dir)
+        Ok(tmp_dir)
     }
 
     async fn move_output_files_into_out_dir(&self, output_paths: &[PathBuf]) -> Result<()> {
@@ -141,6 +156,36 @@ impl Sandbox for WasiSandbox {
 
     async fn destroy(&self) -> Result<()> {
         self.tmp_dir_sandbox.destroy().await
+    }
+}
+
+#[derive(Debug)]
+pub struct WorkspaceDirSandbox {
+    dir: PathBuf,
+}
+
+impl WorkspaceDirSandbox {
+    pub fn new(dir: PathBuf) -> Self {
+        Self { dir }
+    }
+}
+
+#[async_trait]
+impl Sandbox for WorkspaceDirSandbox {
+    fn dir(&self) -> SandboxDir {
+        SandboxDir::new(Some(self.dir.clone()))
+    }
+
+    async fn create(&self, _outputs: &[PathBuf]) -> Result<&PathBuf> {
+        Ok(&self.dir)
+    }
+
+    async fn move_output_files_into_out_dir(&self, _output_paths: &[PathBuf]) -> Result<()> {
+        Ok(())
+    }
+
+    async fn destroy(&self) -> Result<()> {
+        Ok(())
     }
 }
 
@@ -208,7 +253,12 @@ mod tests {
 
     async fn test_sandbox(base_dir: &Path, input: PathBuf, output: PathBuf) {
         let command_id = "0";
-        let sandbox = TmpDirSandbox::new(base_dir, command_id, vec![input.clone()]);
+        let sandbox = TmpDirSandbox::new(
+            PathBuf::from("."),
+            base_dir,
+            command_id,
+            vec![input.clone()],
+        );
         let sandbox_dir = sandbox.create(std::slice::from_ref(&output)).await.unwrap();
         let sandbox_input = sandbox_dir.join(&input);
         let sandbox_output = sandbox_dir.join(&output);

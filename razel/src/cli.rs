@@ -4,6 +4,7 @@ use anyhow::{bail, Result};
 use clap::{Args, Parser, Subcommand};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+use url::Url;
 
 mod http_remote_exec_config;
 pub use http_remote_exec_config::*;
@@ -91,6 +92,9 @@ pub struct RunArgs {
     /// Only cache commands with: output size / exec time < threshold [kilobyte / s]
     #[clap(long, env = "RAZEL_REMOTE_CACHE_THRESHOLD")]
     pub remote_cache_threshold: Option<u32>,
+    /// Comma seperated list of remote execution server URLs
+    #[clap(long, env = "RAZEL_REMOTE_EXEC", value_delimiter = ',')]
+    pub remote_exec: Vec<Url>,
     /// Http remote execution configuration
     #[clap(long, env = "RAZEL_HTTP_REMOTE_EXEC")]
     pub http_remote_exec: Option<HttpRemoteExecConfig>,
@@ -107,6 +111,7 @@ impl Default for RunArgs {
             cache_dir: None,
             remote_cache: vec![],
             remote_cache_threshold: None,
+            remote_exec: vec![],
             http_remote_exec: None,
         }
     }
@@ -130,11 +135,17 @@ pub struct FilterArgs {
 
 #[derive(Subcommand, Debug)]
 enum SystemCommand {
-    /// Check remote cache availability
+    /// Check availability of remote cache servers
     CheckRemoteCache {
         /// Comma seperated list of remote cache URLs
         #[clap(env = "RAZEL_REMOTE_CACHE", value_delimiter = ',', required = true)]
         urls: Vec<String>,
+    },
+    /// Check availability of remote execution servers
+    CheckRemoteExec {
+        /// Comma seperated list of remote execution server URLs
+        #[clap(env = "RAZEL_REMOTE_EXEC", value_delimiter = ',', required = true)]
+        urls: Vec<Url>,
     },
 }
 
@@ -171,7 +182,12 @@ pub async fn parse_cli(args: Vec<String>, razel: &mut Razel) -> Result<Option<Ru
         }
         CliCommands::System(s) => {
             match s {
-                SystemCommand::CheckRemoteCache { urls } => razel.check_remote_cache(urls).await?,
+                SystemCommand::CheckRemoteCache { urls } => {
+                    razel.check_remote_cache_servers(urls).await?
+                }
+                SystemCommand::CheckRemoteExec { urls } => {
+                    razel.check_remote_exec_servers(urls).await?
+                }
             }
             None
         }

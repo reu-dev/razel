@@ -32,7 +32,7 @@ macro_rules! unique_test_name {
 }
 
 #[allow(unused_imports)]
-pub(crate) use unique_test_name;
+pub use unique_test_name;
 
 /// Changes the current directory when created and restores the original one when dropped.
 pub struct ChangeDir {
