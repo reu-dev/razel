@@ -2,7 +2,6 @@ use crate::config;
 use crate::types::{Tag, Task};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::iter::once;
 use std::path::PathBuf;
 
@@ -35,12 +34,6 @@ pub struct Digest {
     /// leading zeroes up to the hash function length.
     pub hash: DigestHash,
     pub size_bytes: i64,
-}
-
-impl Hash for Digest {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.hash.hash(state);
-    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
