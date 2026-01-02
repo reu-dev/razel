@@ -326,7 +326,10 @@ impl TargetsBuilder {
         let path = match executable_type {
             ExecutableType::ExecutableInWorkspace
             | ExecutableType::ExecutableOutsideWorkspace
-            | ExecutableType::WasiModule => abs_path.strip_prefix(&self.current_dir)?.into(),
+            | ExecutableType::WasiModule => abs_path
+                .strip_prefix(&self.current_dir)
+                .map_err(|_| anyhow!("executable should be in workspace"))?
+                .into(),
             ExecutableType::SystemExecutable | ExecutableType::RazelExecutable => abs_path,
         };
         if let Some(id) = self.file_by_path.get(&path) {
@@ -434,7 +437,7 @@ impl TargetsBuilder {
 impl RazelJsonHandler for TargetsBuilder {
     /// Set the directory to resolve relative paths of input/output files
     fn set_workspace_dir(&mut self, dir: &Path) {
-        if dir == Path::new("") {
+        if dir == Path::new("") || dir == Path::new(".") {
             self.workspace_dir = self.current_dir.clone();
         } else if dir.is_relative() {
             self.workspace_dir = self.current_dir.join(dir);
