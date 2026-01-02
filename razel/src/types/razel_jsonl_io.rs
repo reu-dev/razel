@@ -1,8 +1,11 @@
-use crate::types::{RazelJson, TargetId};
+use crate::types::{
+    ExecutableType, File, RazelJson, RazelJsonCommand, RazelJsonTask, Target, TargetId, TargetKind,
+};
 use anyhow::{anyhow, Context, Result};
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
+use std::slice::Iter;
 
 pub trait RazelJsonHandler {
     /// Set the directory to resolve relative paths of input/output files
@@ -31,4 +34,95 @@ impl RazelJson {
         }
         Ok(())
     }
+
+    pub fn write(
+        targets: &Vec<Target>,
+        files: &Vec<File>,
+        out_dir: &Path,
+        output: &Path,
+    ) -> Result<()> {
+        let mut writer = BufWriter::new(fs::File::create(output)?);
+        for target in targets.iter() {
+            let json = match &target.kind {
+                TargetKind::Command(c) | TargetKind::Wasi(c) => {
+                    let executable = if files[target.executables[0]].executable
+                        == Some(ExecutableType::SystemExecutable)
+                    {
+                        files[target.executables[0]]
+                            .path
+                            .file_name()
+                            .unwrap()
+                            .to_string_lossy()
+                            .to_string()
+                    } else {
+                        c.executable.clone()
+                    };
+                    RazelJson::Command(RazelJsonCommand {
+                        name: target.name.clone(),
+                        executable,
+                        args: args_wo_out_dir(out_dir, c.args.iter()),
+                        env: c.env.clone(),
+                        inputs: target
+                            .inputs
+                            .iter()
+                            .map(|x| maybe_strip_prefix(&files[*x].path, out_dir))
+                            .collect(),
+                        outputs: target
+                            .outputs
+                            .iter()
+                            .map(|x| strip_prefix(&files[*x].path, out_dir))
+                            .collect(),
+                        stdout: c.stdout_file.as_ref().map(|x| x.to_str().unwrap().into()),
+                        stderr: c.stderr_file.as_ref().map(|x| x.to_str().unwrap().into()),
+                        deps: target
+                            .deps
+                            .iter()
+                            .map(|x| targets[*x].name.clone())
+                            .collect(),
+                        tags: target.tags.clone(),
+                    })
+                }
+                TargetKind::Task(t) | TargetKind::HttpRemoteExecTask(t) => {
+                    let mut i = t.args.iter();
+                    i.next(); // "task"
+                    let task = i.next().unwrap().to_string();
+                    RazelJson::Task(RazelJsonTask {
+                        name: target.name.clone(),
+                        task,
+                        args: args_wo_out_dir(out_dir, i),
+                        tags: target.tags.clone(),
+                    })
+                }
+            };
+            writer.write_all(&serde_json::to_vec(&json)?)?;
+            writer.write_all(b"\n")?;
+        }
+        writer.flush()?;
+        Ok(())
+    }
+}
+
+fn strip_prefix(path: &Path, prefix: &Path) -> String {
+    path.strip_prefix(prefix)
+        .unwrap()
+        .to_string_lossy()
+        .to_string()
+}
+
+fn maybe_strip_prefix(path: &Path, prefix: &Path) -> String {
+    path.strip_prefix(prefix)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .to_string()
+}
+
+fn args_wo_out_dir(out_dir: &Path, i: Iter<String>) -> Vec<String> {
+    i.into_iter()
+        .map(|x| {
+            Path::new(x)
+                .strip_prefix(out_dir)
+                .ok()
+                .map_or_else(|| x.into(), |x| x.to_str().unwrap().into())
+        })
+        .collect()
 }

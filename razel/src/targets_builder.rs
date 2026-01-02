@@ -83,6 +83,10 @@ impl TargetsBuilder {
         Ok(())
     }
 
+    pub fn write_jsonl_file(&mut self, path: &Path) -> Result<()> {
+        RazelJson::write(&self.targets, &self.files, &self.out_dir, path)
+    }
+
     pub fn push_json_command(&mut self, command: RazelJsonCommand) -> Result<TargetId> {
         if self.target_by_name.contains_key(&command.name) {
             bail!("target already exists: {:?}", command.name);
