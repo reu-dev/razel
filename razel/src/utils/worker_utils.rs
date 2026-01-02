@@ -7,7 +7,7 @@ use anyhow::{bail, Context, Result};
 use std::path::Path;
 use std::time::Duration;
 
-pub async fn get_action_from_cache(
+pub async fn get_execution_result_from_cache(
     action_digest: &MessageDigest,
     cache: Option<&mut Cache>,
     use_remote_cache: bool,
