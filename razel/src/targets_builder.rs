@@ -94,11 +94,25 @@ impl TargetsBuilder {
             .into_iter()
             .map(|mut x| self.push_input_file(&mut x, &mut args))
             .collect::<Result<Vec<_>>>()?;
-        let outputs = command
+        let mut outputs = command
             .outputs
             .into_iter()
             .map(|mut x| self.push_output_file(&mut x, &mut args))
             .collect::<Result<Vec<_>>>()?;
+        let stdout_file = if let Some(path) = command.stdout {
+            let file_id = self.push_output_file_with_relative_path(&path)?;
+            outputs.push(file_id);
+            Some(self.files[file_id].path.clone())
+        } else {
+            None
+        };
+        let stderr_file = if let Some(path) = command.stderr {
+            let file_id = self.push_output_file_with_relative_path(&path)?;
+            outputs.push(file_id);
+            Some(self.files[file_id].path.clone())
+        } else {
+            None
+        };
         let deps = command
             .deps
             .into_iter()
@@ -113,8 +127,8 @@ impl TargetsBuilder {
             executable: self.files[executable_id].path.to_str().unwrap().into(),
             args,
             env: command.env,
-            stdout_file: command.stdout.map(|x| x.into()),
-            stderr_file: command.stderr.map(|x| x.into()),
+            stdout_file,
+            stderr_file,
         };
         let target = Target {
             id: Default::default(),
