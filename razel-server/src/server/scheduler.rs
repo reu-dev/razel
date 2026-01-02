@@ -124,11 +124,7 @@ impl JobData {
         tracing::debug!(job_id=?self.id, target_id, result=?msg.result, output_files=?msg.output_files.iter().map(|x| x.id).collect_vec());
         if msg.result.success() {
             self.succeeded.push(target_id);
-            for file in &msg.output_files {
-                assert!(file.digest.is_some());
-                assert!(self.dep_graph.files[file.id].digest.is_none());
-                self.dep_graph.files[file.id].digest = file.digest.clone();
-            }
+            self.set_output_file_digests(&msg.output_files);
             let ready = self.dep_graph.set_succeeded(target_id);
             self.push_ready_from_dep_graph(ready);
         } else {
@@ -139,6 +135,14 @@ impl JobData {
             {
                 self.failed.push(target_id);
             }
+        }
+    }
+
+    fn set_output_file_digests(&mut self, files: &Vec<File>) {
+        for file in files {
+            assert!(file.digest.is_some());
+            assert!(self.dep_graph.files[file.id].digest.is_none());
+            self.dep_graph.files[file.id].digest = file.digest.clone();
         }
     }
 }

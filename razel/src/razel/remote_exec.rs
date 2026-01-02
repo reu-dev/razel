@@ -1,9 +1,8 @@
 use super::Razel;
-use crate::bazel_remote_exec::OutputFile;
 use crate::cache::Cache;
 use crate::executors::ExecutionResult;
 use crate::remote_exec::{Client, ClientChannelMsg, CreateJobResponse};
-use crate::types::{Tag, TargetId};
+use crate::types::{File, Tag, TargetId};
 use crate::{
     select_cache_dir, select_sandbox_dir, SchedulerExecStats, SchedulerStats, TmpDirSandbox,
 };
@@ -131,7 +130,7 @@ impl Razel {
         let sandbox_dir = select_sandbox_dir(&cache_dir)?;
         let cache = Cache::new(
             cache_dir,
-            PathBuf::new(), // output files contain razel-out prefix
+            PathBuf::new(), // output file paths contain razel-out prefix
         )?;
         debug!("sandbox directory: {sandbox_dir:?}");
         debug!("worker threads:    {}", self.worker_threads);
@@ -153,7 +152,7 @@ impl Razel {
         &mut self,
         id: TargetId,
         execution_result: &ExecutionResult,
-        output_files: Vec<OutputFile>,
+        output_files: Vec<File>,
     ) {
         let target = &self.dep_graph.targets[id];
         let measurements = self.measurements.collect(&target.name, execution_result);
@@ -167,7 +166,7 @@ impl Razel {
         self.log_file
             .push(target, execution_result, Some(output_size), measurements);
         if execution_result.success() {
-            self.set_output_file_digests(output_files, false);
+            self.set_output_file_digests(output_files);
             self.on_command_succeeded(id, execution_result);
         } else if target.tags.contains(&Tag::Condition) {
             self.on_condition_failed(id, execution_result);

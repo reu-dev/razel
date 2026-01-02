@@ -99,6 +99,7 @@ pub mod utils {
     pub use helpers::*;
     pub use resources::*;
     pub use symlink::*;
+    pub use worker_utils::*;
 
     mod directories;
     mod file_permissions;
@@ -109,6 +110,7 @@ pub mod utils {
     mod resources;
     mod symlink;
     pub mod tui;
+    mod worker_utils;
 }
 
 pub mod types {

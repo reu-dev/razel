@@ -1,4 +1,4 @@
-use crate::bazel_remote_exec::{ActionResult, BazelDigest, ExecutedActionMetadata, OutputFile};
+use crate::bazel_remote_exec::BazelDigest;
 use crate::cache::{BlobDigest, Cache, MessageDigest};
 use crate::cli::HttpRemoteExecConfig;
 use crate::executors::{
@@ -9,13 +9,14 @@ use crate::metadata::{LogFile, Measurements, Profile, Report};
 use crate::targets_builder::TargetsBuilder;
 use crate::tui::TUI;
 use crate::types::{
-    CommandTarget, DependencyGraph, Digest, ExecutableType, File, FileId, RazelJson,
-    RazelJsonCommand, RazelJsonHandler, Tag, Target, TargetId, TargetKind, Task, TaskTarget,
+    CommandTarget, DependencyGraph, Digest, File, FileId, RazelJson, RazelJsonCommand,
+    RazelJsonHandler, Tag, Target, TargetId, TargetKind, Task, TaskTarget,
 };
 use crate::{
-    bazel_remote_exec, config, create_cgroup, force_remove_file, is_file_executable,
-    select_cache_dir, select_sandbox_dir, write_gitignore, BoxedSandbox, CGroup, SandboxDir,
-    Scheduler, TmpDirSandbox, WasiSandbox, GITIGNORE_FILENAME,
+    bazel_remote_exec, config, create_cgroup, exec_action_with_sandbox,
+    exec_action_without_sandbox, get_execution_result_from_cache, select_cache_dir,
+    select_sandbox_dir, write_gitignore, BoxedSandbox, CGroup, Scheduler, TmpDirSandbox,
+    WasiSandbox, GITIGNORE_FILENAME,
 };
 use anyhow::{bail, Context, Result};
 use itertools::{chain, Itertools};
@@ -68,7 +69,7 @@ impl SchedulerExecStats {
     }
 }
 
-pub type ExecutionResultChannel = (TargetId, ExecutionResult, Vec<OutputFile>, bool);
+pub type ExecutionResultChannel = (TargetId, ExecutionResult, Vec<File>);
 
 pub struct Razel {
     pub read_cache: bool,
@@ -277,8 +278,8 @@ impl Razel {
         let mut start_more = true;
         while self.scheduler.running() != 0 {
             tokio::select! {
-                Some((id, execution_result, output_files, output_files_cached)) = rx.recv() => {
-                    self.on_command_finished(id, &execution_result, output_files, output_files_cached);
+                Some((id, execution_result, output_files)) = rx.recv() => {
+                    self.on_command_finished(id, &execution_result, output_files);
                     if execution_result.status == ExecutionStatus::SystemError
                         || (!self.failed.is_empty() && !keep_going)
                     {
@@ -540,14 +541,6 @@ impl Razel {
         ))
     }
 
-    fn collect_output_file_paths_for_target(&self, target: &Target) -> Vec<PathBuf> {
-        target
-            .outputs
-            .iter()
-            .map(|x| self.dep_graph.files[*x].path.clone())
-            .collect()
-    }
-
     /// Execute a target in a worker thread with caching.
     ///
     /// If the executed target failed, action_result will be None and the action will not be cached.
@@ -569,45 +562,42 @@ impl Razel {
         let use_sandbox = !target.outputs.is_empty();
         let sandbox = (use_sandbox && !target.tags.contains(&Tag::NoSandbox))
             .then(|| self.new_sandbox(target));
-        let output_paths = self.collect_output_file_paths_for_target(target);
+        let mut output_files = self.collect_output_files(target, &self.dep_graph.files);
         let cwd = self.current_dir.clone();
-        let out_dir = self.out_dir.clone();
         tokio::task::spawn(async move {
-            let use_cache = cache.is_some();
             let action = bazel_remote_exec::Action {
                 command_digest: Some(BazelDigest::for_message(&bzl_command)),
                 input_root_digest: Some(BazelDigest::for_message(&bzl_input_root)),
                 ..Default::default()
             };
             let action_digest = Digest::for_message(&action);
-            let (mut execution_result, output_files) = Self::exec_action(
+            let mut execution_result = Self::exec_action(
                 &action_digest,
                 cache,
                 read_cache,
                 use_remote_cache,
                 &executor,
-                &output_paths,
+                &mut output_files,
                 sandbox,
                 &cwd,
-                &out_dir,
             )
             .await
-            .unwrap_or_else(|e| {
-                (
-                    ExecutionResult {
-                        status: ExecutionStatus::SystemError,
-                        error: Some(format!("{e:?}")),
-                        ..Default::default()
-                    },
-                    Default::default(),
-                )
+            .unwrap_or_else(|e| ExecutionResult {
+                status: ExecutionStatus::SystemError,
+                error: Some(format!("{e:?}")),
+                ..Default::default()
             });
             execution_result.total_duration = Some(total_duration_start.elapsed());
-            let output_files_cached = use_cache && execution_result.success();
+            if !execution_result.success() {
+                output_files.clear();
+            }
             // ignore SendError - channel might be closed if a previous target failed
-            tx.send((id, execution_result, output_files, output_files_cached))
-                .ok();
+            tx.send((id, execution_result, output_files)).ok();
         });
+    }
+
+    fn collect_output_files(&self, target: &Target, files: &[File]) -> Vec<File> {
+        target.outputs.iter().map(|x| files[*x].clone()).collect()
     }
 
     fn new_executor(&self, target: &Target) -> Executor {
@@ -673,261 +663,61 @@ impl Razel {
         read_cache: bool,
         use_remote_cache: bool,
         executor: &Executor,
-        output_paths: &Vec<PathBuf>,
+        output_files: &mut Vec<File>,
         sandbox: Option<BoxedSandbox>,
         cwd: &Path,
-        out_dir: &PathBuf,
-    ) -> Result<(ExecutionResult, Vec<OutputFile>)> {
-        let (execution_result, output_files) = if let Some(x) =
-            Self::get_action_from_cache(action_digest, cache.as_mut(), read_cache, use_remote_cache)
-                .await
-        {
+    ) -> Result<ExecutionResult> {
+        let execution_result = if read_cache {
+            get_execution_result_from_cache(
+                action_digest,
+                cache.as_mut(),
+                use_remote_cache,
+                output_files,
+            )
+            .await
+        } else {
+            None
+        };
+        let execution_result = if let Some(x) = execution_result {
             x
         } else if let Some(sandbox) = sandbox {
-            Self::exec_action_with_sandbox(
+            exec_action_with_sandbox(
                 action_digest,
                 cache.as_mut(),
                 use_remote_cache,
                 executor,
                 sandbox,
-                output_paths,
+                output_files,
                 cwd,
-                out_dir,
             )
             .await
             .context("exec_action_with_sandbox()")?
         } else {
-            Self::exec_action_without_sandbox(
+            exec_action_without_sandbox(
                 action_digest,
                 cache.as_mut(),
                 use_remote_cache,
                 executor,
-                output_paths,
+                output_files,
                 cwd,
-                out_dir,
             )
             .await
             .context("exec_action_without_sandbox()")?
         };
         if let Some(cache) = cache.as_ref().filter(|_| execution_result.success()) {
-            let output_files = output_files
-                .iter()
-                .map(|f| File {
-                    id: 0, // doesn't matter here
-                    path: PathBuf::from(f.path.clone()),
-                    digest: Some(f.digest.as_ref().unwrap().into()),
-                    executable: if f.is_executable {
-                        Some(ExecutableType::ExecutableInWorkspace)
-                    } else {
-                        None
-                    },
-                    is_excluded: false,
-                })
-                .collect();
             cache
-                .link_output_files_into_out_dir(&output_files)
+                .link_output_files_into_out_dir(output_files)
                 .await
                 .context("link_output_files_into_out_dir()")?;
         }
-        Ok((execution_result, output_files))
-    }
-
-    async fn get_action_from_cache(
-        action_digest: &MessageDigest,
-        cache: Option<&mut Cache>,
-        read_cache: bool,
-        use_remote_cache: bool,
-    ) -> Option<(ExecutionResult, Vec<OutputFile>)> {
-        let cache = cache.filter(|_| read_cache)?;
-        if let Some((action_result, cache_hit)) = cache
-            .get_action_result(action_digest, use_remote_cache)
-            .await
-        {
-            let exit_code = Some(action_result.exit_code);
-            let metadata = action_result.execution_metadata.as_ref();
-            let execution_result = ExecutionResult {
-                status: ExecutionStatus::Success,
-                exit_code,
-                signal: None,
-                error: None,
-                cache_hit: Some(cache_hit),
-                stdout: action_result.stdout_raw,
-                stderr: action_result.stderr_raw,
-                exec_duration: metadata
-                    .and_then(|x| x.virtual_execution_duration.as_ref())
-                    .map(|x| Duration::new(x.seconds as u64, x.nanos as u32)),
-                total_duration: None,
-            };
-            return Some((execution_result, action_result.output_files));
-        }
-        None
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn exec_action_with_sandbox(
-        action_digest: &MessageDigest,
-        cache: Option<&mut Cache>,
-        use_remote_cache: bool,
-        executor: &Executor,
-        sandbox: BoxedSandbox,
-        output_paths: &Vec<PathBuf>,
-        cwd: &Path,
-        out_dir: &PathBuf,
-    ) -> Result<(ExecutionResult, Vec<OutputFile>)> {
-        sandbox
-            .create(output_paths)
-            .await
-            .context("Sandbox::create()")?;
-        let sandbox_dir = sandbox.dir();
-        let execution_result = executor.exec(cwd, &sandbox_dir).await;
-        let output_files = if execution_result.success() {
-            Self::new_output_files_with_digest(&sandbox_dir, out_dir, output_paths).await?
-        } else {
-            Default::default()
-        };
-        if execution_result.success() {
-            if let Some(cache) = cache {
-                Self::cache_action_result(
-                    action_digest,
-                    &execution_result,
-                    output_files.clone(),
-                    &sandbox_dir,
-                    cache,
-                    use_remote_cache,
-                )
-                .await
-                .with_context(|| "cache_action_result()")?;
-            } else {
-                sandbox.move_output_files_into_out_dir(output_paths).await?;
-            }
-        }
-        sandbox
-            .destroy()
-            .await
-            .with_context(|| "Sandbox::destroy()")?;
-        Ok((execution_result, output_files))
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn exec_action_without_sandbox(
-        action_digest: &MessageDigest,
-        cache: Option<&mut Cache>,
-        use_remote_cache: bool,
-        executor: &Executor,
-        output_paths: &Vec<PathBuf>,
-        cwd: &Path,
-        out_dir: &PathBuf,
-    ) -> Result<(ExecutionResult, Vec<OutputFile>)> {
-        // remove expected output files, because symlinks will not be overwritten
-        for x in output_paths {
-            force_remove_file(x).await?;
-        }
-        let sandbox_dir = SandboxDir::new(None);
-        let execution_result = executor.exec(cwd, &sandbox_dir).await;
-        let output_files = if execution_result.success() {
-            Self::new_output_files_with_digest(&sandbox_dir, out_dir, output_paths).await?
-        } else {
-            Default::default()
-        };
-        if let Some(cache) = cache.filter(|_| execution_result.success()) {
-            Self::cache_action_result(
-                action_digest,
-                &execution_result,
-                output_files.clone(),
-                &sandbox_dir,
-                cache,
-                use_remote_cache,
-            )
-            .await
-            .with_context(|| "cache_action_result()")?;
-        }
-        Ok((execution_result, output_files))
-    }
-
-    async fn new_output_files_with_digest(
-        sandbox_dir: &SandboxDir,
-        out_dir: &PathBuf,
-        output_paths: &Vec<PathBuf>,
-    ) -> Result<Vec<OutputFile>> {
-        let mut output_files: Vec<OutputFile> = Vec::with_capacity(output_paths.len());
-        for path in output_paths {
-            let output_file = Self::new_output_file_with_digest(sandbox_dir, out_dir, path)
-                .await
-                .context("Handle expected output file")?;
-            output_files.push(output_file);
-        }
-        Ok(output_files)
-    }
-
-    async fn new_output_file_with_digest(
-        sandbox_dir: &SandboxDir,
-        out_dir: &PathBuf,
-        exec_path: &PathBuf,
-    ) -> Result<OutputFile> {
-        let src = sandbox_dir.join(exec_path);
-        if src.is_symlink() {
-            bail!("Output file must not be a symlink: {:?}", src);
-        }
-        let file = tokio::fs::File::open(&src)
-            .await
-            .with_context(|| format!("Failed to open: {src:?}"))?;
-        let is_executable = is_file_executable(&file)
-            .await
-            .with_context(|| format!("is_file_executable(): {src:?}"))?;
-        let digest = BazelDigest::for_file(file)
-            .await
-            .with_context(|| format!("Digest::for_file(): {src:?}"))?;
-        let path = exec_path.strip_prefix(out_dir).unwrap_or(exec_path);
-        if !path.is_relative() {
-            bail!("Path should be relative: {:?}", path);
-        }
-        Ok(OutputFile {
-            path: path.to_str().unwrap().into(),
-            digest: Some(digest),
-            is_executable,
-            contents: vec![],
-            node_properties: None,
-        })
-    }
-
-    async fn cache_action_result(
-        action_digest: &MessageDigest,
-        execution_result: &ExecutionResult,
-        output_files: Vec<OutputFile>,
-        sandbox_dir: &SandboxDir,
-        cache: &mut Cache,
-        use_remote_cache: bool,
-    ) -> Result<Vec<OutputFile>> {
-        assert!(execution_result.success());
-        let mut action_result = ActionResult {
-            output_files,
-            exit_code: execution_result.exit_code.unwrap_or_default(),
-            execution_metadata: Some(ExecutedActionMetadata {
-                virtual_execution_duration: execution_result.exec_duration.map(|x| {
-                    bazel_remote_exec::Duration {
-                        seconds: x.as_secs() as i64,
-                        nanos: x.subsec_nanos() as i32,
-                    }
-                }),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        // TODO add stdout/stderr files for non-small outputs
-        action_result.stdout_raw = execution_result.stdout.clone();
-        action_result.stderr_raw = execution_result.stderr.clone();
-        cache
-            .push(action_digest, &action_result, sandbox_dir, use_remote_cache)
-            .await?;
-        Ok(action_result.output_files)
+        Ok(execution_result)
     }
 
     fn on_command_finished(
         &mut self,
         id: TargetId,
         execution_result: &ExecutionResult,
-        output_files: Vec<OutputFile>,
-        output_files_cached: bool,
+        output_files: Vec<File>,
     ) {
         let target = &self.dep_graph.targets[id];
         let retry = self
@@ -947,7 +737,7 @@ impl Razel {
             self.log_file
                 .push(target, execution_result, Some(output_size), measurements);
             if execution_result.success() {
-                self.set_output_file_digests(output_files, output_files_cached);
+                self.set_output_file_digests(output_files);
                 self.on_command_succeeded(id, execution_result);
             } else if target.tags.contains(&Tag::Condition) {
                 self.on_condition_failed(id, execution_result);
@@ -958,20 +748,11 @@ impl Razel {
         }
     }
 
-    fn set_output_file_digests(
-        &mut self,
-        output_files: Vec<OutputFile>,
-        output_files_cached: bool,
-    ) {
-        for output_file in output_files {
-            assert!(output_file.digest.is_some());
-            let path = PathBuf::from(output_file.path);
-            let file = &mut self.dep_graph.files[self.file_by_path[&path]];
-            assert!(file.digest.is_none());
-            file.digest = Some(output_file.digest.unwrap().into());
-            if output_files_cached {
-                // TODO file.locally_cached = true;
-            }
+    fn set_output_file_digests(&mut self, files: Vec<File>) {
+        for file in files {
+            assert!(file.digest.is_some());
+            assert!(self.dep_graph.files[file.id].digest.is_none());
+            self.dep_graph.files[file.id].digest = file.digest;
         }
     }
 
