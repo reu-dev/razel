@@ -102,7 +102,7 @@ pub fn drop_readonly_flag_std(path: &Path, metadata: Metadata) -> Result<()> {
     let mut permissions = metadata.permissions();
     #[allow(clippy::permissions_set_readonly_false)] // this is the non-unix code
     permissions.set_readonly(false);
-    std::fs::set_permissions(path, permissions).await?;
+    std::fs::set_permissions(path, permissions)?;
     Ok(())
 }
 
