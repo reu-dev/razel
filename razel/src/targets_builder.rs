@@ -6,12 +6,12 @@ use crate::types::{
 use anyhow::{Context, Result, anyhow, bail};
 use clap::Parser;
 use itertools::{Itertools, chain};
-use log::debug;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::{env, fs};
+use tracing::debug;
 use which::which;
 
 pub struct TargetsBuilder {

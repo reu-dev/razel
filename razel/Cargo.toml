@@ -25,7 +25,6 @@ dotenv-flow = { version = "0.16", optional = true }
 futures-util = { version = "0.3", optional = true }
 gethostname = { version = "1", optional = true }
 itertools = { workspace = true }
-log = { workspace = true }
 num_cpus = { version = "1", optional = true } # TODO replace with std::thread::available_parallelism() once it works in docker: https://github.com/rust-lang/rust/pull/97925
 postcard = { workspace = true, optional = true }
 prost = { version = "0.14", optional = true }
@@ -37,7 +36,6 @@ reqwest = { version = "0.12", default-features = false, features = ["multipart",
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { version = "0.10", optional = true }
-simplelog = { version = "0.12", optional = true }
 tokio = { workspace = true, optional = true }
 tonic = { version = "0.14", optional = true }
 tonic-prost = { version = "0.14", optional = true }
@@ -58,7 +56,6 @@ tonic-prost-build = { version = "0.14", optional = true }
 [dev-dependencies]
 approx = "0.5"
 assert2 = "0.3"
-env_logger = "0.11"
 serde_json = { workspace = true }
 serial_test = "3"
 
@@ -66,7 +63,7 @@ serial_test = "3"
 default = ["full", "remote_exec"]
 full = ["dep:async-trait", "dep:crossterm", "dep:csv", "dep:directories", "dep:dotenv-flow", "dep:futures-util",
     "dep:gethostname", "dep:num_cpus", "dep:prost", "dep:prost-types", "dep:regex",
-    "dep:reqwest", "dep:sha2", "dep:simplelog", "dep:tokio", "dep:tonic", "dep:tonic-prost", "dep:tracing", "dep:tracing-subscriber",
+    "dep:reqwest", "dep:sha2", "dep:tokio", "dep:tonic", "dep:tonic-prost", "dep:tracing", "dep:tracing-subscriber",
     "dep:wasmtime", "dep:wasmtime-wasi", "dep:procfs", "dep:tonic-prost-build"
 ]
 remote_exec = ["dep:chrono", "dep:postcard", "dep:quinn", "dep:rand", "dep:uuid"]

@@ -2,13 +2,13 @@ use crate::bazel_remote_exec::*;
 use crate::cache::{BlobDigest, DigestData, MessageDigest};
 use crate::make_file_executable;
 use anyhow::{Context, Result, anyhow, bail};
-use log::warn;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tonic::Code;
 use tonic::transport::{Channel, Uri};
+use tracing::warn;
 
 // TODO add Zstd compression for blobs
 #[derive(Clone)]

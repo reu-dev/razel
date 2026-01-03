@@ -3,7 +3,6 @@ use crate::executors::{ExecutionResult, ExecutionStatus};
 use crate::types::HttpRemoteExecTask;
 use anyhow::{Result, anyhow};
 use itertools::{Itertools, zip_eq};
-use log::warn;
 use reqwest::{Client, Url, multipart};
 use std::ops::Not;
 use std::path::PathBuf;
@@ -11,6 +10,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::fs;
+use tracing::warn;
 
 #[derive(Clone, Default)]
 pub struct HttpRemoteExecState {

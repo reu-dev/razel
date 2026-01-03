@@ -2,6 +2,19 @@ use anyhow::{Result, bail};
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 
+pub fn setup_tracing() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_new(
+                std::env::var("RUST_LOG")
+                    .unwrap_or("info,cranelift=info,wasmtime=info".to_string()),
+            )
+            .expect("failed to parse tracing directives"),
+        )
+        .with_test_writer()
+        .finish();
+}
+
 pub fn ensure_files_are_equal(file1: PathBuf, file2: PathBuf) -> Result<()> {
     let file1_bytes = fs::read(&file1)?;
     let file2_bytes = fs::read(&file2)?;

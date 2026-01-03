@@ -1,12 +1,12 @@
 use crate::config;
 use anyhow::{Context, Result, bail};
-use log::debug;
 use procfs::{Current, Meminfo};
 use std::fs;
 use std::fs::{File, read_to_string};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::str::FromStr;
+use tracing::debug;
 
 pub fn create_cgroup() -> Result<Option<CGroup>> {
     let available = get_available_memory()?;

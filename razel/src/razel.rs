@@ -20,7 +20,6 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use itertools::{Itertools, chain};
-use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -28,6 +27,7 @@ use std::time::{Duration, Instant};
 use std::{env, fs};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
+use tracing::{debug, warn};
 use url::Url;
 
 #[derive(Debug, PartialEq, Eq)]

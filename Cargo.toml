@@ -20,7 +20,6 @@ clap = { version = "4", features = ["derive", "env"] }
 directories = "6"
 quinn = { version = "0.11.9" }
 itertools = "0.14"
-log = "0.4"
 postcard = "1.1"
 rand = "0.9"
 serde = { version = "1", features = ["derive"] }

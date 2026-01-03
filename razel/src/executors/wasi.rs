@@ -206,7 +206,7 @@ fn preopen_dir_for_read(
     host_dir: &Path,
     guest_dir: &str,
 ) -> Result<()> {
-    log::debug!("preopen_dir_for_read() host: {host_dir:?}, guest: {guest_dir:?}");
+    tracing::debug!("preopen_dir_for_read() host: {host_dir:?}, guest: {guest_dir:?}");
     builder
         .preopened_dir(host_dir, guest_dir, DirPerms::READ, FilePerms::READ)
         .with_context(|| {
@@ -220,7 +220,7 @@ fn preopen_dir_for_write(
     host_dir: &Path,
     guest_dir: &str,
 ) -> Result<()> {
-    log::debug!("preopen_dir_for_write() host: {host_dir:?}, guest: {guest_dir:?}");
+    tracing::debug!("preopen_dir_for_write() host: {host_dir:?}, guest: {guest_dir:?}");
     builder
         .preopened_dir(host_dir, guest_dir, DirPerms::all(), FilePerms::all())
         .with_context(|| {

@@ -1,25 +1,20 @@
 use anyhow::{Context, Result};
-use log::{LevelFilter, debug};
 use razel::Razel;
 use razel::cli::parse_cli;
-use simplelog::*;
+use tracing::debug;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    TermLogger::init(
-        LevelFilter::Info,
-        ConfigBuilder::new()
-            .add_filter_ignore_str("cranelift_codegen")
-            .add_filter_ignore_str("tracing::span")
-            .add_filter_ignore_str("wasmtime_cranelift")
-            .add_filter_ignore_str("wasmtime_jit")
-            .add_filter_ignore_str("wasmtime_wasi")
-            .set_target_level(LevelFilter::Error)
-            .build(),
-        TerminalMode::Stderr,
-        ColorChoice::Auto,
-    )
-    .unwrap();
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_new(
+                std::env::var("RUST_LOG")
+                    .unwrap_or("info,cranelift=info,wasmtime=info".to_string()),
+            )
+            .expect("failed to parse tracing directives"),
+        )
+        .with_writer(std::io::stderr)
+        .init();
 
     // exit on panic in any thread
     let default_panic = std::panic::take_hook();
@@ -86,19 +81,12 @@ mod main {
         exp_cache_hits: usize,
         additional_tag: Option<(&str, Tag)>,
     ) {
+        razel::test_utils::setup_tracing();
         let cargo_workspace_dir = Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap())
             .parent()
             .unwrap()
             .to_path_buf();
         let _change_dir = ChangeDir::new(&cargo_workspace_dir);
-        let _ = env_logger::builder()
-            .filter_level(log::LevelFilter::Debug)
-            .filter_module("cranelift_codegen", log::LevelFilter::Warn)
-            .filter_module("wasmtime", log::LevelFilter::Info)
-            .filter_module("wasmtime_cranelift", log::LevelFilter::Info)
-            .filter_module("serial_test", log::LevelFilter::Info)
-            .is_test(true)
-            .try_init();
         // exit on panic in any thread
         let default_panic = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {

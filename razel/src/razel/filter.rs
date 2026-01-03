@@ -69,7 +69,7 @@ impl Razel {
             }
         }
         let deps_len = included - matching_len;
-        log::info!("included {matching_len} targets with {deps_len} dependencies");
+        tracing::info!("included {matching_len} targets with {deps_len} dependencies");
         self.excluded_targets_len = dep_graph.targets.len() - included;
     }
 }

@@ -1,12 +1,12 @@
 use razel::cli::parse_cli;
-use razel::test_utils::{ChangeDir, TempDir};
+use razel::test_utils::{ChangeDir, TempDir, setup_tracing};
 use razel::types::Tag;
 use razel::{Razel, SchedulerExecStats, SchedulerStats, config, new_tmp_dir};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::process::{Child, Command};
 use tokio::time::sleep;
-use tracing::{Level, instrument};
+use tracing::instrument;
 use url::Url;
 
 const PORT: u16 = 4434;
@@ -17,12 +17,7 @@ async fn run_client_and_server(
     exp_stats: SchedulerExecStats,
     additional_tag: Option<(&str, Tag)>,
 ) {
-    tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG)
-        .with_target(false)
-        .with_writer(std::io::stderr)
-        .try_init()
-        .ok();
+    setup_tracing();
     // exit on panic in any thread
     let default_panic = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -88,7 +83,7 @@ fn spawn_server(config: PathBuf, name: String) -> (Child, TempDir) {
         .arg("-n")
         .arg(name)
         .current_dir(tmp_dir.dir())
-        .env("RUST_LOG", "debug")
+        .env("RUST_LOG", "debug,cranelift=info,wasmtime=info")
         .kill_on_drop(true)
         .spawn()
         .unwrap();

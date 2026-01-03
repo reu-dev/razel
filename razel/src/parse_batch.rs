@@ -4,10 +4,10 @@ use crate::types::RazelJsonHandler;
 use crate::{Razel, Rules, config};
 use anyhow::{Context, Result, bail};
 use itertools::Itertools;
-use log::debug;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
+use tracing::debug;
 
 pub fn parse_command(razel: &mut Razel, command_line: Vec<String>) -> Result<()> {
     let rules = Rules::new();

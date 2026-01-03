@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail};
-use log::warn;
 use std::collections::HashMap;
 use std::path::Path;
+use tracing::warn;
 
 /// Rules to parse input/output file arguments from command lines
 ///

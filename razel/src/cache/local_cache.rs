@@ -4,11 +4,11 @@ use crate::config::LinkType;
 use crate::types::{Digest, File};
 use crate::{force_remove_file, set_file_readonly, write_gitignore};
 use anyhow::{Context, Result, bail};
-use log::warn;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncReadExt;
 use tracing::instrument;
+use tracing::warn;
 
 #[derive(Clone)]
 pub struct LocalCache {

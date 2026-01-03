@@ -3,7 +3,6 @@ use clap::Parser;
 use razel_server::Server;
 use razel_server::config::Config;
 use std::path::PathBuf;
-use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
 struct Cli {
@@ -19,11 +18,13 @@ struct Cli {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::builder()
-                .with_default_directive("info".parse().unwrap())
-                .from_env()
-                .unwrap(),
+            tracing_subscriber::EnvFilter::try_new(
+                std::env::var("RUST_LOG")
+                    .unwrap_or("info,cranelift=info,wasmtime=info".to_string()),
+            )
+            .expect("failed to parse tracing directives"),
         )
+        .with_writer(std::io::stderr)
         .init();
 
     // exit on panic in any thread

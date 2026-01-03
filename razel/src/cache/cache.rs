@@ -4,13 +4,13 @@ use crate::cache::{BlobDigest, GrpcRemoteCache, LocalCache, MessageDigest};
 use crate::types::{CacheHit, File};
 use anyhow::{Context, Result, bail};
 use itertools::Itertools;
-use log::info;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tonic::transport::Uri;
+use tracing::info;
 
 #[derive(Clone)] // TODO is Cache::clone() a good idea?
 pub struct Cache {
