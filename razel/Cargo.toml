@@ -39,7 +39,7 @@ sha2 = { version = "0.10", optional = true }
 tokio = { workspace = true, optional = true }
 tonic = { version = "0.14", optional = true }
 tonic-prost = { version = "0.14", optional = true }
-tracing = { workspace = true, optional = true }
+tracing = { workspace = true }
 tracing-subscriber = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 url = { workspace = true }
@@ -63,7 +63,7 @@ serial_test = "3"
 default = ["full", "remote_exec"]
 full = ["dep:async-trait", "dep:crossterm", "dep:csv", "dep:directories", "dep:dotenv-flow", "dep:futures-util",
     "dep:gethostname", "dep:num_cpus", "dep:prost", "dep:prost-types", "dep:regex",
-    "dep:reqwest", "dep:sha2", "dep:tokio", "dep:tonic", "dep:tonic-prost", "dep:tracing", "dep:tracing-subscriber",
+    "dep:reqwest", "dep:sha2", "dep:tokio", "dep:tonic", "dep:tonic-prost", "dep:tracing-subscriber",
     "dep:wasmtime", "dep:wasmtime-wasi", "dep:procfs", "dep:tonic-prost-build"
 ]
 remote_exec = ["dep:chrono", "dep:postcard", "dep:quinn", "dep:rand", "dep:uuid"]
