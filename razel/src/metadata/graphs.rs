@@ -1,7 +1,7 @@
 use crate::config;
 use crate::types::{DependencyGraph, ExecutableType, FileId, Target, TargetKind};
 use anyhow::Result;
-use itertools::{chain, Itertools};
+use itertools::{Itertools, chain};
 use std::collections::HashSet;
 use std::path::Path;
 

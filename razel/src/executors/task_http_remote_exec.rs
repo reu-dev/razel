@@ -1,10 +1,10 @@
 use crate::cli::HttpRemoteExecConfig;
 use crate::executors::{ExecutionResult, ExecutionStatus};
 use crate::types::HttpRemoteExecTask;
-use anyhow::{anyhow, Result};
-use itertools::{zip_eq, Itertools};
+use anyhow::{Result, anyhow};
+use itertools::{Itertools, zip_eq};
 use log::warn;
-use reqwest::{multipart, Client, Url};
+use reqwest::{Client, Url, multipart};
 use std::ops::Not;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};

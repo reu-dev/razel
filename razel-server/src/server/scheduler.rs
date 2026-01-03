@@ -1,6 +1,6 @@
 use super::*;
 use anyhow::Result;
-use itertools::{chain, Itertools};
+use itertools::{Itertools, chain};
 use quinn::SendStream;
 use razel::remote_exec::{
     CreateJobRequest, CreateJobResponse, ExecuteTargetsRequest, Job, JobId, ServerToClientMsg,

@@ -1,7 +1,7 @@
 use crate::targets_builder::TargetsBuilder;
 use crate::types::*;
-use anyhow::{bail, Result};
-use itertools::{chain, Itertools};
+use anyhow::{Result, bail};
+use itertools::{Itertools, chain};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]

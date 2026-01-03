@@ -1,7 +1,7 @@
 use crate::types::{
     ExecutableType, File, RazelJson, RazelJsonCommand, RazelJsonTask, Target, TargetId, TargetKind,
 };
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use std::fs;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
@@ -35,12 +35,7 @@ impl RazelJson {
         Ok(())
     }
 
-    pub fn write(
-        targets: &Vec<Target>,
-        files: &Vec<File>,
-        out_dir: &Path,
-        output: &Path,
-    ) -> Result<()> {
+    pub fn write(targets: &[Target], files: &[File], out_dir: &Path, output: &Path) -> Result<()> {
         let mut writer = BufWriter::new(fs::File::create(output)?);
         for target in targets.iter() {
             let json = match &target.kind {

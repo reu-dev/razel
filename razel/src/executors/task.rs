@@ -1,6 +1,6 @@
+use crate::SandboxDir;
 use crate::executors::ExecutionResult;
 use crate::types::Task;
-use crate::SandboxDir;
 use anyhow::Result;
 use std::time::Instant;
 

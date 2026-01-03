@@ -1,7 +1,7 @@
 use anyhow::Result;
 use quinn::crypto::rustls::QuicClientConfig;
 use quinn::rustls::pki_types::{CertificateDer, ServerName, UnixTime};
-use quinn::{rustls, ClientConfig, Endpoint};
+use quinn::{ClientConfig, Endpoint, rustls};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 

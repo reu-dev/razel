@@ -1,5 +1,5 @@
 use crate::{QueueMsg, Tx};
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use itertools::chain;
 use razel::cache::{Cache, MessageDigest};
 use razel::config::LinkType;
@@ -10,8 +10,8 @@ use razel::executors::{
 use razel::remote_exec::{ExecuteTargetResult, JobId};
 use razel::types::{CommandTarget, Digest, ExecutableType, File, Tag, Target, TargetKind};
 use razel::{
-    bazel_remote_exec, exec_action_with_sandbox, get_execution_result_from_cache, BoxedSandbox,
-    CGroup, TmpDirSandbox, WasiSandbox, WorkspaceDirSandbox,
+    BoxedSandbox, CGroup, TmpDirSandbox, WasiSandbox, WorkspaceDirSandbox, bazel_remote_exec,
+    exec_action_with_sandbox, get_execution_result_from_cache,
 };
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};

@@ -1,8 +1,8 @@
+use crate::SandboxDir;
 use crate::bazel_remote_exec::{ActionResult, OutputFile};
 use crate::cache::{BlobDigest, GrpcRemoteCache, LocalCache, MessageDigest};
 use crate::types::{CacheHit, File};
-use crate::SandboxDir;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use itertools::Itertools;
 use log::info;
 use std::collections::HashMap;

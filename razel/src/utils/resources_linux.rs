@@ -1,9 +1,9 @@
 use crate::config;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use log::debug;
 use procfs::{Current, Meminfo};
 use std::fs;
-use std::fs::{read_to_string, File};
+use std::fs::{File, read_to_string};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::str::FromStr;

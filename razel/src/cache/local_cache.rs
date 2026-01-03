@@ -1,9 +1,9 @@
-use crate::bazel_remote_exec::{message_to_pb_buf, ActionResult};
+use crate::bazel_remote_exec::{ActionResult, message_to_pb_buf};
 use crate::cache::DigestData;
 use crate::config::LinkType;
 use crate::types::{Digest, File};
 use crate::{force_remove_file, set_file_readonly, write_gitignore};
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use log::warn;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -162,11 +162,13 @@ mod tests {
         let src_mtime = src.metadata().unwrap().modified().unwrap();
         tokio::time::sleep(Duration::from_millis(1500)).await;
         tokio::fs::rename(&src, &dst).await.unwrap();
-        assert!(tokio::fs::metadata(&dst)
-            .await
-            .unwrap()
-            .permissions()
-            .readonly());
+        assert!(
+            tokio::fs::metadata(&dst)
+                .await
+                .unwrap()
+                .permissions()
+                .readonly()
+        );
         let dst_mtime = dst.metadata().unwrap().modified().unwrap();
         assert_eq!(dst_mtime, src_mtime);
     }

@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use log::warn;
 use std::collections::HashMap;
 use std::path::Path;
@@ -278,10 +278,12 @@ mod tests {
     #[test]
     fn rules_should_pass() {
         let rules = Rules::new();
-        check!(rules
-            .eval_command("some-executable-without-rule", &[])
-            .unwrap()
-            .is_none());
+        check!(
+            rules
+                .eval_command("some-executable-without-rule", &[])
+                .unwrap()
+                .is_none()
+        );
         rules.test("some-executable-without-files", &[], &[]);
         rules.test("cp in out", &["in"], &["out"]);
         rules.test("c++ -MF out1 -o out2 in1", &["in1"], &["out1", "out2"]);

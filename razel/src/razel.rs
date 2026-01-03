@@ -13,13 +13,13 @@ use crate::types::{
     RazelJsonHandler, Tag, Target, TargetId, TargetKind, Task, TaskTarget,
 };
 use crate::{
+    BoxedSandbox, CGroup, GITIGNORE_FILENAME, Scheduler, TmpDirSandbox, WasiSandbox,
     bazel_remote_exec, config, create_cgroup, exec_action_with_sandbox,
     exec_action_without_sandbox, get_execution_result_from_cache, select_cache_dir,
-    select_sandbox_dir, write_gitignore, BoxedSandbox, CGroup, Scheduler, TmpDirSandbox,
-    WasiSandbox, GITIGNORE_FILENAME,
+    select_sandbox_dir, write_gitignore,
 };
-use anyhow::{bail, Context, Result};
-use itertools::{chain, Itertools};
+use anyhow::{Context, Result, bail};
+use itertools::{Itertools, chain};
 use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

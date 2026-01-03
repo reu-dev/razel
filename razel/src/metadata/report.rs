@@ -1,7 +1,7 @@
+use crate::SchedulerExecStats;
 use crate::executors::ExecutionStatus;
 use crate::metadata::LogFileItem;
 use crate::tui::{A_BOLD, A_RESET, C_GREEN, C_RED, C_RESET, C_YELLOW};
-use crate::SchedulerExecStats;
 use anyhow::Result;
 use crossterm::style::SetForegroundColor;
 use itertools::Itertools;

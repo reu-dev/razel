@@ -1,5 +1,5 @@
 use crate::types::DownloadFileTask;
-use crate::{make_file_executable, SandboxDir};
+use crate::{SandboxDir, make_file_executable};
 use anyhow::Result;
 use futures_util::StreamExt;
 use tokio::fs;

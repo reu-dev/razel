@@ -1,8 +1,8 @@
+use crate::SandboxDir;
 use crate::executors::{
     CommandExecutor, ExecutionResult, HttpRemoteExecutor, TaskExecutor, WasiExecutor,
 };
 use crate::types::Digest;
-use crate::SandboxDir;
 use std::path::Path;
 use std::sync::OnceLock;
 

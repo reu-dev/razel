@@ -1,6 +1,6 @@
 use anyhow::Result;
 use razel::remote_exec::{
-    rpc_recv_impl, rpc_send_impl, ExecuteTargetResult, ExecuteTargetsRequest, JobId, MessageVersion,
+    ExecuteTargetResult, ExecuteTargetsRequest, JobId, MessageVersion, rpc_recv_impl, rpc_send_impl,
 };
 use serde::{Deserialize, Serialize};
 

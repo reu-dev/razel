@@ -1,6 +1,6 @@
 use crate::types::{RazelJson, Tag, Task};
-use crate::{parse_batch_file, parse_command, Razel};
-use anyhow::{bail, Result};
+use crate::{Razel, parse_batch_file, parse_command};
+use anyhow::{Result, bail};
 use clap::{Args, Parser, Subcommand};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};

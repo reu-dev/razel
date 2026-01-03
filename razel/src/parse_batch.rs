@@ -1,8 +1,8 @@
 use crate::cli::parse_cli_within_file;
 use crate::types::RazelJsonCommand;
 use crate::types::RazelJsonHandler;
-use crate::{config, Razel, Rules};
-use anyhow::{bail, Context, Result};
+use crate::{Razel, Rules, config};
+use anyhow::{Context, Result, bail};
 use itertools::Itertools;
 use log::debug;
 use std::fs::File;

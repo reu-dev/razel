@@ -1,13 +1,13 @@
 use crate::executors::ExecutionResult;
 use crate::types::{Tag, Target};
-use crate::{config, SchedulerStats};
+use crate::{SchedulerStats, config};
 use bstr::ByteSlice;
 use crossterm::cursor::{RestorePosition, SavePosition};
 use crossterm::style::{Attribute, Color, SetForegroundColor};
 use crossterm::terminal;
 use crossterm::tty::IsTty;
 use itertools::Itertools;
-use std::io::{stdout, Write};
+use std::io::{Write, stdout};
 
 pub static A_BOLD: Attribute = Attribute::Bold;
 pub static A_RESET: Attribute = Attribute::Reset;

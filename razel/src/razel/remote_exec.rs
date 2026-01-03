@@ -4,9 +4,9 @@ use crate::executors::ExecutionResult;
 use crate::remote_exec::{Client, ClientChannelMsg, CreateJobResponse};
 use crate::types::{File, Tag, TargetId};
 use crate::{
-    select_cache_dir, select_sandbox_dir, SchedulerExecStats, SchedulerStats, TmpDirSandbox,
+    SchedulerExecStats, SchedulerStats, TmpDirSandbox, select_cache_dir, select_sandbox_dir,
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::path::PathBuf;
 use std::time::Instant;
 use tokio::sync::mpsc;

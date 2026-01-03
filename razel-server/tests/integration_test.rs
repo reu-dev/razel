@@ -1,12 +1,12 @@
 use razel::cli::parse_cli;
 use razel::test_utils::{ChangeDir, TempDir};
 use razel::types::Tag;
-use razel::{config, new_tmp_dir, Razel, SchedulerExecStats, SchedulerStats};
+use razel::{Razel, SchedulerExecStats, SchedulerStats, config, new_tmp_dir};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::process::{Child, Command};
 use tokio::time::sleep;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 use url::Url;
 
 const PORT: u16 = 4434;

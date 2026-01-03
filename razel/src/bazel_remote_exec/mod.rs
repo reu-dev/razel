@@ -4,14 +4,14 @@ use crate::cache::DigestData;
 use crate::types::{Digest, Target};
 use anyhow::Result;
 pub use build::bazel::remote::execution::v2::{
-    action_cache_client::ActionCacheClient, batch_update_blobs_request,
-    capabilities_client::CapabilitiesClient, command::EnvironmentVariable,
-    content_addressable_storage_client::ContentAddressableStorageClient, digest_function, Action,
-    ActionResult, BatchReadBlobsRequest, BatchUpdateBlobsRequest, Command, Directory,
+    Action, ActionResult, BatchReadBlobsRequest, BatchUpdateBlobsRequest, Command, Directory,
     ExecutedActionMetadata, FileNode, GetActionResultRequest, GetCapabilitiesRequest, OutputFile,
-    ServerCapabilities, UpdateActionResultRequest,
+    ServerCapabilities, UpdateActionResultRequest, action_cache_client::ActionCacheClient,
+    batch_update_blobs_request, capabilities_client::CapabilitiesClient,
+    command::EnvironmentVariable,
+    content_addressable_storage_client::ContentAddressableStorageClient, digest_function,
 };
-use itertools::{chain, Itertools};
+use itertools::{Itertools, chain};
 use tokio::fs::File;
 
 pub type BazelDigest = build::bazel::remote::execution::v2::Digest;

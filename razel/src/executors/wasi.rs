@@ -1,8 +1,8 @@
+use crate::SandboxDir;
 use crate::config::OUT_DIR;
 use crate::executors::{ExecutionResult, ExecutionStatus};
 use crate::types::CommandTarget;
-use crate::SandboxDir;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -10,7 +10,7 @@ use std::time::Instant;
 use tokio::sync::Mutex;
 use wasmtime::{Config, Engine, Linker, Module, Store};
 use wasmtime_wasi::pipe::MemoryOutputPipe;
-use wasmtime_wasi::preview1::{add_to_linker_async, WasiP1Ctx};
+use wasmtime_wasi::preview1::{WasiP1Ctx, add_to_linker_async};
 use wasmtime_wasi::{DirPerms, FilePerms, I32Exit, WasiCtxBuilder};
 
 struct WasiExecutorState {
@@ -268,9 +268,11 @@ mod tests {
             .await;
         println!("{result:?}");
         result.assert_success();
-        assert!(std::str::from_utf8(&result.stdout)
-            .unwrap()
-            .contains("Usage"));
+        assert!(
+            std::str::from_utf8(&result.stdout)
+                .unwrap()
+                .contains("Usage")
+        );
     }
 
     #[tokio::test]
@@ -321,9 +323,11 @@ mod tests {
         println!("{result:?}");
         assert!(!result.success());
         assert_eq!(result.exit_code, Some(1));
-        assert!(std::str::from_utf8(&result.stderr)
-            .unwrap()
-            .contains("error opening input file"));
+        assert!(
+            std::str::from_utf8(&result.stderr)
+                .unwrap()
+                .contains("error opening input file")
+        );
     }
 
     #[tokio::test]
@@ -349,9 +353,11 @@ mod tests {
             .await;
         println!("{result:?}");
         assert!(!result.success());
-        assert!(std::str::from_utf8(&result.stderr)
-            .unwrap()
-            .contains("error opening input file"));
+        assert!(
+            std::str::from_utf8(&result.stderr)
+                .unwrap()
+                .contains("error opening input file")
+        );
     }
 
     #[tokio::test]
@@ -376,8 +382,10 @@ mod tests {
             .await;
         println!("{result:?}");
         assert!(!result.success());
-        assert!(std::str::from_utf8(&result.stderr)
-            .unwrap()
-            .contains("error opening output file"));
+        assert!(
+            std::str::from_utf8(&result.stderr)
+                .unwrap()
+                .contains("error opening output file")
+        );
     }
 }

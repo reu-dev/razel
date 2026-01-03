@@ -1,7 +1,7 @@
 use super::Razel;
 use crate::cache::Cache;
 use crate::select_cache_dir;
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::path::PathBuf;
 
 impl Razel {

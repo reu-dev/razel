@@ -1,8 +1,8 @@
 use crate::cache::{Cache, MessageDigest};
 use crate::executors::{ExecutionResult, ExecutionStatus, Executor};
 use crate::types::{Digest, ExecutableType, File};
-use crate::{bazel_remote_exec, force_remove_file, is_file_executable, BoxedSandbox, SandboxDir};
-use anyhow::{bail, Context, Result};
+use crate::{BoxedSandbox, SandboxDir, bazel_remote_exec, force_remove_file, is_file_executable};
+use anyhow::{Context, Result, bail};
 use std::path::Path;
 use std::time::Duration;
 

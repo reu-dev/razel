@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
-use razel_server::config::Config;
 use razel_server::Server;
+use razel_server::config::Config;
 use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
 

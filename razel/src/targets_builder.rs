@@ -3,9 +3,9 @@ use crate::types::{
     CommandTarget, ExecutableType, File, FileId, RazelJson, RazelJsonCommand, RazelJsonHandler,
     RazelJsonTask, Tag, Target, TargetId, TargetKind, Task, TaskTarget,
 };
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use clap::Parser;
-use itertools::{chain, Itertools};
+use itertools::{Itertools, chain};
 use log::debug;
 use std::collections::HashMap;
 use std::ffi::OsStr;

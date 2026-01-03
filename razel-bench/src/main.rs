@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use razel_bench::types::{Bench, CacheState, BENCHES_OUT_DIR};
+use razel_bench::types::{BENCHES_OUT_DIR, Bench, CacheState};
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};

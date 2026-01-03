@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
-use log::{debug, LevelFilter};
-use razel::cli::parse_cli;
+use log::{LevelFilter, debug};
 use razel::Razel;
+use razel::cli::parse_cli;
 use simplelog::*;
 
 #[tokio::main]
@@ -75,7 +75,7 @@ mod main {
     use razel::cli::parse_cli;
     use razel::test_utils::ChangeDir;
     use razel::types::Tag;
-    use razel::{config, Razel, SchedulerExecStats};
+    use razel::{Razel, SchedulerExecStats, config};
     use serial_test::serial;
     use std::path::Path;
 

@@ -2,7 +2,7 @@ use crate::config::RESPONSE_FILE_PREFIX;
 use crate::executors::{ExecutionResult, ExecutionStatus};
 use crate::types::CommandTarget;
 use crate::{CGroup, SandboxDir};
-use anyhow::{ensure, Result};
+use anyhow::{Result, ensure};
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::time::Instant;
