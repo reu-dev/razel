@@ -7,13 +7,20 @@ use tracing::{error, info, instrument, warn};
 
 impl Server {
     pub fn connect_to_servers(&self) {
-        for node in self.nodes.iter().cloned() {
-            let endpoint = self.server_endpoint.clone();
-            let tx = self.tx.clone();
-            tokio::spawn(async move {
-                connect_to_server_loop(endpoint, node, tx).await;
-            });
+        for remote_node in &self.remote_nodes {
+            self.connect_to_server(remote_node);
         }
+    }
+
+    pub fn connect_to_server(&self, remote_node: &RemoteNode) {
+        let endpoint = self.server_endpoint.clone();
+        let id = remote_node.id;
+        let host = remote_node.node.host.clone();
+        let port = remote_node.node.server_port;
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            connect_to_server_loop(endpoint, id, host, port, tx).await;
+        });
     }
 
     #[instrument(skip(self))]
@@ -29,12 +36,16 @@ impl Server {
                 }
                 match conn.await {
                     Ok(connection) => {
-                        if tx
-                            .send(QueueMsg::IncomingServerConnection(connection))
-                            .is_err()
-                        {
-                            break;
-                        }
+                        let tx = tx.clone();
+                        tokio::spawn(async move {
+                            match ServerMessage::recv_uni(&connection).await {
+                                Ok(m) => {
+                                    tx.send(QueueMsg::IncomingServerConnection((m, connection)))
+                                        .ok();
+                                }
+                                Err(e) => warn!("{e}"),
+                            };
+                        });
                     }
                     Err(e) => {
                         warn!("{e}");
@@ -42,7 +53,6 @@ impl Server {
                     }
                 }
             }
-            todo!("send QueueMsg::ServerConnectionLost");
         });
     }
 
@@ -74,28 +84,40 @@ impl Server {
                     }
                 }
             }
-            todo!("send QueueMsg::ClientConnectionLost");
         });
     }
 }
 
-async fn connect_to_server_loop(endpoint: Endpoint, node: RemoteNode, tx: Tx) {
+async fn connect_to_server_loop(
+    endpoint: Endpoint,
+    id: RemoteNodeId,
+    host: String,
+    port: u16,
+    tx: Tx,
+) {
     loop {
-        match connect_to_server_loop_imp(&endpoint, &node).await {
+        match connect_to_server_loop_imp(&endpoint, &host, port).await {
             Ok(c) => {
-                tx.send(QueueMsg::OutgoingConnection((node.id, c))).ok();
+                tx.send(QueueMsg::OutgoingServerConnection((id, c))).ok();
+                break;
             }
             Err(e) => {
                 warn!("{e}");
             }
         }
-        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
     }
 }
 
-async fn connect_to_server_loop_imp(endpoint: &Endpoint, node: &RemoteNode) -> Result<Connection> {
-    let addr = node.socket_addr()?;
-    let connection = endpoint.connect(addr, &node.host)?.await?;
+async fn connect_to_server_loop_imp(
+    endpoint: &Endpoint,
+    host: &str,
+    port: u16,
+) -> Result<Connection> {
+    let addr = std::net::ToSocketAddrs::to_socket_addrs(&(host, port))?
+        .next()
+        .ok_or_else(|| anyhow!("couldn't resolve address"))?;
+    let connection = endpoint.connect(addr, host)?.await?;
     Ok(connection)
 }
 

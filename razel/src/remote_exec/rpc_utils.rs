@@ -148,6 +148,13 @@ pub async fn rpc_recv_impl<T: DeserializeOwned>(
     Ok(msg)
 }
 
+pub async fn rpc_recv_uni_impl<T: DeserializeOwned>(
+    connection: &Connection,
+    exp_version: MessageVersion,
+) -> Result<T> {
+    rpc_recv_impl(&mut connection.accept_uni().await?, exp_version).await
+}
+
 /// An IPv6 url looks like `https://[::1]:4433/Cargo.toml`, wherein the host `[::1]` is the
 /// IPv6 address `::1` wrapped in brackets, per RFC 2732. This strips those.
 pub fn strip_ipv6_brackets(host: &str) -> &str {

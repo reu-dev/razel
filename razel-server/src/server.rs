@@ -1,29 +1,28 @@
 use crate::config::Config;
 use crate::rpc_endpoint::new_server_endpoint;
 use crate::rpc_messages::ServerMessage;
-use crate::{JobWorker, Node};
+use crate::{JobWorker, Node, RemoteNode, RemoteNodeId};
 use anyhow::{Context, Result, anyhow, bail};
-use quinn::{Connection, Endpoint};
+use quinn::Endpoint;
 use razel::remote_exec::rpc_endpoint::new_client_endpoint;
 use razel::remote_exec::{ClientToServerMsg, ExecuteTargetResult, ExecuteTargetsRequest};
 use razel::types::{DigestHash, WorkerTag};
+use std::collections::HashMap;
 use std::env::current_dir;
 use std::fs::create_dir_all;
-use std::{collections::HashMap, net::SocketAddr};
 use tokio::sync::mpsc;
 use tracing::{info, instrument};
 
 pub type Tx = mpsc::UnboundedSender<QueueMsg>;
 type Rx = mpsc::UnboundedReceiver<QueueMsg>;
-type RemoteNodeId = usize;
 type ClientId = usize;
 
 pub enum QueueMsg {
     IncomingClientConnection(quinn::Connection),
     ClientConnectionLost(ClientId),
-    IncomingServerConnection(quinn::Connection),
+    IncomingServerConnection((ServerMessage, quinn::Connection)),
+    OutgoingServerConnection((RemoteNodeId, quinn::Connection)),
     ServerConnectionLost(RemoteNodeId),
-    OutgoingConnection((RemoteNodeId, quinn::Connection)),
     ClientMsg((ClientId, ClientToServerMsg, quinn::SendStream)),
     ServerMsg((RemoteNodeId, ServerMessage, quinn::SendStream)),
     ExecuteTargetsRequest(ExecuteTargetsRequest),
@@ -38,8 +37,7 @@ pub struct Server {
     client_endpoint: Option<Endpoint>,
     server_endpoint: Endpoint,
     storage: Storage,
-    /// other servers to connect to
-    nodes: Vec<RemoteNode>,
+    remote_nodes: Vec<RemoteNode>,
     scheduler: Option<Scheduler>,
     clients: HashMap<ClientId, ClientConnection>,
     next_client_id: ClientId,
@@ -72,13 +70,13 @@ impl Server {
         let available_parallelism: usize = std::thread::available_parallelism().unwrap().into();
         let node = Node {
             host: name.clone(),
-            client_port: client_endpoint
-                .as_ref()
-                .map(|x| x.local_addr().unwrap().port()),
             server_port: self_config
                 .server_endpoint
                 .as_ref()
-                .map(|_| server_endpoint.local_addr().unwrap().port()),
+                .map_or(0, |_| server_endpoint.local_addr().unwrap().port()),
+            client_port: client_endpoint
+                .as_ref()
+                .map(|x| x.local_addr().unwrap().port()),
             physical_machine: self_config
                 .physical_machine
                 .map_or(name.clone(), |x| x.clone()),
@@ -98,19 +96,6 @@ impl Server {
                 .unwrap_or_default(),
         };
         info!("local worker tags: {:?}", node.tags);
-        let nodes = config
-            .node
-            .drain()
-            .enumerate()
-            .filter_map(|(id, (host, node))| {
-                node.server_endpoint.map(|e| RemoteNode {
-                    id,
-                    host,
-                    port: e.port,
-                    connection: None,
-                })
-            })
-            .collect();
         let storage = Storage::new(self_config.storage.path, self_config.storage.max_size_gb)?;
         let scheduler = self_config.scheduler.map(|_| Scheduler::new());
         let (tx, rx) = mpsc::unbounded_channel();
@@ -119,7 +104,7 @@ impl Server {
             client_endpoint,
             server_endpoint,
             storage,
-            nodes,
+            remote_nodes: RemoteNode::from_config(config.node),
             scheduler,
             clients: Default::default(),
             next_client_id: 0,
@@ -158,13 +143,13 @@ impl Server {
                 info!(id, "ClientConnectionLost");
                 self.clients.remove(&id);
             }
-            QueueMsg::IncomingServerConnection(_) => todo!(),
-            QueueMsg::ServerConnectionLost(_) => todo!(),
-            QueueMsg::OutgoingConnection((i, c)) => {
-                self.nodes[i].connection = Some(c.clone());
-                let tx = self.tx.clone();
-                tokio::spawn(async move { handle_server_connection(i, c, tx).await });
+            QueueMsg::IncomingServerConnection((m, c)) => {
+                self.handle_incoming_server_connection(m, c)
             }
+            QueueMsg::OutgoingServerConnection((i, c)) => {
+                self.handle_outgoing_server_connection(i, c)
+            }
+            QueueMsg::ServerConnectionLost(id) => self.handle_server_connection_lost(id),
             QueueMsg::ClientMsg((id, msg, send)) => self.handle_client_msg(id, msg, send)?,
             QueueMsg::ServerMsg(_) => todo!(),
             QueueMsg::ExecuteTargetsRequest(_) => todo!(),
@@ -175,7 +160,84 @@ impl Server {
         Ok(())
     }
 
-    pub fn handle_client_msg(
+    fn handle_incoming_server_connection(
+        &mut self,
+        msg: ServerMessage,
+        connection: quinn::Connection,
+    ) {
+        let (node, others) = match msg {
+            ServerMessage::Nodes { node, others } => (node, others),
+            _ => todo!(),
+        };
+        if let Some(remote_node) = self.remote_nodes.iter_mut().find(|r| r.is_same_node(&node)) {
+            if remote_node.connection.is_some() {
+                return;
+            }
+            remote_node.connection = Some(connection);
+            remote_node.node = node;
+        } else {
+            self.remote_nodes.push(RemoteNode {
+                id: self.remote_nodes.len(),
+                connection: Some(connection),
+                node,
+            });
+        }
+        for (host, server_port) in others {
+            if !self
+                .remote_nodes
+                .iter()
+                .any(|r| r.is_same(&host, server_port))
+            {
+                self.remote_nodes.push(RemoteNode {
+                    id: self.remote_nodes.len(),
+                    connection: None,
+                    node: Node {
+                        host,
+                        server_port,
+                        ..Default::default()
+                    },
+                });
+                self.connect_to_server(self.remote_nodes.last().unwrap());
+            }
+        }
+    }
+
+    /// Send [Node] for own instance and provide adresses for known remote servers
+    fn handle_outgoing_server_connection(
+        &mut self,
+        id: RemoteNodeId,
+        connection: quinn::Connection,
+    ) {
+        if self.remote_nodes[id].connection.is_some() {
+            return;
+        }
+        ServerMessage::Nodes {
+            node: self.node.clone(),
+            others: self
+                .remote_nodes
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i != id)
+                .map(|(_, n)| (n.node.host.clone(), n.node.server_port))
+                .collect(),
+        }
+        .spawn_send_uni(connection.clone())
+        .unwrap();
+        self.remote_nodes[id].connection = Some(connection.clone());
+        let tx = self.tx.clone();
+        tokio::spawn(async move { handle_server_connection(id, connection, tx).await });
+    }
+
+    fn handle_server_connection_lost(&mut self, id: RemoteNodeId) {
+        let node = &mut self.remote_nodes[id];
+        if let Some(close_reason) = node.connection.as_ref().and_then(|c| c.close_reason()) {
+            info!(?close_reason, "lost connection to {node}");
+            node.connection = None;
+            self.connect_to_server(&self.remote_nodes[id]);
+        }
+    }
+
+    fn handle_client_msg(
         &mut self,
         client: ClientId,
         msg: ClientToServerMsg,
@@ -191,22 +253,6 @@ impl Server {
             ClientToServerMsg::UploadFile => todo!(),
         }
         Ok(())
-    }
-}
-
-#[derive(Clone)]
-pub struct RemoteNode {
-    id: RemoteNodeId,
-    host: String,
-    port: u16,
-    connection: Option<Connection>,
-}
-
-impl RemoteNode {
-    pub fn socket_addr(&self) -> Result<SocketAddr> {
-        std::net::ToSocketAddrs::to_socket_addrs(&(self.host.as_ref(), self.port))?
-            .next()
-            .ok_or_else(|| anyhow!("couldn't resolve address"))
     }
 }
 
