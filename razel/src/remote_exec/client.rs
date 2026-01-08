@@ -3,6 +3,7 @@ use crate::remote_exec::*;
 use crate::types::File;
 use crate::types::FileId;
 use crate::types::Target;
+use crate::types::WorkerTag;
 use anyhow::{Result, anyhow, bail};
 use quinn::Connection;
 use quinn::Endpoint;
@@ -76,6 +77,7 @@ impl Client {
                     ts: chrono::Utc::now(),
                     project: "".to_string(),
                     kind,
+                    default_tags: WorkerTag::local_default_tags(),
                 },
                 auth: "".to_string(),
             })

@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, anyhow, ensure};
+use razel::types::WorkerTag;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -55,7 +56,7 @@ pub struct Scheduler {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Worker {
-    pub tags: Vec<String>,
+    pub tags: Vec<WorkerTag>,
 }
 
 #[derive(Serialize, Deserialize)]

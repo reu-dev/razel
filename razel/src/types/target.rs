@@ -1,5 +1,5 @@
 use crate::config;
-use crate::types::{Tag, Task};
+use crate::types::{Tag, Task, WorkerTag};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::iter::once;
@@ -49,6 +49,7 @@ pub struct Target {
     /// dependencies on other targets in addition to input files
     pub deps: Vec<TargetId>,
     pub tags: Vec<Tag>,
+    pub worker: Vec<WorkerTag>,
     pub is_excluded: bool,
 }
 

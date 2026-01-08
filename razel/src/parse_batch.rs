@@ -80,6 +80,7 @@ fn create_command(
             stderr,
             deps: vec![],
             tags: vec![],
+            worker: vec![],
         })?;
     }
     Ok(())

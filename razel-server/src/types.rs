@@ -1,3 +1,4 @@
+use razel::types::WorkerTag;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -7,4 +8,5 @@ pub struct Node {
     pub server_port: Option<u16>,
     pub physical_machine: String,
     pub max_parallelism: usize,
+    pub tags: Vec<WorkerTag>,
 }

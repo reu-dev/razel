@@ -6,7 +6,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use quinn::{Connection, Endpoint};
 use razel::remote_exec::rpc_endpoint::new_client_endpoint;
 use razel::remote_exec::{ClientToServerMsg, ExecuteTargetResult, ExecuteTargetsRequest};
-use razel::types::DigestHash;
+use razel::types::{DigestHash, WorkerTag};
 use std::env::current_dir;
 use std::fs::create_dir_all;
 use std::{collections::HashMap, net::SocketAddr};
@@ -85,7 +85,19 @@ impl Server {
             max_parallelism: self_config
                 .max_parallelism
                 .map_or(available_parallelism, |max| max.min(available_parallelism)),
+            tags: self_config
+                .worker
+                .as_ref()
+                .map(|w| {
+                    if w.tags.is_empty() {
+                        WorkerTag::local_default_tags()
+                    } else {
+                        w.tags.clone()
+                    }
+                })
+                .unwrap_or_default(),
         };
+        info!("local worker tags: {:?}", node.tags);
         let nodes = config
             .node
             .drain()

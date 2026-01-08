@@ -121,6 +121,7 @@ pub mod types {
     pub use tags::*;
     pub use target::*;
     pub use tasks::*;
+    pub use worker_tags::*;
 
     mod dependency_graph;
     mod razel_jsonl;
@@ -129,4 +130,5 @@ pub mod types {
     mod tags;
     mod target;
     mod tasks;
+    mod worker_tags;
 }

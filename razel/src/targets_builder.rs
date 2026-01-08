@@ -53,8 +53,8 @@ impl TargetsBuilder {
         }
     }
 
-    pub fn read_jsonl_file(&mut self, path: &str) -> Result<()> {
-        self.set_workspace_dir(Path::new(path).parent().unwrap());
+    pub fn read_jsonl_file(&mut self, path: &Path) -> Result<()> {
+        self.set_workspace_dir(path.parent().unwrap());
         let file = BufReader::new(
             fs::File::open(path).with_context(|| anyhow!("failed to open {path:?}"))?,
         );
@@ -68,7 +68,7 @@ impl TargetsBuilder {
             let json: RazelJson = serde_json::from_str(line_trimmed).with_context(|| {
                 format!(
                     "failed to parse {}:{}\n{}",
-                    path,
+                    path.to_string_lossy(),
                     line_number + 1,
                     line_trimmed
                 )
@@ -79,7 +79,7 @@ impl TargetsBuilder {
             };
             len += 1;
         }
-        debug!("Added {len} commands from {path}");
+        debug!("Added {len} commands from {path:?}");
         Ok(())
     }
 
@@ -147,6 +147,7 @@ impl TargetsBuilder {
             outputs,
             deps,
             tags: command.tags,
+            worker: command.worker,
             is_excluded: false,
         };
         self.push_target(target)
@@ -246,6 +247,7 @@ impl TargetsBuilder {
             outputs,
             deps: vec![],
             tags,
+            worker: vec![],
             is_excluded: false,
         };
         self.push_target(target)

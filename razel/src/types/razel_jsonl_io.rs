@@ -75,6 +75,7 @@ impl RazelJson {
                             .map(|x| targets[*x].name.clone())
                             .collect(),
                         tags: target.tags.clone(),
+                        worker: target.worker.clone(),
                     })
                 }
                 TargetKind::Task(t) | TargetKind::HttpRemoteExecTask(t) => {
