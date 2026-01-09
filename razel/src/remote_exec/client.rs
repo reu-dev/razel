@@ -156,11 +156,11 @@ impl Client {
         }
     }
 
-    #[instrument(skip(self))]
-    pub async fn close(self, reason: &str) {
-        tracing::info!("");
-        self.connection.close(0u32.into(), reason.as_bytes());
-        self.endpoint.wait_idle().await;
+    pub fn close(self) {
+        spawn(async move {
+            close_connection(self.connection, ConnectionCloseCode::JobFinished);
+            self.endpoint.wait_idle().await;
+        });
     }
 }
 

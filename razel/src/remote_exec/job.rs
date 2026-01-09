@@ -1,7 +1,7 @@
+use crate::types::WorkerTag;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use crate::types::WorkerTag;
 
 pub type JobId = Uuid;
 

@@ -1,14 +1,20 @@
 use anyhow::Result;
 use quinn::crypto::rustls::QuicClientConfig;
 use quinn::rustls::pki_types::{CertificateDer, ServerName, UnixTime};
-use quinn::{ClientConfig, Endpoint, rustls};
+use quinn::{ClientConfig, Endpoint, TransportConfig, rustls};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 pub fn new_client_endpoint() -> Result<Endpoint> {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
     let mut endpoint = quinn::Endpoint::client(addr)?;
-    endpoint.set_default_client_config(new_client_config_with_dummy_certificate_verifier()?);
+    let mut transport_config = TransportConfig::default();
+    transport_config.keep_alive_interval(Some(std::time::Duration::from_secs(
+        crate::config::REMOTE_EXEC_KEEP_ALIVE_INTERVAL_S,
+    )));
+    let mut client_config = new_client_config_with_dummy_certificate_verifier()?;
+    client_config.transport_config(Arc::new(transport_config));
+    endpoint.set_default_client_config(client_config);
     Ok(endpoint)
 }
 

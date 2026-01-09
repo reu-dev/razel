@@ -156,7 +156,7 @@ impl Server {
     ) -> Result<()> {
         let scheduler = self.scheduler.as_mut().unwrap();
         let job_id = Uuid::now_v7();
-        info!(?job_id, "CreateJobRequest");
+        info!(client, ?job_id, "CreateJobRequest");
         let worker = JobWorker::new(job_id, self.node.max_parallelism, &self.storage.path)?;
         scheduler.jobs.push(JobData::new(
             self.clients[&client].connection.clone(),

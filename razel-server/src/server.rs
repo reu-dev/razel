@@ -1,11 +1,14 @@
 use crate::config::Config;
 use crate::rpc_endpoint::new_server_endpoint;
-use crate::rpc_messages::ServerMessage;
+use crate::rpc_messages::{ServerMessage, ServerMessageNodes};
 use crate::{JobWorker, Node, RemoteNode, RemoteNodeId};
 use anyhow::{Context, Result, anyhow, bail};
-use quinn::Endpoint;
+use quinn::{Connection, ConnectionError, Endpoint};
 use razel::remote_exec::rpc_endpoint::new_client_endpoint;
-use razel::remote_exec::{ClientToServerMsg, ExecuteTargetResult, ExecuteTargetsRequest};
+use razel::remote_exec::{
+    ClientToServerMsg, ConnectionCloseCode, ExecuteTargetResult, ExecuteTargetsRequest,
+    close_connection,
+};
 use razel::types::{DigestHash, WorkerTag};
 use std::collections::HashMap;
 use std::env::current_dir;
@@ -20,11 +23,12 @@ type ClientId = usize;
 pub enum QueueMsg {
     IncomingClientConnection(quinn::Connection),
     ClientConnectionLost(ClientId),
-    IncomingServerConnection((ServerMessage, quinn::Connection)),
+    IncomingServerConnection((quinn::Connection, String, u16)),
     OutgoingServerConnection((RemoteNodeId, quinn::Connection)),
     ServerConnectionLost(RemoteNodeId),
     ClientMsg((ClientId, ClientToServerMsg, quinn::SendStream)),
-    ServerMsg((RemoteNodeId, ServerMessage, quinn::SendStream)),
+    ServerMsgUni((RemoteNodeId, ServerMessage)),
+    ServerMsgBi((RemoteNodeId, ServerMessage, quinn::SendStream)),
     ExecuteTargetsRequest(ExecuteTargetsRequest),
     ExecuteTargetResult(ExecuteTargetResult),
     RequestFileFinished(String),
@@ -55,15 +59,14 @@ impl Server {
             self_config.storage.path = cwd.join(&self_config.storage.path).to_path_buf();
         }
         create_dir_all(&self_config.storage.path)?;
-        let client_endpoint = if let Some(x) =
-            self_config.scheduler.as_ref().map(|x| &x.client_endpoint)
-        {
-            Some(new_server_endpoint(x).with_context(|| format!("endpoint for client: {x:?}"))?)
-        } else {
-            None
-        };
+        let client_endpoint =
+            if let Some(x) = self_config.scheduler.as_ref().map(|x| &x.client_endpoint) {
+                Some(new_server_endpoint(x).map_err(|e| anyhow!("client port={}: {e:?}", x.port))?)
+            } else {
+                None
+            };
         let server_endpoint = if let Some(x) = &self_config.server_endpoint {
-            new_server_endpoint(x).with_context(|| format!("endpoint for servers: {x:?}"))?
+            new_server_endpoint(x).map_err(|e| anyhow!("server port={}: {e:?}", x.port))?
         } else {
             new_client_endpoint().context("endpoint for servers")?
         };
@@ -126,32 +129,20 @@ impl Server {
     // TODO drop async
     async fn handle_queue_msg(&mut self, queue_msg: QueueMsg) -> Result<()> {
         match queue_msg {
-            QueueMsg::IncomingClientConnection(c) => {
-                let id = self.next_client_id;
-                self.next_client_id += 1;
-                info!(id, "IncomingClientConnection");
-                self.clients.insert(
-                    id,
-                    ClientConnection {
-                        connection: c.clone(),
-                    },
-                );
-                let tx = self.tx.clone();
-                tokio::spawn(async move { handle_client_connection(id, c, tx).await });
-            }
+            QueueMsg::IncomingClientConnection(c) => self.handle_incoming_client_connection(c),
             QueueMsg::ClientConnectionLost(id) => {
-                info!(id, "ClientConnectionLost");
-                self.clients.remove(&id);
+                self.handle_client_connection_lost(id);
             }
-            QueueMsg::IncomingServerConnection((m, c)) => {
-                self.handle_incoming_server_connection(m, c)
+            QueueMsg::IncomingServerConnection((c, h, p)) => {
+                self.handle_incoming_server_connection(c, h, p)
             }
             QueueMsg::OutgoingServerConnection((i, c)) => {
                 self.handle_outgoing_server_connection(i, c)
             }
             QueueMsg::ServerConnectionLost(id) => self.handle_server_connection_lost(id),
             QueueMsg::ClientMsg((id, msg, send)) => self.handle_client_msg(id, msg, send)?,
-            QueueMsg::ServerMsg(_) => todo!(),
+            QueueMsg::ServerMsgUni((id, msg)) => self.handle_server_msg_uni(id, msg)?,
+            QueueMsg::ServerMsgBi((id, msg, send)) => self.handle_server_msg_bi(id, msg, send)?,
             QueueMsg::ExecuteTargetsRequest(_) => todo!(),
             QueueMsg::ExecuteTargetResult(m) => self.handle_execute_target_result(m),
             QueueMsg::RequestFileFinished(hash) => self.handle_request_file_finished(hash).await,
@@ -160,58 +151,93 @@ impl Server {
         Ok(())
     }
 
-    fn handle_incoming_server_connection(
-        &mut self,
-        msg: ServerMessage,
-        connection: quinn::Connection,
-    ) {
-        let (node, others) = match msg {
-            ServerMessage::Nodes { node, others } => (node, others),
-            _ => todo!(),
-        };
-        if let Some(remote_node) = self.remote_nodes.iter_mut().find(|r| r.is_same_node(&node)) {
-            if remote_node.connection.is_some() {
-                return;
-            }
-            remote_node.connection = Some(connection);
-            remote_node.node = node;
-        } else {
-            self.remote_nodes.push(RemoteNode {
-                id: self.remote_nodes.len(),
-                connection: Some(connection),
-                node,
-            });
-        }
-        for (host, server_port) in others {
-            if !self
-                .remote_nodes
-                .iter()
-                .any(|r| r.is_same(&host, server_port))
-            {
-                self.remote_nodes.push(RemoteNode {
-                    id: self.remote_nodes.len(),
-                    connection: None,
-                    node: Node {
-                        host,
-                        server_port,
-                        ..Default::default()
-                    },
-                });
-                self.connect_to_server(self.remote_nodes.last().unwrap());
-            }
-        }
+    fn handle_incoming_client_connection(&mut self, connection: Connection) {
+        let id = self.next_client_id;
+        self.next_client_id += 1;
+        info!(id, "new client connection");
+        self.clients.insert(
+            id,
+            ClientConnection {
+                connection: connection.clone(),
+            },
+        );
+        let tx = self.tx.clone();
+        tokio::spawn(async move { handle_client_connection(id, connection, tx).await });
     }
 
-    /// Send [Node] for own instance and provide adresses for known remote servers
+    fn handle_client_connection_lost(&mut self, id: ClientId) {
+        let client = self.clients.get(&id).unwrap();
+        let reason = client.connection.close_reason().unwrap();
+        info!(id, ?reason, "lost client connection");
+        self.clients.remove(&id);
+    }
+
+    fn handle_incoming_server_connection(
+        &mut self,
+        connection: quinn::Connection,
+        host: String,
+        port: u16,
+    ) {
+        let id = if let Some(remote_node) = self
+            .remote_nodes
+            .iter_mut()
+            .find(|r| r.is_same(&host, port))
+        {
+            if remote_node
+                .connection
+                .as_ref()
+                .is_some_and(|c| c.close_reason().is_none())
+            {
+                close_connection(connection, ConnectionCloseCode::KeepPreviousConnection);
+                return;
+            }
+            remote_node.connection = Some(connection.clone());
+            remote_node.id
+        } else {
+            let id = self.remote_nodes.len();
+            self.remote_nodes.push(RemoteNode {
+                id,
+                connection: Some(connection.clone()),
+                node: Node {
+                    host,
+                    server_port: port,
+                    ..Default::default()
+                },
+            });
+            id
+        };
+        info!(node=%self.remote_nodes[id], addr=?connection.remote_address(), "new incoming server connection");
+        self.send_nodes_to_remote_server(id);
+        let tx = self.tx.clone();
+        tokio::spawn(async move { handle_server_connection(id, connection, tx).await });
+    }
+
+    /// Send [Node] for own instance and provide addresses for known remote servers
     fn handle_outgoing_server_connection(
         &mut self,
         id: RemoteNodeId,
         connection: quinn::Connection,
     ) {
-        if self.remote_nodes[id].connection.is_some() {
+        if self.remote_nodes[id]
+            .connection
+            .as_ref()
+            .is_some_and(|c| c.close_reason().is_none())
+        {
+            close_connection(connection, ConnectionCloseCode::KeepPreviousConnection);
             return;
         }
-        ServerMessage::Nodes {
+        info!(node=%self.remote_nodes[id], addr=?connection.remote_address(), "new outgoing server connection");
+        self.send_nodes_to_remote_server(id);
+        self.remote_nodes[id].connection = Some(connection.clone());
+        let tx = self.tx.clone();
+        tokio::spawn(async move { handle_server_connection(id, connection, tx).await });
+    }
+
+    fn send_nodes_to_remote_server(&self, id: RemoteNodeId) {
+        let Some(connection) = self.remote_nodes[id].connection.clone() else {
+            return;
+        };
+        ServerMessage::Nodes(ServerMessageNodes {
             node: self.node.clone(),
             others: self
                 .remote_nodes
@@ -220,18 +246,23 @@ impl Server {
                 .filter(|(i, _)| *i != id)
                 .map(|(_, n)| (n.node.host.clone(), n.node.server_port))
                 .collect(),
-        }
-        .spawn_send_uni(connection.clone())
+        })
+        .spawn_send_uni(connection)
         .unwrap();
-        self.remote_nodes[id].connection = Some(connection.clone());
-        let tx = self.tx.clone();
-        tokio::spawn(async move { handle_server_connection(id, connection, tx).await });
     }
 
     fn handle_server_connection_lost(&mut self, id: RemoteNodeId) {
         let node = &mut self.remote_nodes[id];
         if let Some(close_reason) = node.connection.as_ref().and_then(|c| c.close_reason()) {
-            info!(?close_reason, "lost connection to {node}");
+            info!(%node, ?close_reason, "lost server connection");
+            match close_reason {
+                ConnectionError::ApplicationClosed(x)
+                    if x.error_code == ConnectionCloseCode::KeepPreviousConnection.into() =>
+                {
+                    tracing::error!("connection should have been closed earlier");
+                }
+                _ => {}
+            }
             node.connection = None;
             self.connect_to_server(&self.remote_nodes[id]);
         }
@@ -253,6 +284,56 @@ impl Server {
             ClientToServerMsg::UploadFile => todo!(),
         }
         Ok(())
+    }
+
+    fn handle_server_msg_uni(&mut self, id: RemoteNodeId, msg: ServerMessage) -> Result<()> {
+        match msg {
+            ServerMessage::ConnectRequest(_) => unreachable!(),
+            ServerMessage::ConnectAck => unreachable!(),
+            ServerMessage::Nodes(nodes) => self.handle_server_msg_nodes(id, nodes),
+            ServerMessage::ExecuteTargetsRequest(_) => todo!(),
+            ServerMessage::ExecuteTargetResult(_) => todo!(),
+        }
+        Ok(())
+    }
+
+    fn handle_server_msg_bi(
+        &mut self,
+        _id: RemoteNodeId,
+        msg: ServerMessage,
+        _send: quinn::SendStream,
+    ) -> Result<()> {
+        match msg {
+            ServerMessage::ConnectRequest(_) => unreachable!(),
+            ServerMessage::ConnectAck => unreachable!(),
+            ServerMessage::Nodes(_) => unreachable!(),
+            ServerMessage::ExecuteTargetsRequest(_) => todo!(),
+            ServerMessage::ExecuteTargetResult(_) => todo!(),
+        }
+    }
+
+    fn handle_server_msg_nodes(&mut self, id: RemoteNodeId, nodes: ServerMessageNodes) {
+        let remote_node = &mut self.remote_nodes[id];
+        assert!(remote_node.is_same_node(&nodes.node));
+        remote_node.node = nodes.node;
+        for (host, server_port) in nodes.others {
+            if !self
+                .remote_nodes
+                .iter()
+                .any(|r| r.is_same(&host, server_port))
+            {
+                self.remote_nodes.push(RemoteNode {
+                    id: self.remote_nodes.len(),
+                    connection: None,
+                    node: Node {
+                        host,
+                        server_port,
+                        ..Default::default()
+                    },
+                });
+                self.connect_to_server(self.remote_nodes.last().unwrap());
+            }
+        }
     }
 }
 

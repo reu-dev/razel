@@ -1,6 +1,6 @@
 use crate::remote_exec::{ClientToServerMsg, MessageVersion, ServerToClientMsg};
 use anyhow::{Context, Result, ensure};
-use quinn::{Connection, RecvStream, SendStream};
+use quinn::{Connection, RecvStream, SendStream, VarInt};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -163,4 +163,22 @@ pub fn strip_ipv6_brackets(host: &str) -> &str {
     } else {
         host
     }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum ConnectionCloseCode {
+    JobFinished = 1,
+    JobCanceled = 2,
+    KeepPreviousConnection = 3,
+}
+
+impl From<ConnectionCloseCode> for VarInt {
+    fn from(code: ConnectionCloseCode) -> Self {
+        VarInt::from_u32(code as u32)
+    }
+}
+
+pub fn close_connection(connection: Connection, code: ConnectionCloseCode) {
+    tracing::info!(?code, "close connection");
+    connection.close(code.into(), format!("{code:?}").as_bytes());
 }

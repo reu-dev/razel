@@ -13,3 +13,4 @@ pub static OUT_DIR: &str = "razel-out";
 pub static RESPONSE_FILE_PREFIX: &str = "@";
 pub static SANDBOX_LINK_TYPE: LinkType = LinkType::Symlink;
 pub static OUT_DIR_LINK_TYPE: LinkType = LinkType::Symlink;
+pub static REMOTE_EXEC_KEEP_ALIVE_INTERVAL_S: u64 = 20;

@@ -6,6 +6,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub static KEEP_ALIVE_INTERVAL_S: u64 = 20;
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {

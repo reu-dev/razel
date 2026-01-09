@@ -9,10 +9,9 @@ use serde::{Deserialize, Serialize};
 /// Messages exchanged between servers
 #[derive(Serialize, Deserialize)]
 pub enum ServerMessage {
-    Nodes {
-        node: Node,
-        others: Vec<(String, u16)>,
-    },
+    ConnectRequest((String, u16)),
+    ConnectAck,
+    Nodes(ServerMessageNodes),
     ExecuteTargetsRequest(ExecuteTargetsRequest),
     ExecuteTargetResult((JobId, ExecuteTargetResult)),
 }
@@ -40,4 +39,10 @@ impl ServerMessage {
         send.finish()?;
         ServerMessage::recv(&mut recv).await
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ServerMessageNodes {
+    pub node: Node,
+    pub others: Vec<(String, u16)>,
 }

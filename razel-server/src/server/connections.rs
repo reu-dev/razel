@@ -13,13 +13,14 @@ impl Server {
     }
 
     pub fn connect_to_server(&self, remote_node: &RemoteNode) {
+        info!(node = %remote_node, "connecting to server");
         let endpoint = self.server_endpoint.clone();
         let id = remote_node.id;
-        let host = remote_node.node.host.clone();
-        let port = remote_node.node.server_port;
+        let local_addr = (self.node.host.clone(), self.node.server_port);
+        let remote_addr = (remote_node.node.host.clone(), remote_node.node.server_port);
         let tx = self.tx.clone();
         tokio::spawn(async move {
-            connect_to_server_loop(endpoint, id, host, port, tx).await;
+            connect_to_server_loop(endpoint, id, local_addr, remote_addr, tx).await;
         });
     }
 
@@ -38,22 +39,40 @@ impl Server {
                     Ok(connection) => {
                         let tx = tx.clone();
                         tokio::spawn(async move {
-                            match ServerMessage::recv_uni(&connection).await {
-                                Ok(m) => {
-                                    tx.send(QueueMsg::IncomingServerConnection((m, connection)))
-                                        .ok();
-                                }
-                                Err(e) => warn!("{e}"),
-                            };
+                            Self::accept_incoming_server_connection(connection, tx).await
                         });
                     }
                     Err(e) => {
                         warn!("{e}");
-                        break;
                     }
                 }
             }
         });
+    }
+
+    #[instrument(skip_all)]
+    async fn accept_incoming_server_connection(connection: Connection, tx: Tx) {
+        match connection.accept_bi().await {
+            Ok((mut send, mut recv)) => match ServerMessage::recv(&mut recv).await {
+                Ok(ServerMessage::ConnectRequest((host, port))) => {
+                    if let Err(e) = ServerMessage::ConnectAck.send(&mut send).await {
+                        warn!("error in sending ServerMessage::ConnectAck: {e:?}");
+                        return;
+                    }
+                    tx.send(QueueMsg::IncomingServerConnection((connection, host, port)))
+                        .ok();
+                }
+                Ok(_) => {
+                    error!("received unexpected ServerMessage");
+                }
+                Err(e) => {
+                    warn!("error in parsing ServerMessage: {e:?}");
+                }
+            },
+            Err(e) => {
+                warn!("error in accept_bi: {e:?}")
+            }
+        }
     }
 
     #[instrument(skip(self))]
@@ -71,16 +90,10 @@ impl Server {
                 }
                 match incoming.await {
                     Ok(connection) => {
-                        if tx
-                            .send(QueueMsg::IncomingClientConnection(connection))
-                            .is_err()
-                        {
-                            break;
-                        }
+                        tx.send(QueueMsg::IncomingClientConnection(connection)).ok();
                     }
                     Err(e) => {
                         warn!("{e}");
-                        break;
                     }
                 }
             }
@@ -91,12 +104,12 @@ impl Server {
 async fn connect_to_server_loop(
     endpoint: Endpoint,
     id: RemoteNodeId,
-    host: String,
-    port: u16,
+    local_addr: (String, u16),
+    remote_addr: (String, u16),
     tx: Tx,
 ) {
     loop {
-        match connect_to_server_loop_imp(&endpoint, &host, port).await {
+        match connect_to_server_loop_imp(&endpoint, &local_addr, &remote_addr).await {
             Ok(c) => {
                 tx.send(QueueMsg::OutgoingServerConnection((id, c))).ok();
                 break;
@@ -111,38 +124,43 @@ async fn connect_to_server_loop(
 
 async fn connect_to_server_loop_imp(
     endpoint: &Endpoint,
-    host: &str,
-    port: u16,
+    local_addr: &(String, u16),
+    remote_addr: &(String, u16),
 ) -> Result<Connection> {
-    let addr = std::net::ToSocketAddrs::to_socket_addrs(&(host, port))?
+    let socket_addr = std::net::ToSocketAddrs::to_socket_addrs(remote_addr)?
         .next()
         .ok_or_else(|| anyhow!("couldn't resolve address"))?;
-    let connection = endpoint.connect(addr, host)?.await?;
+    let connection = endpoint.connect(socket_addr, &remote_addr.0)?.await?;
+    let msg = ServerMessage::ConnectRequest((local_addr.0.clone(), local_addr.1));
+    msg.request(&connection).await?;
     Ok(connection)
 }
 
-#[instrument(skip(connection, tx))]
-pub async fn handle_server_connection(id: RemoteNodeId, connection: quinn::Connection, tx: Tx) {
-    info!(addr=?connection.remote_address());
+pub async fn handle_server_connection(id: RemoteNodeId, connection: Connection, tx: Tx) {
+    #[allow(clippy::while_let_loop)]
     loop {
-        match connection.accept_bi().await {
+        match tokio::select! {
+            r = connection.accept_bi() => r.map(|(send, recv)| (Some(send), recv)),
+            r = connection.accept_uni() => r.map(|recv| (None, recv)),
+        } {
             Ok((send, mut recv)) => {
                 let tx = tx.clone();
                 tokio::spawn(async move {
                     match ServerMessage::recv(&mut recv).await {
                         Ok(m) => {
-                            tx.send(QueueMsg::ServerMsg((id, m, send))).ok();
+                            if let Some(send) = send {
+                                tx.send(QueueMsg::ServerMsgBi((id, m, send))).ok();
+                            } else {
+                                tx.send(QueueMsg::ServerMsgUni((id, m))).ok();
+                            }
                         }
-                        Err(e) => error!("handle_server_connection(): {e}"),
+                        Err(_) => {
+                            tx.send(QueueMsg::ServerConnectionLost(id)).ok();
+                        }
                     }
                 });
             }
-            Err(quinn::ConnectionError::ApplicationClosed { .. }) => {
-                info!("handle_server_connection: Connection closed by peer");
-                break;
-            }
-            Err(e) => {
-                error!("handle_server_connection: Error accepting stream: {e}");
+            Err(_) => {
                 break;
             }
         }
@@ -150,32 +168,19 @@ pub async fn handle_server_connection(id: RemoteNodeId, connection: quinn::Conne
     tx.send(QueueMsg::ServerConnectionLost(id)).ok();
 }
 
-#[instrument(skip(connection, tx))]
-pub async fn handle_client_connection(id: ClientId, connection: quinn::Connection, tx: Tx) {
-    info!(addr=?connection.remote_address());
-    loop {
-        match connection.accept_bi().await {
-            Ok((send, mut recv)) => {
-                let tx = tx.clone();
-                tokio::spawn(async move {
-                    match ClientToServerMsg::recv(&mut recv).await {
-                        Ok(m) => {
-                            tx.send(QueueMsg::ClientMsg((id, m, send))).ok();
-                        }
-                        Err(e) => error!("{e:?}"),
-                    }
-                });
+pub async fn handle_client_connection(id: ClientId, connection: Connection, tx: Tx) {
+    while let Ok((send, mut recv)) = connection.accept_bi().await {
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            match ClientToServerMsg::recv(&mut recv).await {
+                Ok(m) => {
+                    tx.send(QueueMsg::ClientMsg((id, m, send))).ok();
+                }
+                Err(_) => {
+                    tx.send(QueueMsg::ClientConnectionLost(id)).ok();
+                }
             }
-            Err(quinn::ConnectionError::ApplicationClosed(x)) => {
-                info!("Connection closed by peer: {x:?}");
-                break;
-            }
-            Err(e) => {
-                error!("Error accepting stream: {e:?}");
-                break;
-            }
-        }
+        });
     }
-    tracing::warn!("ClientConnectionLost");
     tx.send(QueueMsg::ClientConnectionLost(id)).ok();
 }
