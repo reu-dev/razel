@@ -16,8 +16,7 @@ use razel::{
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use tracing::instrument;
-use tracing::log::debug;
+use tracing::{debug, instrument};
 
 /// Worker running within the server process
 pub struct JobWorker {
