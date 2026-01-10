@@ -1,22 +1,17 @@
 use razel::cli::parse_cli;
 use razel::test_utils::{ChangeDir, TempDir, setup_tracing};
 use razel::types::Tag;
-use razel::{Razel, SchedulerExecStats, SchedulerStats, config, new_tmp_dir};
+use razel::{Razel, SchedulerExecStats, config, new_tmp_dir};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::process::{Child, Command};
 use tokio::time::sleep;
-use tracing::instrument;
+use tracing::{info, instrument};
 use url::Url;
 
 const PORT: u16 = 4434;
 
-async fn run_client_and_server(
-    server_args: (&str, &str),
-    client_args: Vec<&str>,
-    exp_stats: SchedulerExecStats,
-    additional_tag: Option<(&str, Tag)>,
-) {
+fn prepare() -> ChangeDir {
     setup_tracing();
     // exit on panic in any thread
     let default_panic = std::panic::take_hook();
@@ -24,25 +19,23 @@ async fn run_client_and_server(
         default_panic(info);
         std::process::exit(1);
     }));
-    let cargo_workspace_dir = Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap())
+    ChangeDir::new(&cargo_workspace_dir())
+}
+
+fn cargo_workspace_dir() -> PathBuf {
+    Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap())
         .parent()
         .unwrap()
-        .to_path_buf();
-    let act_stats = {
-        let _change_dir = ChangeDir::new(&cargo_workspace_dir);
-        let (server, _server_dir) =
-            spawn_server(PathBuf::from(server_args.0), server_args.1.to_string());
-        // give server some time to start
-        sleep(Duration::from_millis(100)).await;
-        let act_stats = run_client(client_args, additional_tag).await;
-        kill_server(server).await;
-        act_stats
-    };
-    assert_eq!(act_stats.exec, exp_stats);
+        .into()
 }
 
 #[instrument(skip_all)]
-async fn run_client(args: Vec<&str>, additional_tag: Option<(&str, Tag)>) -> SchedulerStats {
+async fn run_client(
+    args: &Vec<&str>,
+    additional_tag: &Option<(&str, Tag)>,
+    exp_stats: &SchedulerExecStats,
+    exp_cache_hits: usize,
+) {
     let mut razel = Razel::new();
     razel.clean();
     parse_cli(args.iter().map(|&x| x.into()).collect(), &mut razel)
@@ -50,9 +43,9 @@ async fn run_client(args: Vec<&str>, additional_tag: Option<(&str, Tag)>) -> Sch
         .unwrap()
         .unwrap();
     if let Some((name, tag)) = additional_tag {
-        razel.add_tag_for_command(name, tag);
+        razel.add_tag_for_command(name, tag.clone());
     }
-    razel
+    let act_stats = razel
         .run(
             false,
             true,
@@ -63,10 +56,24 @@ async fn run_client(args: Vec<&str>, additional_tag: Option<(&str, Tag)>) -> Sch
             vec![Url::parse(&format!("http://localhost:{PORT}")).unwrap()],
         )
         .await
-        .unwrap()
+        .unwrap();
+    assert_eq!(act_stats.exec, *exp_stats);
+    assert_eq!(act_stats.cache_hits, exp_cache_hits);
 }
 
-fn spawn_server(config: PathBuf, name: String) -> (Child, TempDir) {
+async fn run_client_twice(
+    args: Vec<&str>,
+    additional_tag: Option<(&str, Tag)>,
+    exp_stats: SchedulerExecStats,
+    exp_cache_hits: usize,
+) {
+    println!("\nrun client with cold remote executor\n");
+    run_client(&args, &additional_tag, &exp_stats, 0).await;
+    println!("\nrun client with warm remote executor\n");
+    run_client(&args, &additional_tag, &exp_stats, exp_cache_hits).await;
+}
+
+async fn spawn_server(config: &str, name: &str) -> (Child, TempDir) {
     let target_dir = std::env::current_exe()
         .unwrap()
         .parent()
@@ -79,7 +86,7 @@ fn spawn_server(config: PathBuf, name: String) -> (Child, TempDir) {
     let tmp_dir = new_tmp_dir!();
     let child = Command::new(server_path)
         .arg("-c")
-        .arg(config.canonicalize().unwrap())
+        .arg(PathBuf::from(config).canonicalize().unwrap())
         .arg("-n")
         .arg(name)
         .current_dir(tmp_dir.dir())
@@ -87,6 +94,8 @@ fn spawn_server(config: PathBuf, name: String) -> (Child, TempDir) {
         .kill_on_drop(true)
         .spawn()
         .unwrap();
+    // give server some time to start
+    sleep(Duration::from_millis(100)).await;
     (child, tmp_dir)
 }
 
@@ -96,17 +105,22 @@ async fn kill_server(mut child: Child) {
 }
 
 const RAZEL_JSONL_EXP_SUCCEEDED: usize = 12;
+const RAZEL_JSONL_EXP_CACHED: usize = 10;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn razel_jsonl() {
-    run_client_and_server(
-        ("razel-server/examples/localhost.toml", "localhost"),
+    let _change_dir = prepare();
+    let (server, _server_dir) =
+        spawn_server("razel-server/examples/localhost.toml", "localhost").await;
+    run_client_twice(
         vec![config::EXECUTABLE, "exec", "-f", "examples/razel.jsonl"],
+        None,
         SchedulerExecStats {
             succeeded: RAZEL_JSONL_EXP_SUCCEEDED,
             ..Default::default()
         },
-        None,
+        RAZEL_JSONL_EXP_CACHED,
     )
     .await;
+    kill_server(server).await;
 }
