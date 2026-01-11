@@ -34,7 +34,7 @@ impl TUI {
             razel_executable,
             verbose: false,
             status_printed: false,
-            is_tty: stdout().is_tty(),
+            is_tty: stdout().is_tty() && std::env::var("RAZEL_NO_TTY").is_err(), // TODO add to cli
         }
     }
 

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::process::{Child, Command};
 use tokio::time::sleep;
-use tracing::{info, instrument};
+use tracing::instrument;
 use url::Url;
 
 const PORT: u16 = 4434;
