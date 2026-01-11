@@ -34,12 +34,12 @@ pub struct JobWorker {
 
 impl JobWorker {
     pub fn new(job_id: JobId, max_parallelism: usize, storage: &Path) -> Result<Self> {
+        let cache_dir = storage.join("cache");
         let job_dir = storage.join(format!("job-{}", job_id.as_u128()));
         let ws_dir = job_dir.join("ws");
-        let cache_dir = job_dir.join("cache");
         let sandbox_dir = job_dir.join("sandbox");
-        debug!("job directory:     {job_dir:?}");
         debug!("cache directory:   {cache_dir:?}");
+        debug!("job directory:     {job_dir:?}");
         debug!("sandbox directory: {sandbox_dir:?}");
         let cache = Cache::new(cache_dir, ws_dir.clone())?;
         Ok(Self {
@@ -58,18 +58,19 @@ impl JobWorker {
     #[instrument(skip_all)]
     pub async fn link_input_file_into_ws_dir(
         &self,
-        cas_path: &PathBuf,
+        digest: &Digest,
         file_path: &PathBuf,
     ) -> Result<()> {
         if file_path.is_absolute() {
             bail!("link_input_file_into_ws_dir: path must be relative: {file_path:?}");
         }
+        let cas_path = self.cache.cas_path(digest);
         let ws_path = self.ws_dir.join(file_path);
         tracing::trace!(?cas_path, ?ws_path);
         let link_type = LinkType::Symlink; // TODO move to config file
         match link_type {
-            LinkType::Hardlink => razel::force_hardlink(cas_path, &ws_path).await?,
-            LinkType::Symlink => razel::force_symlink(cas_path, &ws_path).await?,
+            LinkType::Hardlink => razel::force_hardlink(&cas_path, &ws_path).await?,
+            LinkType::Symlink => razel::force_symlink(&cas_path, &ws_path).await?,
         }
         Ok(())
     }

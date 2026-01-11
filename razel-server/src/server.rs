@@ -9,7 +9,7 @@ use razel::remote_exec::{
     ClientToServerMsg, ConnectionCloseCode, ExecuteTargetResult, ExecuteTargetsRequest,
     close_connection,
 };
-use razel::types::{DigestHash, WorkerTag};
+use razel::types::{Digest, WorkerTag};
 use std::collections::HashMap;
 use std::env::current_dir;
 use std::fs::create_dir_all;
@@ -31,8 +31,8 @@ pub enum QueueMsg {
     ServerMsgBi((RemoteNodeId, ServerMessage, quinn::SendStream)),
     ExecuteTargetsRequest(ExecuteTargetsRequest),
     ExecuteTargetResult(ExecuteTargetResult),
-    RequestFileFinished(String),
-    RequestFileFailed((String, String)),
+    RequestFileFinished(Digest),
+    RequestFileFailed((Digest, String)),
 }
 
 pub struct Server {
@@ -140,13 +140,13 @@ impl Server {
                 self.handle_outgoing_server_connection(i, c)
             }
             QueueMsg::ServerConnectionLost(id) => self.handle_server_connection_lost(id),
-            QueueMsg::ClientMsg((id, msg, send)) => self.handle_client_msg(id, msg, send)?,
+            QueueMsg::ClientMsg((id, msg, send)) => self.handle_client_msg(id, msg, send).await?,
             QueueMsg::ServerMsgUni((id, msg)) => self.handle_server_msg_uni(id, msg)?,
             QueueMsg::ServerMsgBi((id, msg, send)) => self.handle_server_msg_bi(id, msg, send)?,
             QueueMsg::ExecuteTargetsRequest(_) => todo!(),
             QueueMsg::ExecuteTargetResult(m) => self.handle_execute_target_result(m),
-            QueueMsg::RequestFileFinished(hash) => self.handle_request_file_finished(hash).await,
-            QueueMsg::RequestFileFailed((hash, err)) => self.handle_request_file_failed(hash, err),
+            QueueMsg::RequestFileFinished(d) => self.handle_request_file_finished(d).await,
+            QueueMsg::RequestFileFailed((d, err)) => self.handle_request_file_failed(d, err),
         }
         Ok(())
     }
@@ -268,7 +268,8 @@ impl Server {
         }
     }
 
-    fn handle_client_msg(
+    // TODO drop async
+    async fn handle_client_msg(
         &mut self,
         client: ClientId,
         msg: ClientToServerMsg,
@@ -279,7 +280,7 @@ impl Server {
                 self.handle_create_job_request(client, send, r)?
             }
             ClientToServerMsg::ExecuteTargetsRequest(r) => {
-                self.handle_execute_targets_request(r)?
+                self.handle_execute_targets_request(r).await?
             }
             ClientToServerMsg::UploadFile => todo!(),
         }

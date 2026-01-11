@@ -20,7 +20,7 @@ pub struct Storage {
 
 impl Storage {
     pub fn new(path: PathBuf, max_size_gb: Option<usize>) -> Result<Self> {
-        let cas_dir = path.join("cas");
+        let cas_dir = path.join("cache/cas");
         let download_dir = path.join("download");
         std::fs::create_dir_all(&cas_dir)?;
         std::fs::create_dir_all(&download_dir)?;
@@ -63,12 +63,12 @@ impl Storage {
             // TODO check distributed cache first
             match download_file(connection, &file, download_dir, cas_path).await {
                 Ok(()) => tx
-                    .send(QueueMsg::RequestFileFinished(file.digest.unwrap().hash))
+                    .send(QueueMsg::RequestFileFinished(file.digest.unwrap()))
                     .ok(),
                 Err(e) => {
                     tracing::warn!(path=?file.path, "download file from client: {e:?}");
                     tx.send(QueueMsg::RequestFileFailed((
-                        file.digest.unwrap().hash,
+                        file.digest.unwrap(),
                         e.to_string(),
                     )))
                     .ok()
