@@ -11,12 +11,18 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 pub struct Scheduler {
+    max_parallelism: usize,
+    curr_parallelism: usize,
     jobs: Vec<JobData>,
 }
 
 impl Scheduler {
-    pub fn new() -> Self {
+    pub fn new(max_parallelism: usize) -> Self {
+        let curr_parallelism = 1; // reserve one core for server/scheduler tasks
+        assert!(max_parallelism > curr_parallelism);
         Self {
+            max_parallelism,
+            curr_parallelism,
             jobs: Default::default(),
         }
     }
@@ -164,7 +170,7 @@ impl Server {
         let scheduler = self.scheduler.as_mut().unwrap();
         let job_id = Uuid::now_v7();
         info!(client, ?job_id, "CreateJobRequest");
-        let worker = JobWorker::new(job_id, self.node.max_parallelism, &self.storage.path)?;
+        let worker = JobWorker::new(job_id, &self.storage.path)?;
         scheduler.jobs.push(JobData::new(
             self.clients[&client].connection.clone(),
             job_id,
@@ -224,6 +230,7 @@ impl Server {
     #[instrument(skip_all)]
     pub fn handle_execute_target_result(&mut self, msg: ExecuteTargetResult) {
         let scheduler = self.scheduler.as_mut().unwrap();
+        scheduler.curr_parallelism -= 1;
         let Some(job) = scheduler.jobs.iter_mut().find(|x| x.id == msg.job_id) else {
             return;
         };
@@ -236,10 +243,17 @@ impl Server {
 
     fn start_ready_targets(&mut self) {
         let scheduler = self.scheduler.as_mut().unwrap();
+        if scheduler.curr_parallelism >= scheduler.max_parallelism {
+            return;
+        }
         for job in &mut scheduler.jobs {
             while let Some(target) = job.ready.pop_front().map(|x| &job.dep_graph.targets[x]) {
                 job.worker
                     .push_target(target, &job.dep_graph.files, self.tx.clone());
+                scheduler.curr_parallelism += 1;
+                if scheduler.curr_parallelism >= scheduler.max_parallelism {
+                    return;
+                }
             }
         }
     }

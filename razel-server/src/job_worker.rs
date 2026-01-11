@@ -21,8 +21,6 @@ use tracing::{debug, instrument};
 /// Worker running within the server process
 pub struct JobWorker {
     job_id: JobId,
-    #[allow(dead_code)]
-    max_parallelism: usize,
     cache: Cache,
     ws_dir: PathBuf,
     sandbox_dir: PathBuf,
@@ -33,7 +31,7 @@ pub struct JobWorker {
 }
 
 impl JobWorker {
-    pub fn new(job_id: JobId, max_parallelism: usize, storage: &Path) -> Result<Self> {
+    pub fn new(job_id: JobId, storage: &Path) -> Result<Self> {
         let cache_dir = storage.join("cache");
         let job_dir = storage.join(format!("job-{}", job_id.as_u128()));
         let ws_dir = job_dir.join("ws");
@@ -44,7 +42,6 @@ impl JobWorker {
         let cache = Cache::new(cache_dir, ws_dir.clone())?;
         Ok(Self {
             job_id,
-            max_parallelism,
             cache,
             ws_dir,
             sandbox_dir,
