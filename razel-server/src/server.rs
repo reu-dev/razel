@@ -99,7 +99,7 @@ impl Server {
                 .unwrap_or_default(),
         };
         if self_config.worker.is_some() {
-            info!(max_parallelism=node.max_parallelism,tags=?node.tags,"local worker");
+            info!(max_parallelism=node.max_parallelism, tags=?node.tags, "local worker");
         }
         let storage = Storage::new(self_config.storage.path, self_config.storage.max_size_gb)?;
         let scheduler = self_config
@@ -286,7 +286,6 @@ impl Server {
             ClientToServerMsg::ExecuteTargetsRequest(r) => {
                 self.handle_execute_targets_request(r).await?
             }
-            ClientToServerMsg::UploadFile => todo!(),
         }
         Ok(())
     }

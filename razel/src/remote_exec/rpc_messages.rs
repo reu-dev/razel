@@ -29,7 +29,6 @@ impl From<u8> for MessageVersion {
 pub enum ClientToServerMsg {
     CreateJobRequest(CreateJobRequest),
     ExecuteTargetsRequest(ExecuteTargetsRequest),
-    UploadFile,
 }
 
 /// Messages send from server to client
