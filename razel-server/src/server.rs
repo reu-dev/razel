@@ -158,7 +158,7 @@ impl Server {
     fn handle_incoming_client_connection(&mut self, connection: Connection) {
         let id = self.next_client_id;
         self.next_client_id += 1;
-        info!(id, "new client connection");
+        info!(client_id = id, "new client connection");
         self.clients.insert(
             id,
             ClientConnection {
@@ -172,7 +172,10 @@ impl Server {
     fn handle_client_connection_lost(&mut self, id: ClientId) {
         let client = self.clients.get(&id).unwrap();
         let reason = client.connection.close_reason().unwrap();
-        info!(id, ?reason, "lost client connection");
+        info!(client_id = id, ?reason, "lost client connection");
+        if let Some(scheduler) = self.scheduler.as_mut() {
+            scheduler.handle_client_connection_lost(id);
+        }
         self.clients.remove(&id);
     }
 

@@ -26,10 +26,17 @@ impl Scheduler {
             jobs: Default::default(),
         }
     }
+
+    pub fn handle_client_connection_lost(&mut self, client_id: ClientId) {
+        for job in self.jobs.extract_if(.., |job| job.client_id == client_id) {
+            info!(client_id, job_id=?job.id, "job finished");
+        }
+    }
 }
 
 struct JobData {
-    client: quinn::Connection,
+    client_id: ClientId,
+    connection: quinn::Connection,
     id: JobId,
     #[allow(dead_code)]
     job: Job,
@@ -45,9 +52,16 @@ struct JobData {
 }
 
 impl JobData {
-    pub fn new(client: quinn::Connection, id: JobId, job: Job, worker: JobWorker) -> Self {
+    pub fn new(
+        client_id: ClientId,
+        connection: quinn::Connection,
+        id: JobId,
+        job: Job,
+        worker: JobWorker,
+    ) -> Self {
         Self {
-            client,
+            client_id,
+            connection,
             id,
             job,
             dep_graph: Default::default(),
@@ -163,16 +177,17 @@ impl JobData {
 impl Server {
     pub fn handle_create_job_request(
         &mut self,
-        client: ClientId,
+        client_id: ClientId,
         send: SendStream,
         request: CreateJobRequest,
     ) -> Result<()> {
         let scheduler = self.scheduler.as_mut().unwrap();
         let job_id = Uuid::now_v7();
-        info!(client, ?job_id, "CreateJobRequest");
+        info!(client_id, ?job_id, "CreateJobRequest");
         let worker = JobWorker::new(job_id, &self.storage.path)?;
         scheduler.jobs.push(JobData::new(
-            self.clients[&client].connection.clone(),
+            client_id,
+            self.clients[&client_id].connection.clone(),
             job_id,
             request.job,
             worker,
@@ -211,7 +226,7 @@ impl Server {
             if file.digest.is_some() {
                 if self
                     .storage
-                    .request_file_from_client(job.id, file, &job.client, &self.tx)
+                    .request_file_from_client(job.id, file, &job.connection, &self.tx)
                 {
                     stored_inputs.push(file.id);
                 } else {
@@ -236,7 +251,7 @@ impl Server {
         };
         job.handle_execute_target_result(&msg);
         ServerToClientMsg::ExecuteTargetResult(msg)
-            .spawn_send_uni(job.client.clone())
+            .spawn_send_uni(job.connection.clone())
             .unwrap();
         self.start_ready_targets();
     }
