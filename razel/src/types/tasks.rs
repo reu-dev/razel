@@ -1,5 +1,6 @@
 use clap::{Args, Subcommand};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use url::Url;
 
 #[derive(Clone, Subcommand, Serialize, Deserialize)]
@@ -20,6 +21,28 @@ pub enum Task {
     EnsureNotEqual(EnsureNotEqualTask),
     /// Post a HTTP multipart form for remote execution
     HttpRemoteExec(HttpRemoteExecTask),
+    /// Instruct CMake to create file-based API. To be called before cmake.
+    CmakeEnableApi(CmakeEnableApiTask),
+    GitLfsPullCmakeDeps(GitLfsPullCmakeDepsTask),
+    GitLfsPullCtestDeps(GitLfsPullCtestDepsTask),
+}
+
+#[derive(Args, Clone, Serialize, Deserialize)]
+pub struct CmakeEnableApiTask {
+    /// Directory in which CMake will be executed
+    pub cmake_binary_dir: PathBuf,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize)]
+pub struct GitLfsPullCmakeDepsTask {
+    /// Directory in which CMake was executed
+    pub cmake_binary_dir: PathBuf,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize)]
+pub struct GitLfsPullCtestDepsTask {
+    /// Directory in which CTest will be executed. Typically directory in which CMake was executed.
+    pub ctest_dir: PathBuf,
 }
 
 #[derive(Args, Clone, Serialize, Deserialize)]

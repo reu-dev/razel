@@ -230,6 +230,9 @@ impl TargetsBuilder {
                     input!(*x);
                 }
             }
+            Task::CmakeEnableApi(_) => {}
+            Task::GitLfsPullCmakeDeps(_) => {}
+            Task::GitLfsPullCtestDeps(_) => {}
         }
         let id = self.targets.len();
         let target = Target {

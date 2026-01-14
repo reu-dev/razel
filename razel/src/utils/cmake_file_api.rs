@@ -1,0 +1,160 @@
+use crate::read_json_file;
+use anyhow::{Context, Result, anyhow, bail};
+use itertools::Itertools;
+use serde::Deserialize;
+use serde_json::Value;
+use std::collections::HashSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+/// CMake file API parser.
+///
+/// See https://cmake.org/cmake/help/latest/manual/cmake-file-api.7.html
+#[derive(Deserialize)]
+pub struct CMakeFileApi {
+    pub reply_dir: PathBuf,
+    pub codemodel: Codemodel,
+}
+
+impl CMakeFileApi {
+    /// Instruct CMake to create file-based API. To be called before cmake.
+    ///
+    /// Write v1 Client Stateless Query File.
+    pub fn write_query(cmake_binary_dir: &Path) -> Result<()> {
+        let query_dir = cmake_binary_dir.join(".cmake/api/v1/query/client-razel");
+        fs::create_dir_all(&query_dir)?;
+        let path = query_dir.join("codemodel-v2");
+        fs::write(path, "")?;
+        Ok(())
+    }
+
+    pub fn read(cmake_binary_dir: &Path) -> Result<Self> {
+        let reply_dir = reply_dir(cmake_binary_dir);
+        let index = read_index(&reply_dir)?;
+        let codemodel_file = get_codemodel_file_from_index(&index)
+            .ok_or(anyhow!("get_codemodel_file_from_index"))?;
+        let codemodel = read_json_file(&reply_dir.join(codemodel_file))?;
+        Ok(Self {
+            reply_dir,
+            codemodel,
+        })
+    }
+
+    pub fn collect_input_files(&self) -> Result<HashSet<PathBuf>> {
+        let src_dir = &self.codemodel.paths.source;
+        let bin_dir = &self.codemodel.paths.build;
+        let mut inputs: HashSet<PathBuf> = Default::default();
+        let mut extend = |paths: Vec<PathBuf>| {
+            for mut path in paths {
+                if path.is_relative() {
+                    path = src_dir.join(path);
+                }
+                if !path.starts_with(bin_dir) {
+                    inputs.insert(path);
+                }
+            }
+        };
+        for configuration in &self.codemodel.configurations {
+            for target in &configuration.targets {
+                let target = target.read(&self.reply_dir)?;
+                if target.imported {
+                    extend(target.artifacts.into_iter().map(|a| a.path).collect());
+                }
+                extend(target.sources.into_iter().map(|s| s.path).collect());
+            }
+        }
+        Ok(inputs)
+    }
+}
+
+#[derive(Deserialize)]
+pub struct Codemodel {
+    pub configurations: Vec<CodemodelConfiguration>,
+    pub paths: CodemodelPaths,
+}
+
+#[allow(nonstandard_style)]
+#[derive(Deserialize)]
+pub struct CodemodelPaths {
+    pub build: PathBuf,
+    pub source: PathBuf,
+}
+
+#[derive(Deserialize)]
+pub struct CodemodelConfiguration {
+    /// e.g. Release
+    pub name: String,
+    pub targets: Vec<CodemodelTarget>,
+}
+
+#[allow(non_snake_case)]
+#[derive(Deserialize)]
+pub struct CodemodelTarget {
+    pub jsonFile: PathBuf,
+}
+
+impl CodemodelTarget {
+    pub fn read(&self, query_dir: &Path) -> Result<Target> {
+        read_json_file(&query_dir.join(&self.jsonFile))
+    }
+}
+
+#[derive(Deserialize)]
+pub struct Target {
+    #[serde(default)]
+    pub artifacts: Vec<Artifact>,
+    #[serde(default)]
+    pub imported: bool,
+    pub sources: Vec<Source>,
+    /// MODULE_LIBRARY, SHARED_LIBRARY
+    #[serde(rename = "type")]
+    pub r_type: String,
+}
+
+#[derive(Deserialize)]
+pub struct Artifact {
+    pub path: PathBuf,
+}
+
+#[derive(Deserialize)]
+pub struct Source {
+    pub path: PathBuf,
+}
+
+fn reply_dir(cmake_binary_dir: &Path) -> PathBuf {
+    cmake_binary_dir.join(".cmake/api/v1/reply")
+}
+
+/// Read latest file matching index-*.json
+fn read_index(reply_dir: &Path) -> Result<serde_json::Value> {
+    let Some(path) = fs::read_dir(reply_dir)
+        .with_context(|| format!("Failed to read directory: {:?}", reply_dir))?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.starts_with("index-") && name.ends_with(".json"))
+                .unwrap_or(false)
+        })
+        .sorted()
+        .last()
+    else {
+        bail!("No index-*.json file found in {reply_dir:?}");
+    };
+    read_json_file(&path)
+}
+
+fn get_codemodel_file_from_index(index: &Value) -> Option<PathBuf> {
+    index
+        .as_object()?
+        .get("reply")?
+        .as_object()?
+        .get("client-razel")?
+        .as_object()?
+        .get("codemodel-v2")?
+        .as_object()?
+        .get("jsonFile")?
+        .as_str()
+        .map(PathBuf::from)
+}
