@@ -4,13 +4,13 @@ use serde::Deserialize;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use tracing::{info, instrument};
 
 /// CTest JSON Object Model parser.
 ///
 /// Requires ctest >= 3.14. See https://cmake.org/cmake/help/latest/manual/ctest.1.html#show-as-json-object-model
 #[derive(Deserialize)]
 pub struct CTestJson {
-    // backtraceGraph
     pub kind: String,
     pub tests: Vec<CTestJsonTest>,
     pub version: CTestJsonVersion,
@@ -55,6 +55,7 @@ impl CTestJson {
         Ok(json)
     }
 
+    #[instrument(skip_all)]
     pub fn collect_input_files(&self) -> Result<HashSet<PathBuf>> {
         let mut inputs: HashSet<PathBuf> = Default::default();
         for test in &self.tests {
@@ -62,6 +63,7 @@ impl CTestJson {
                 inputs.extend(required_files);
             }
         }
+        info!(tests = self.tests.len(), inputs = inputs.len());
         Ok(inputs)
     }
 }
@@ -80,7 +82,6 @@ pub struct CTestJsonProperty {
 
 #[derive(Deserialize)]
 pub struct CTestJsonTest {
-    // pub backtrace:u32,
     #[serde(default)]
     pub command: Vec<String>,
     pub name: String,

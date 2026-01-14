@@ -44,23 +44,30 @@ impl CMakeFileApi {
         let src_dir = &self.codemodel.paths.source;
         let bin_dir = &self.codemodel.paths.build;
         let mut inputs: HashSet<PathBuf> = Default::default();
-        let mut extend = |paths: Vec<PathBuf>| {
-            for mut path in paths {
-                if path.is_relative() {
-                    path = src_dir.join(path);
-                }
-                if !path.starts_with(bin_dir) {
-                    inputs.insert(path);
-                }
-            }
-        };
         for configuration in &self.codemodel.configurations {
-            for target in &configuration.targets {
+            for target in configuration
+                .abstractTargets
+                .iter()
+                .chain(configuration.targets.iter())
+            {
                 let target = target.read(&self.reply_dir)?;
                 if target.imported {
-                    extend(target.artifacts.into_iter().map(|a| a.path).collect());
+                    inputs.extend(
+                        target
+                            .artifacts
+                            .into_iter()
+                            .map(|a| a.path)
+                            .filter(|p| p.starts_with(src_dir)),
+                    );
                 }
-                extend(target.sources.into_iter().map(|s| s.path).collect());
+                inputs.extend(
+                    target
+                        .sources
+                        .into_iter()
+                        .map(|a| a.path)
+                        .map(|p| if p.is_relative() { src_dir.join(p) } else { p })
+                        .filter(|p| !p.starts_with(bin_dir)),
+                );
             }
         }
         Ok(inputs)
@@ -80,10 +87,12 @@ pub struct CodemodelPaths {
     pub source: PathBuf,
 }
 
+#[allow(nonstandard_style)]
 #[derive(Deserialize)]
 pub struct CodemodelConfiguration {
     /// e.g. Release
     pub name: String,
+    pub abstractTargets: Vec<CodemodelTarget>,
     pub targets: Vec<CodemodelTarget>,
 }
 

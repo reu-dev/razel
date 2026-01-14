@@ -102,6 +102,7 @@ pub mod utils {
     pub mod ctest_json;
     mod directories;
     mod file_permissions;
+    pub mod git;
     pub mod git_lfs;
     mod hardlink;
     mod helpers;
@@ -117,7 +118,7 @@ pub mod utils {
 pub mod tasks {
     mod cmake;
     mod csv;
-    mod git;
+    mod git_lfs;
     mod http;
     mod misc;
 }

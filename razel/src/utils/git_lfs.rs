@@ -1,42 +1,61 @@
 use crate::config::EXE_SUFFIX;
-use anyhow::Result;
+use crate::git::find_repo_for_path_cached;
+use anyhow::{Result, anyhow};
+use itertools::Itertools;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
-use tracing::{debug, warn};
+use tracing::{info, instrument, warn};
 
-const LFS_HEADER: &str = "version https://git-lfs.github.com/spec/v1";
+const LFS_HEADER: &str = "version https://git-lfs.github.com/spec/v1\n";
 
+#[instrument(skip_all)]
 pub async fn pull_files(paths: &Vec<PathBuf>) -> Result<()> {
-    let mut filenames_per_dir: HashMap<&Path, Vec<&str>> = Default::default();
+    let mut cache = Default::default();
+    let mut files_for_repo: HashMap<&Path, Vec<&Path>> = Default::default();
+    let mut lfs_pointers = 0;
     for path in paths {
         match is_lfs_pointer_file(path).await {
             Ok(false) => continue,
-            Ok(true) => filenames_per_dir
-                .entry(path.parent().unwrap())
-                .or_default()
-                .push(path.file_name().unwrap().to_str().unwrap()),
+            Ok(true) => {
+                lfs_pointers += 1;
+                let repo = find_repo_for_path_cached(path, &mut cache)
+                    .await
+                    .ok_or_else(|| anyhow!("No git repository found: {path:?}"))?;
+                files_for_repo
+                    .entry(repo)
+                    .or_default()
+                    .push(path.strip_prefix(repo).unwrap())
+            }
             Err(e) => warn!("{e:?}: {path:?}"),
         }
     }
-    for (dir, files) in filenames_per_dir {
-        pull_files_in_dir(dir, files).await?;
+    info!(
+        paths = paths.len(),
+        lfs_pointers,
+        repositories = files_for_repo.len(),
+    );
+    for (dir, files) in files_for_repo {
+        pull_files_within_single_repo(dir, files).await?;
     }
     Ok(())
 }
 
-pub async fn pull_files_in_dir(dir: &Path, files: Vec<&str>) -> Result<()> {
+pub async fn pull_files_within_single_repo(repo: &Path, files: Vec<&Path>) -> Result<()> {
+    assert!(!files.is_empty());
     let program = format!("git{EXE_SUFFIX}");
-    let args: Vec<_> = ["lfs", "pull", "--include"]
+    let files_joined = files
         .into_iter()
-        .chain(files.into_iter())
-        .collect();
-    debug!("cd {dir:?} && {program} {}", args.join(" "));
+        .map(|p| p.to_str().unwrap())
+        .sorted()
+        .join(",");
+    let args = ["lfs", "pull", "-I", &files_joined];
+    info!("cd {repo:?} && {program} {}", args.join(" "));
     Command::new(program)
         .args(args)
-        .current_dir(dir)
+        .current_dir(repo)
         .status()
         .await?;
     Ok(())
