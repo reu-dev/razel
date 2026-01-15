@@ -23,6 +23,8 @@ pub enum Task {
     HttpRemoteExec(HttpRemoteExecTask),
     /// Instruct CMake to create file-based API. To be called before cmake.
     CmakeEnableApi(CmakeEnableApiTask),
+    /// Pull Git LFS files. Supports files and directories across different repos.
+    GitLfsPull(GitLfsPullTask),
     GitLfsPullCmakeDeps(GitLfsPullCmakeDepsTask),
     GitLfsPullCtestDeps(GitLfsPullCtestDepsTask),
 }
@@ -32,6 +34,11 @@ pub struct CmakeEnableApiTask {
     /// Directory in which CMake will be executed
     #[clap(short = 'B', long)]
     pub cmake_binary_dir: PathBuf,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize)]
+pub struct GitLfsPullTask {
+    pub paths: Vec<PathBuf>,
 }
 
 #[derive(Args, Clone, Serialize, Deserialize)]

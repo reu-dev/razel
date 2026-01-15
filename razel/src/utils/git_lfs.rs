@@ -12,32 +12,36 @@ use tracing::{info, instrument, warn};
 const LFS_HEADER: &str = "version https://git-lfs.github.com/spec/v1\n";
 
 #[instrument(skip_all)]
-pub async fn pull_files(paths: &Vec<PathBuf>) -> Result<()> {
+pub async fn pull_paths(paths: &Vec<PathBuf>) -> Result<()> {
     let mut cache = Default::default();
-    let mut files_for_repo: HashMap<&Path, Vec<&Path>> = Default::default();
+    let mut paths_for_repo: HashMap<&Path, Vec<&Path>> = Default::default();
     let mut lfs_pointers = 0;
     for path in paths {
         match is_lfs_pointer_file(path).await {
             Ok(false) => continue,
             Ok(true) => {
                 lfs_pointers += 1;
-                let repo = find_repo_for_path_cached(path, &mut cache)
-                    .await
-                    .ok_or_else(|| anyhow!("No git repository found: {path:?}"))?;
-                files_for_repo
-                    .entry(repo)
-                    .or_default()
-                    .push(path.strip_prefix(repo).unwrap())
             }
-            Err(e) => warn!("{e:?}: {path:?}"),
+            Err(_) if path.is_dir() => {}
+            Err(e) => {
+                warn!("{e:?}: {path:?}");
+                continue;
+            }
         }
+        let repo = find_repo_for_path_cached(path, &mut cache)
+            .await
+            .ok_or_else(|| anyhow!("No git repository found: {path:?}"))?;
+        paths_for_repo
+            .entry(repo)
+            .or_default()
+            .push(path.strip_prefix(repo).unwrap())
     }
     info!(
         paths = paths.len(),
         lfs_pointers,
-        repositories = files_for_repo.len(),
+        repositories = paths_for_repo.len(),
     );
-    for (dir, files) in files_for_repo {
+    for (dir, files) in paths_for_repo {
         pull_files_within_single_repo(dir, files).await?;
     }
     Ok(())

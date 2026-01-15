@@ -231,6 +231,7 @@ impl TargetsBuilder {
                 }
             }
             Task::CmakeEnableApi(_)
+            | Task::GitLfsPull(_)
             | Task::GitLfsPullCmakeDeps(_)
             | Task::GitLfsPullCtestDeps(_) => {
                 tags.extend_from_slice(&[Tag::NoCache, Tag::NoSandbox]);
