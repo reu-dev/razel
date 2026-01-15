@@ -43,9 +43,9 @@ pub struct GitLfsPullCmakeDepsTask {
 
 #[derive(Args, Clone, Serialize, Deserialize)]
 pub struct GitLfsPullCtestDepsTask {
-    /// Directory in which CTest will be executed. Typically, directory in which CMake was executed.
-    #[clap(short = 'B', long, alias = "cmake_binary_dir")]
-    pub ctest_dir: PathBuf,
+    /// Directory in which CMake was executed
+    #[clap(short = 'B', long)]
+    pub cmake_binary_dir: PathBuf,
 }
 
 #[derive(Args, Clone, Serialize, Deserialize)]

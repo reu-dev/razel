@@ -99,6 +99,7 @@ pub mod utils {
     pub use worker_utils::*;
 
     pub mod cmake_file_api;
+    pub mod ctest;
     pub mod ctest_json;
     mod directories;
     mod file_permissions;

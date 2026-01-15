@@ -1,10 +1,7 @@
-use crate::read_json_file;
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tracing::{info, instrument};
 
 /// CTest JSON Object Model parser.
 ///
@@ -17,13 +14,8 @@ pub struct CTestJson {
 }
 
 impl CTestJson {
-    /// Read a file generated with `ctest --show-only=json-v1`
-    pub fn read(path: &Path) -> Result<Self> {
-        read_json_file(path)
-    }
-
     /// Use `ctest --test-dir <dir> --show-only=json-v1` to create the JSON Object Model and read it.
-    pub fn create(dir: &Path) -> Result<Self> {
+    pub fn read(dir: &Path) -> Result<Self> {
         let command = &[
             "ctest",
             "--test-dir",
@@ -53,18 +45,6 @@ impl CTestJson {
             bail!("unsupported file version: {:?}", json.version);
         }
         Ok(json)
-    }
-
-    #[instrument(skip_all)]
-    pub fn collect_input_files(&self) -> Result<HashSet<PathBuf>> {
-        let mut inputs: HashSet<PathBuf> = Default::default();
-        for test in &self.tests {
-            if let Some(required_files) = test.required_files() {
-                inputs.extend(required_files);
-            }
-        }
-        info!(tests = self.tests.len(), inputs = inputs.len());
-        Ok(inputs)
     }
 }
 
@@ -100,8 +80,9 @@ impl CTestJsonTest {
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|v| {
-                    let p = Path::new(v.as_str().unwrap());
+                .filter_map(|v| v.as_str().map(str::trim).filter(|s| !s.is_empty()))
+                .map(|s| {
+                    let p = Path::new(s);
                     if p.is_relative() {
                         working_dir.as_ref().unwrap().join(p)
                     } else {
