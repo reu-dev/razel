@@ -92,7 +92,9 @@ pub struct CodemodelPaths {
 pub struct CodemodelConfiguration {
     /// e.g. Release
     pub name: String,
+    #[serde(default)]
     pub abstractTargets: Vec<CodemodelTarget>,
+    #[serde(default)]
     pub targets: Vec<CodemodelTarget>,
 }
 
