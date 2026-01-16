@@ -96,3 +96,12 @@ jobs:
         env:
           PYTHONPATH: apis/python
       - run: git diff --exit-code examples/razel.jsonl
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: razel-${{github.ref_name}}-${{matrix.target}}
+          path: |
+            target/${{matrix.target}}/release/razel
+            target/${{matrix.target}}/release/razel.exe
+          if-no-files-found: error
+          retention-days: 1
