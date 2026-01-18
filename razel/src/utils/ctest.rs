@@ -1,5 +1,6 @@
 use crate::cmake_file_api::CMakeFileApi;
 use crate::ctest_json::CTestJson;
+use crate::normalize_path;
 use anyhow::Result;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -11,9 +12,9 @@ pub struct CTest {
 }
 
 impl CTest {
-    pub fn read(cmake_binary_dir: &Path) -> Result<Self> {
+    pub fn read(cmake_binary_dir: &Path, cmake_build_type: &str) -> Result<Self> {
         let cmake = CMakeFileApi::read(cmake_binary_dir)?;
-        let ctest = CTestJson::read(cmake_binary_dir)?;
+        let ctest = CTestJson::read(cmake_binary_dir, cmake_build_type)?;
         Ok(Self { cmake, ctest })
     }
 

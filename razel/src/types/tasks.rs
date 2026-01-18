@@ -25,7 +25,9 @@ pub enum Task {
     CmakeEnableApi(CmakeEnableApiTask),
     /// Pull Git LFS files. Supports files and directories across different repos.
     GitLfsPull(GitLfsPullTask),
+    /// Pull Git LFS files referenced by CMake. Needs file-based API.
     GitLfsPullCmakeDeps(GitLfsPullCmakeDepsTask),
+    /// Pull Git LFS files referenced by CTest
     GitLfsPullCtestDeps(GitLfsPullCtestDepsTask),
 }
 
@@ -46,6 +48,8 @@ pub struct GitLfsPullCmakeDepsTask {
     /// Directory in which CMake was executed
     #[clap(short = 'B', long)]
     pub cmake_binary_dir: PathBuf,
+    #[clap(short = 'C', long, default_value = "Debug")]
+    pub cmake_build_type: String,
 }
 
 #[derive(Args, Clone, Serialize, Deserialize)]
@@ -53,6 +57,8 @@ pub struct GitLfsPullCtestDepsTask {
     /// Directory in which CMake was executed
     #[clap(short = 'B', long)]
     pub cmake_binary_dir: PathBuf,
+    #[clap(short = 'C', long, default_value = "Debug")]
+    pub cmake_build_type: String,
 }
 
 #[derive(Args, Clone, Serialize, Deserialize)]

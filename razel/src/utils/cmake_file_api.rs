@@ -40,35 +40,42 @@ impl CMakeFileApi {
         })
     }
 
-    pub fn collect_input_files(&self) -> Result<HashSet<PathBuf>> {
+    pub fn collect_input_files(&self, cmake_build_type: &str) -> Result<HashSet<PathBuf>> {
         let src_dir = &self.codemodel.paths.source;
         let bin_dir = &self.codemodel.paths.build;
         let mut inputs: HashSet<PathBuf> = Default::default();
-        for configuration in &self.codemodel.configurations {
-            for target in configuration
-                .abstractTargets
+        let configuration = if self.codemodel.configurations.len() == 1 {
+            &self.codemodel.configurations[0]
+        } else {
+            self.codemodel
+                .configurations
                 .iter()
-                .chain(configuration.targets.iter())
-            {
-                let target = target.read(&self.reply_dir)?;
-                if target.imported {
-                    inputs.extend(
-                        target
-                            .artifacts
-                            .into_iter()
-                            .map(|a| a.path)
-                            .filter(|p| p.starts_with(src_dir)),
-                    );
-                }
+                .find(|c| c.name.to_lowercase() == cmake_build_type.to_lowercase())
+                .ok_or_else(|| anyhow!("configuration to found: {cmake_build_type}"))?
+        };
+        for target in configuration
+            .abstractTargets
+            .iter()
+            .chain(configuration.targets.iter())
+        {
+            let target = target.read(&self.reply_dir)?;
+            if target.imported {
                 inputs.extend(
                     target
-                        .sources
+                        .artifacts
                         .into_iter()
                         .map(|a| a.path)
-                        .map(|p| if p.is_relative() { src_dir.join(p) } else { p })
-                        .filter(|p| !p.starts_with(bin_dir)),
+                        .filter(|p| p.starts_with(src_dir)),
                 );
             }
+            inputs.extend(
+                target
+                    .sources
+                    .into_iter()
+                    .map(|a| a.path)
+                    .map(|p| if p.is_relative() { src_dir.join(p) } else { p })
+                    .filter(|p| !p.starts_with(bin_dir)),
+            );
         }
         Ok(inputs)
     }

@@ -14,12 +14,14 @@ pub struct CTestJson {
 }
 
 impl CTestJson {
-    /// Use `ctest --test-dir <dir> --show-only=json-v1` to create the JSON Object Model and read it.
-    pub fn read(dir: &Path) -> Result<Self> {
+    /// Use `ctest --test-dir <dir> -C <build_type> --show-only=json-v1` to create the JSON Object Model and read it.
+    pub fn read(dir: &Path, build_type: &str) -> Result<Self> {
         let command = &[
             "ctest",
             "--test-dir",
             dir.to_str().unwrap(),
+            "-C",
+            build_type,
             "--show-only=json-v1",
         ];
         let output = Command::new(command[0])
@@ -104,6 +106,7 @@ impl CTestJsonTest {
         self.properties
             .iter()
             .find(|p| p.name == "WORKING_DIRECTORY")
-            .map(|p| PathBuf::from(p.value.to_string()))
+            .and_then(|p| p.value.as_str())
+            .map(PathBuf::from)
     }
 }
