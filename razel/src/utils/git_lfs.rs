@@ -1,5 +1,6 @@
 use crate::config::EXE_SUFFIX;
 use crate::git::find_repo_for_path_cached;
+use crate::normalize_path;
 use anyhow::{Result, anyhow};
 use itertools::Itertools;
 use std::collections::HashMap;
@@ -12,15 +13,15 @@ use tracing::{info, instrument, warn};
 const LFS_HEADER: &str = "version https://git-lfs.github.com/spec/v1\n";
 
 #[instrument(skip_all)]
-pub async fn pull_paths(paths: &Vec<PathBuf>) -> Result<()> {
-    let mut cache = Default::default();
-    let mut paths_for_repo: HashMap<&Path, Vec<&Path>> = Default::default();
-    let mut lfs_pointers = 0;
-    for path in paths {
-        match is_lfs_pointer_file(path).await {
+pub async fn pull_paths(paths: impl IntoIterator<Item = PathBuf>) -> Result<()> {
+    let mut paths_len = 0;
+    let mut lfs_pointers = vec![];
+    for path in paths.into_iter() {
+        paths_len += 1;
+        match is_lfs_pointer_file(&path).await {
             Ok(false) => continue,
             Ok(true) => {
-                lfs_pointers += 1;
+                lfs_pointers.push(normalize_path(&path));
             }
             Err(_) if path.is_dir() => {}
             Err(e) => {
@@ -28,6 +29,10 @@ pub async fn pull_paths(paths: &Vec<PathBuf>) -> Result<()> {
                 continue;
             }
         }
+    }
+    let mut cache = Default::default();
+    let mut paths_for_repo: HashMap<&Path, Vec<&Path>> = Default::default();
+    for path in &lfs_pointers {
         let repo = find_repo_for_path_cached(path, &mut cache)
             .await
             .ok_or_else(|| anyhow!("No git repository found: {path:?}"))?;
@@ -37,8 +42,8 @@ pub async fn pull_paths(paths: &Vec<PathBuf>) -> Result<()> {
             .push(path.strip_prefix(repo).unwrap())
     }
     info!(
-        paths = paths.len(),
-        lfs_pointers,
+        paths = paths_len,
+        lfs_pointers = lfs_pointers.len(),
         repositories = paths_for_repo.len(),
     );
     for (dir, files) in paths_for_repo {

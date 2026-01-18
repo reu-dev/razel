@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 /// CMake file API parser.
 ///
 /// See https://cmake.org/cmake/help/latest/manual/cmake-file-api.7.html
+///
+/// Note: all paths use unix line separators, even on Windows.
 #[derive(Deserialize)]
 pub struct CMakeFileApi {
     pub reply_dir: PathBuf,
@@ -65,7 +67,8 @@ impl CMakeFileApi {
                         .artifacts
                         .into_iter()
                         .map(|a| a.path)
-                        .filter(|p| p.starts_with(src_dir)),
+                        .filter(|p| p.starts_with(src_dir))
+                        .map(PathBuf::from),
                 );
             }
             inputs.extend(
@@ -73,8 +76,15 @@ impl CMakeFileApi {
                     .sources
                     .into_iter()
                     .map(|a| a.path)
-                    .map(|p| if p.is_relative() { src_dir.join(p) } else { p })
-                    .filter(|p| !p.starts_with(bin_dir)),
+                    .map(|p| {
+                        if Path::new(&p).is_relative() {
+                            format!("{src_dir}/{p}")
+                        } else {
+                            p
+                        }
+                    })
+                    .filter(|p| !p.starts_with(bin_dir))
+                    .map(PathBuf::from),
             );
         }
         Ok(inputs)
@@ -90,8 +100,8 @@ pub struct Codemodel {
 #[allow(nonstandard_style)]
 #[derive(Deserialize)]
 pub struct CodemodelPaths {
-    pub build: PathBuf,
-    pub source: PathBuf,
+    pub build: String,
+    pub source: String,
 }
 
 #[allow(nonstandard_style)]
@@ -131,12 +141,12 @@ pub struct Target {
 
 #[derive(Deserialize)]
 pub struct Artifact {
-    pub path: PathBuf,
+    pub path: String,
 }
 
 #[derive(Deserialize)]
 pub struct Source {
-    pub path: PathBuf,
+    pub path: String,
 }
 
 fn reply_dir(cmake_binary_dir: &Path) -> PathBuf {

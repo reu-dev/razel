@@ -1,11 +1,13 @@
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 /// CTest JSON Object Model parser.
 ///
 /// Requires ctest >= 3.14. See https://cmake.org/cmake/help/latest/manual/ctest.1.html#show-as-json-object-model
+///
+/// Note: all paths use unix line separators, even on Windows.
 #[derive(Deserialize)]
 pub struct CTestJson {
     pub kind: String,
@@ -71,28 +73,14 @@ pub struct CTestJsonTest {
 }
 
 impl CTestJsonTest {
-    pub fn required_files(&self) -> Option<Vec<PathBuf>> {
-        let prop = self
-            .properties
+    /// REQUIRED_FILES: absolute or relative to WORKING_DIRECTORY
+    pub fn required_files(&self) -> Option<Vec<&str>> {
+        self.properties
             .iter()
-            .find(|p| p.name == "REQUIRED_FILES")?;
-        let working_dir = self.working_dir();
-        Some(
-            prop.value
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter_map(|v| v.as_str().map(str::trim).filter(|s| !s.is_empty()))
-                .map(|s| {
-                    let p = Path::new(s);
-                    if p.is_relative() {
-                        working_dir.as_ref().unwrap().join(p)
-                    } else {
-                        p.to_path_buf()
-                    }
-                })
-                .collect(),
-        )
+            .find(|p| p.name == "REQUIRED_FILES")?
+            .value
+            .as_array()
+            .map(|a| a.iter().map(|v| v.as_str().unwrap()).collect())
     }
 
     pub fn timeout(&self) -> Option<f64> {
@@ -102,11 +90,10 @@ impl CTestJsonTest {
             .and_then(|p| p.value.as_f64())
     }
 
-    pub fn working_dir(&self) -> Option<PathBuf> {
+    pub fn working_dir(&self) -> Option<&str> {
         self.properties
             .iter()
             .find(|p| p.name == "WORKING_DIRECTORY")
             .and_then(|p| p.value.as_str())
-            .map(PathBuf::from)
     }
 }
