@@ -6,6 +6,7 @@ use serde_json::Value;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use tracing::warn;
 
 /// CMake file API parser.
 ///
@@ -43,6 +44,7 @@ impl CMakeFileApi {
     }
 
     pub fn collect_input_files(&self, cmake_build_type: &str) -> Result<HashSet<PathBuf>> {
+        self.warn_on_outdated_version();
         let src_dir = &self.codemodel.paths.source;
         let bin_dir = &self.codemodel.paths.build;
         let mut inputs: HashSet<PathBuf> = Default::default();
@@ -89,12 +91,30 @@ impl CMakeFileApi {
         }
         Ok(inputs)
     }
+
+    fn warn_on_outdated_version(&self) {
+        let version = &self.codemodel.version;
+        match (version.major, version.minor) {
+            // abstract targets were introduced in codemodel version 2.9 (CMake 4.2)
+            (..2, _) | (2, ..9) => warn!(
+                "Outdated CMake version. Abstract targets (e.g. imported libraries) require >= 4.2"
+            ),
+            _ => {}
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct Version {
+    pub major: u32,
+    pub minor: u32,
 }
 
 #[derive(Deserialize)]
 pub struct Codemodel {
     pub configurations: Vec<CodemodelConfiguration>,
     pub paths: CodemodelPaths,
+    pub version: Version,
 }
 
 #[allow(nonstandard_style)]
