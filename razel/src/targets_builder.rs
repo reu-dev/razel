@@ -167,7 +167,7 @@ impl TargetsBuilder {
         name: String,
         mut args: Vec<String>,
         mut task: Task,
-        tags: Vec<Tag>,
+        mut tags: Vec<Tag>,
     ) -> Result<TargetId> {
         if self.target_by_name.contains_key(&name) {
             bail!("target already exists: {name:?}");
@@ -229,6 +229,12 @@ impl TargetsBuilder {
                 for x in t.files.iter_mut() {
                     input!(*x);
                 }
+            }
+            Task::CmakeEnableApi(_)
+            | Task::GitLfsPull(_)
+            | Task::GitLfsPullCmakeDeps(_)
+            | Task::GitLfsPullCtestDeps(_) => {
+                tags.extend_from_slice(&[Tag::NoCache, Tag::NoSandbox]);
             }
         }
         let id = self.targets.len();

@@ -1,11 +1,11 @@
 use crate::executors::{ExecutionResult, ExecutionStatus};
+use crate::read_json_file;
 use crate::types::{CacheHit, Tag, Target};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::fmt::Debug;
-use std::fs;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -54,8 +54,7 @@ pub struct LogFile {
 
 impl LogFile {
     pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<Self> {
-        let contents = fs::read(&path).with_context(|| format!("{path:?}"))?;
-        let items = serde_json::from_slice(&contents)?;
+        let items = read_json_file(path.as_ref())?;
         Ok(Self { items })
     }
 

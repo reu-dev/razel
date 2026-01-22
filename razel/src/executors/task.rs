@@ -31,6 +31,10 @@ impl Task {
             Task::EnsureEqual(x) => x.exec(sandbox_dir).await,
             Task::EnsureNotEqual(x) => x.exec(sandbox_dir).await,
             Task::HttpRemoteExec(_) => unreachable!("should use HttpRemoteExecutor"),
+            Task::CmakeEnableApi(x) => x.exec().await,
+            Task::GitLfsPull(x) => x.exec().await,
+            Task::GitLfsPullCmakeDeps(x) => x.exec().await,
+            Task::GitLfsPullCtestDeps(x) => x.exec().await,
         }
     }
 }

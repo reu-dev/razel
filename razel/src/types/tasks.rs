@@ -1,5 +1,6 @@
 use clap::{Args, Subcommand};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use url::Url;
 
 #[derive(Clone, Subcommand, Serialize, Deserialize)]
@@ -20,6 +21,44 @@ pub enum Task {
     EnsureNotEqual(EnsureNotEqualTask),
     /// Post a HTTP multipart form for remote execution
     HttpRemoteExec(HttpRemoteExecTask),
+    /// Instruct CMake to create file-based API. To be called before cmake.
+    CmakeEnableApi(CmakeEnableApiTask),
+    /// Pull Git LFS files. Supports files and directories across different repos.
+    GitLfsPull(GitLfsPullTask),
+    /// Pull Git LFS files referenced by CMake. Needs file-based API.
+    GitLfsPullCmakeDeps(GitLfsPullCmakeDepsTask),
+    /// Pull Git LFS files referenced by CTest
+    GitLfsPullCtestDeps(GitLfsPullCtestDepsTask),
+}
+
+#[derive(Args, Clone, Serialize, Deserialize)]
+pub struct CmakeEnableApiTask {
+    /// Directory in which CMake will be executed
+    #[clap(short = 'B', long)]
+    pub cmake_binary_dir: PathBuf,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize)]
+pub struct GitLfsPullTask {
+    pub paths: Vec<PathBuf>,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize)]
+pub struct GitLfsPullCmakeDepsTask {
+    /// Directory in which CMake was executed
+    #[clap(short = 'B', long)]
+    pub cmake_binary_dir: PathBuf,
+    #[clap(short = 'C', long, default_value = "Debug")]
+    pub cmake_build_type: String,
+}
+
+#[derive(Args, Clone, Serialize, Deserialize)]
+pub struct GitLfsPullCtestDepsTask {
+    /// Directory in which CMake was executed
+    #[clap(short = 'B', long)]
+    pub cmake_binary_dir: PathBuf,
+    #[clap(short = 'C', long, default_value = "Debug")]
+    pub cmake_build_type: String,
 }
 
 #[derive(Args, Clone, Serialize, Deserialize)]
