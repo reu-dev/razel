@@ -1,5 +1,7 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 use tracing::warn;
 
@@ -27,6 +29,29 @@ impl Rules {
         };
         s.set_defaults();
         s
+    }
+
+    pub fn read(&mut self, path: &Path) -> Result<()> {
+        let file = File::open(path).with_context(|| anyhow!("{path:?}"))?;
+        let file_buffered = BufReader::new(file);
+        for (line_number, line) in file_buffered.lines().enumerate() {
+            if let Ok(line) = line {
+                let line_trimmed = line.trim();
+                if let Some(comment) = line_trimmed.strip_prefix("#").map(str::trim_start) {
+                    if let Some(rule) = comment.strip_prefix("razel:rule") {
+                        self.add(rule.trim()).with_context(|| {
+                            anyhow!("{}:{}", path.to_string_lossy(), line_number + 1)
+                        })?;
+                    }
+                    continue;
+                } else if line_trimmed.is_empty() {
+                    continue;
+                }
+                self.add(line_trimmed)
+                    .with_context(|| anyhow!("{}:{}", path.to_string_lossy(), line_number + 1))?;
+            }
+        }
+        Ok(())
     }
 
     pub fn add(&mut self, spec: &str) -> Result<()> {
@@ -149,13 +174,6 @@ impl Rule {
     }
 
     pub fn eval_args(&self, items: &[String]) -> Result<ParseCommandResult> {
-        if items.len() < self.options.len() * 2 + self.positional_args.len() {
-            bail!(
-                "expected {} arguments, found only {}",
-                self.options.len() * 2 + self.positional_args.len(),
-                items.len()
-            );
-        }
         let mut files: ParseCommandResult = Default::default();
         let mut prev_option: Option<&Arg> = None;
         let mut positionals_missing = self.positional_args.len();
