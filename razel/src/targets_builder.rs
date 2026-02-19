@@ -330,13 +330,13 @@ impl TargetsBuilder {
             (ExecutableType::ExecutableOutsideWorkspace, path.into())
         };
         let path = match executable_type {
-            ExecutableType::ExecutableInWorkspace
-            | ExecutableType::ExecutableOutsideWorkspace
-            | ExecutableType::WasiModule => abs_path
+            ExecutableType::ExecutableInWorkspace | ExecutableType::WasiModule => abs_path
                 .strip_prefix(&self.current_dir)
                 .map_err(|_| anyhow!("executable should be in workspace"))?
                 .into(),
-            ExecutableType::SystemExecutable | ExecutableType::RazelExecutable => abs_path,
+            ExecutableType::ExecutableOutsideWorkspace
+            | ExecutableType::SystemExecutable
+            | ExecutableType::RazelExecutable => abs_path,
         };
         if let Some(id) = self.file_by_path.get(&path) {
             return Ok(*id);
