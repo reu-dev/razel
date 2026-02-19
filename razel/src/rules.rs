@@ -76,10 +76,115 @@ impl Rules {
             .into();
         if let Some(rule) = self.rules.get(&executable_stem) {
             Ok(Some(rule.eval_args(args)?))
+        } else if executable_stem == "sox" {
+            Ok(Some(Self::eval_sox(args)?))
         } else {
             warn!("no rule for executable: {executable_stem}");
             Ok(None)
         }
+    }
+
+    /// Hardcoded parser for sox, whose general form is:
+    ///   sox [global-opts] [format-opts] infile... outfile [effect [effect-opts]...]
+    ///
+    /// Strategy:
+    /// - Walk args left-to-right, skipping flags and their values.
+    /// - Collect plain positional items until the first recognised effect keyword.
+    /// - Everything collected is a file: all but the last are inputs, the last is output.
+    fn eval_sox(args: &[String]) -> Result<ParseCommandResult> {
+        /// Options that consume the next token as their value.
+        const VALUE_FLAGS: &[&str] = &[
+            "-t",
+            "--type",
+            "-b",
+            "--bits",
+            "-e",
+            "--encoding",
+            "-r",
+            "--rate",
+            "-c",
+            "--channels",
+            "-L",
+            "-B",
+            "-x", // endianness (no value, but harmless to list here)
+            "--combine",
+            "-v",
+            "--volume",
+            "--ignore-length",
+        ];
+        /// Known effect names; seeing one of these ends the file-argument section.
+        const EFFECTS: &[&str] = &[
+            "trim",
+            "rate",
+            "vol",
+            "norm",
+            "gain",
+            "remix",
+            "channels",
+            "silence",
+            "pad",
+            "fade",
+            "speed",
+            "pitch",
+            "reverb",
+            "echo",
+            "equalizer",
+            "bass",
+            "treble",
+            "highpass",
+            "lowpass",
+            "bandpass",
+            "bandreject",
+            "allpass",
+            "flanger",
+            "phaser",
+            "overdrive",
+            "stat",
+            "stats",
+            "spectrogram",
+            "noiseprof",
+            "noisered",
+            "compand",
+            "dither",
+            "repeat",
+            "reverse",
+            "swap",
+            "synth",
+            "newfile",
+            "restart",
+        ];
+        let mut files: Vec<String> = Vec::new();
+        let mut skip_next = false;
+        for arg in args {
+            if skip_next {
+                skip_next = false;
+                continue;
+            }
+            if VALUE_FLAGS.contains(&arg.as_str()) {
+                skip_next = true;
+                continue;
+            }
+            // Any remaining flag (starts with '-') is a boolean global option — skip it.
+            if arg.starts_with('-') {
+                continue;
+            }
+            // First recognised effect keyword ends the file section.
+            if EFFECTS.contains(&arg.as_str()) {
+                break;
+            }
+            files.push(arg.clone());
+        }
+        if files.len() < 2 {
+            bail!(
+                "sox: expected at least one input and one output file, got {:?}",
+                files
+            );
+        }
+        let output = files.pop().unwrap();
+        Ok(ParseCommandResult {
+            inputs: files,
+            outputs: vec![output],
+        })
     }
 
     fn set_defaults(&mut self) {
@@ -181,7 +286,7 @@ impl Rule {
         for (i, item) in items
             .iter()
             .enumerate()
-            .take(items.len() - positionals_missing)
+            .take(items.len().saturating_sub(positionals_missing))
         {
             let mut is_option = true;
             let curr_option = self.options.get(item);
@@ -202,10 +307,10 @@ impl Rule {
                 first_positional = i + 1;
             }
         }
-        if items.len() - first_positional < positionals_missing {
+        if items.len().saturating_sub(first_positional) < positionals_missing {
             bail!(
                 "expected {positionals_missing} positional arguments, found only {}",
-                items.len() - first_positional
+                items.len().saturating_sub(first_positional)
             );
         }
         let mut positional_files: ParseCommandResult = Default::default();
@@ -317,5 +422,35 @@ mod tests {
     fn rules_should_fail() {
         let rules = Rules::new();
         rules.test_fail("cp a");
+    }
+
+    #[test]
+    fn rules_sox() {
+        let rules = Rules::new();
+        rules.test("sox in.wav out.wav", &["in.wav"], &["out.wav"]);
+        rules.test(
+            "sox in1.wav in2.wav in3.wav out.wav",
+            &["in1.wav", "in2.wav", "in3.wav"],
+            &["out.wav"],
+        );
+        rules.test("sox -t raw in.raw out.wav", &["in.raw"], &["out.wav"]);
+        rules.test(
+            "sox -r 44100 -b 16 -e signed in.raw out.wav",
+            &["in.raw"],
+            &["out.wav"],
+        );
+        rules.test(
+            "sox in1.wav in2.wav --combine merge out.wav",
+            &["in1.wav", "in2.wav"],
+            &["out.wav"],
+        );
+        rules.test("sox in.wav out.wav trim 1", &["in.wav"], &["out.wav"]);
+        rules.test("sox in.wav out.wav trim 0 1", &["in.wav"], &["out.wav"]);
+        rules.test("sox in.wav out.wav rate 22050", &["in.wav"], &["out.wav"]);
+        rules.test(
+            "sox in1.wav in2.wav --combine merge out.wav trim 0 10",
+            &["in1.wav", "in2.wav"],
+            &["out.wav"],
+        );
     }
 }
