@@ -83,7 +83,7 @@ impl TargetsBuilder {
         Ok(())
     }
 
-    pub fn write_jsonl_file(&mut self, path: &Path) -> Result<()> {
+    pub fn write_jsonl_file(&self, path: &Path) -> Result<()> {
         RazelJson::write(&self.targets, &self.files, &self.out_dir, path)
     }
 
