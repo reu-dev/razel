@@ -263,6 +263,8 @@ impl TargetsBuilder {
         assert!(old.is_none());
         let id = self.targets.len();
         target.id = id;
+        target.inputs = target.inputs.into_iter().sorted().dedup().collect();
+        target.outputs = target.outputs.into_iter().sorted().dedup().collect();
         for output in target.outputs.iter().cloned() {
             let old = self.creator_for_file.insert(output, target.id);
             assert!(old.is_none());
