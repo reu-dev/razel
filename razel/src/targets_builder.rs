@@ -83,7 +83,7 @@ impl TargetsBuilder {
         Ok(())
     }
 
-    pub fn write_jsonl_file(&mut self, path: &Path) -> Result<()> {
+    pub fn write_jsonl_file(&self, path: &Path) -> Result<()> {
         RazelJson::write(&self.targets, &self.files, &self.out_dir, path)
     }
 
@@ -168,7 +168,7 @@ impl TargetsBuilder {
         name: String,
         mut args: Vec<String>,
         mut task: Task,
-        tags: Vec<Tag>,
+        mut tags: Vec<Tag>,
     ) -> Result<TargetId> {
         if self.target_by_name.contains_key(&name) {
             bail!("target already exists: {name:?}");
@@ -231,6 +231,12 @@ impl TargetsBuilder {
                     input!(*x);
                 }
             }
+            Task::CmakeEnableApi(_)
+            | Task::GitLfsPull(_)
+            | Task::GitLfsPullCmakeDeps(_)
+            | Task::GitLfsPullCtestDeps(_) => {
+                tags.extend_from_slice(&[Tag::NoCache, Tag::NoSandbox]);
+            }
         }
         let id = self.targets.len();
         let target = Target {
@@ -259,6 +265,8 @@ impl TargetsBuilder {
         assert!(old.is_none());
         let id = self.targets.len();
         target.id = id;
+        target.inputs = target.inputs.into_iter().sorted().dedup().collect();
+        target.outputs = target.outputs.into_iter().sorted().dedup().collect();
         for output in target.outputs.iter().cloned() {
             let old = self.creator_for_file.insert(output, target.id);
             assert!(old.is_none());
@@ -326,13 +334,13 @@ impl TargetsBuilder {
             (ExecutableType::ExecutableOutsideWorkspace, path.into())
         };
         let path = match executable_type {
-            ExecutableType::ExecutableInWorkspace
-            | ExecutableType::ExecutableOutsideWorkspace
-            | ExecutableType::WasiModule => abs_path
+            ExecutableType::ExecutableInWorkspace | ExecutableType::WasiModule => abs_path
                 .strip_prefix(&self.current_dir)
                 .map_err(|_| anyhow!("executable should be in workspace"))?
                 .into(),
-            ExecutableType::SystemExecutable | ExecutableType::RazelExecutable => abs_path,
+            ExecutableType::ExecutableOutsideWorkspace
+            | ExecutableType::SystemExecutable
+            | ExecutableType::RazelExecutable => abs_path,
         };
         if let Some(id) = self.file_by_path.get(&path) {
             return Ok(*id);

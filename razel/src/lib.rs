@@ -55,10 +55,7 @@ pub mod executors {
     mod execution_result;
     mod executor;
     mod task;
-    mod task_csv;
-    mod task_http;
     mod task_http_remote_exec;
-    mod task_tools;
     mod wasi;
 }
 
@@ -101,8 +98,13 @@ pub mod utils {
     pub use symlink::*;
     pub use worker_utils::*;
 
+    pub mod cmake_file_api;
+    pub mod ctest;
+    pub mod ctest_json;
     mod directories;
     mod file_permissions;
+    pub mod git;
+    pub mod git_lfs;
     mod hardlink;
     mod helpers;
     #[cfg_attr(target_os = "linux", path = "resources_linux.rs")]
@@ -111,6 +113,15 @@ pub mod utils {
     mod symlink;
     pub mod tui;
     mod worker_utils;
+}
+
+#[cfg(feature = "full")]
+pub mod tasks {
+    mod cmake;
+    mod csv;
+    mod git_lfs;
+    mod http;
+    mod misc;
 }
 
 pub mod types {
