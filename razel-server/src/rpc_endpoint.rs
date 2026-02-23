@@ -22,7 +22,9 @@ pub fn new_server_endpoint(config: &config::Endpoint) -> Result<Endpoint> {
     let mut server_config =
         quinn::ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(server_crypto)?));
     let transport_config = Arc::get_mut(&mut server_config.transport).unwrap();
-    transport_config.max_concurrent_uni_streams(0_u8.into());
+    transport_config.keep_alive_interval(Some(std::time::Duration::from_secs(
+        config::KEEP_ALIVE_INTERVAL_S,
+    )));
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), config.port);
     let mut endpoint = Endpoint::server(server_config, addr)?;
     endpoint.set_default_client_config(new_client_config_with_dummy_certificate_verifier()?);

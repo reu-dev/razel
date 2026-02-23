@@ -7,24 +7,36 @@ use razel::remote_exec::{
 };
 use razel::types::{DependencyGraph, ExecutableType, File, FileId, Tag, Target, TargetId};
 use std::collections::{HashSet, VecDeque};
-use std::path::PathBuf;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 pub struct Scheduler {
+    max_parallelism: usize,
+    curr_parallelism: usize,
     jobs: Vec<JobData>,
 }
 
 impl Scheduler {
-    pub fn new() -> Self {
+    pub fn new(max_parallelism: usize) -> Self {
+        let curr_parallelism = 1; // reserve one core for server/scheduler tasks
+        assert!(max_parallelism > curr_parallelism);
         Self {
+            max_parallelism,
+            curr_parallelism,
             jobs: Default::default(),
+        }
+    }
+
+    pub fn handle_client_connection_lost(&mut self, client_id: ClientId) {
+        for job in self.jobs.extract_if(.., |job| job.client_id == client_id) {
+            info!(client_id, job_id=?job.id, "job finished");
         }
     }
 }
 
 struct JobData {
-    client: quinn::Connection,
+    client_id: ClientId,
+    connection: quinn::Connection,
     id: JobId,
     #[allow(dead_code)]
     job: Job,
@@ -40,9 +52,16 @@ struct JobData {
 }
 
 impl JobData {
-    pub fn new(client: quinn::Connection, id: JobId, job: Job, worker: JobWorker) -> Self {
+    pub fn new(
+        client_id: ClientId,
+        connection: quinn::Connection,
+        id: JobId,
+        job: Job,
+        worker: JobWorker,
+    ) -> Self {
         Self {
-            client,
+            client_id,
+            connection,
             id,
             job,
             dep_graph: Default::default(),
@@ -57,10 +76,12 @@ impl JobData {
         }
     }
 
-    pub fn push_targets(
+    // TODO drop async
+    pub async fn push_targets(
         &mut self,
         targets: Vec<Target>,
         files: Vec<File>,
+        stored_inputs: Vec<FileId>,
         requested_files: Vec<FileId>,
     ) {
         for target in &targets {
@@ -70,6 +91,12 @@ impl JobData {
                     .or_default()
                     .push(target.id);
             }
+        }
+        for file in stored_inputs.into_iter().map(|id| &files[id]) {
+            self.worker
+                .link_input_file_into_ws_dir(file.digest.as_ref().unwrap(), &file.path)
+                .await
+                .unwrap();
         }
         self.dep_graph.push_targets(targets, files);
         self.set_files_requested(requested_files);
@@ -81,9 +108,9 @@ impl JobData {
         self.requested_files.extend(&files);
     }
 
-    pub async fn set_file_received(&mut self, file: FileId, cas_path: &PathBuf) {
+    pub async fn set_file_received(&mut self, file: FileId, digest: &Digest) {
         self.worker
-            .link_input_file_into_ws_dir(cas_path, &self.dep_graph.files[file].path)
+            .link_input_file_into_ws_dir(digest, &self.dep_graph.files[file].path)
             .await
             .unwrap();
         self.requested_files.remove(&file);
@@ -150,16 +177,17 @@ impl JobData {
 impl Server {
     pub fn handle_create_job_request(
         &mut self,
-        client: ClientId,
+        client_id: ClientId,
         send: SendStream,
         request: CreateJobRequest,
     ) -> Result<()> {
         let scheduler = self.scheduler.as_mut().unwrap();
         let job_id = Uuid::now_v7();
-        info!(?job_id, "CreateJobRequest");
-        let worker = JobWorker::new(job_id, self.node.max_parallelism, &self.storage.path)?;
+        info!(client_id, ?job_id, "CreateJobRequest");
+        let worker = JobWorker::new(job_id, &self.storage.path)?;
         scheduler.jobs.push(JobData::new(
-            self.clients[&client].connection.clone(),
+            client_id,
+            self.clients[&client_id].connection.clone(),
             job_id,
             request.job,
             worker,
@@ -172,13 +200,18 @@ impl Server {
         Ok(())
     }
 
+    // TODO drop async
     #[instrument(skip_all)]
-    pub fn handle_execute_targets_request(&mut self, mut msg: ExecuteTargetsRequest) -> Result<()> {
+    pub async fn handle_execute_targets_request(
+        &mut self,
+        mut msg: ExecuteTargetsRequest,
+    ) -> Result<()> {
         let scheduler = self.scheduler.as_mut().unwrap();
         let Some(job) = scheduler.jobs.iter_mut().find(|x| x.id == msg.job_id) else {
             return Ok(());
         };
-        let mut requested_files: Vec<FileId> = Default::default();
+        let mut stored_inputs: Vec<FileId> = Default::default();
+        let mut requested_inputs: Vec<FileId> = Default::default();
         for file in &mut msg.files {
             if file
                 .executable
@@ -190,15 +223,19 @@ impl Server {
             if file.path.is_absolute() || file.path.starts_with("..") {
                 bail!("file has scary path: {file:?}");
             }
-            if file.digest.is_some()
-                && !self
+            if file.digest.is_some() {
+                if self
                     .storage
-                    .request_file_from_client(job.id, file, &job.client, &self.tx)
-            {
-                requested_files.push(file.id);
+                    .request_file_from_client(job.id, file, &job.connection, &self.tx)
+                {
+                    stored_inputs.push(file.id);
+                } else {
+                    requested_inputs.push(file.id);
+                }
             }
         }
-        job.push_targets(msg.targets, msg.files, requested_files);
+        job.push_targets(msg.targets, msg.files, stored_inputs, requested_inputs)
+            .await;
         job.keep_going = msg.keep_going;
         debug!(job_id=?job.id, ready=job.dep_graph.ready.len(), waiting=job.dep_graph.waiting.len(), "ExecuteTargetsRequest");
         self.start_ready_targets();
@@ -208,22 +245,30 @@ impl Server {
     #[instrument(skip_all)]
     pub fn handle_execute_target_result(&mut self, msg: ExecuteTargetResult) {
         let scheduler = self.scheduler.as_mut().unwrap();
+        scheduler.curr_parallelism -= 1;
         let Some(job) = scheduler.jobs.iter_mut().find(|x| x.id == msg.job_id) else {
             return;
         };
         job.handle_execute_target_result(&msg);
         ServerToClientMsg::ExecuteTargetResult(msg)
-            .spawn_send_uni(job.client.clone())
+            .spawn_send_uni(job.connection.clone())
             .unwrap();
         self.start_ready_targets();
     }
 
     fn start_ready_targets(&mut self) {
         let scheduler = self.scheduler.as_mut().unwrap();
+        if scheduler.curr_parallelism >= scheduler.max_parallelism {
+            return;
+        }
         for job in &mut scheduler.jobs {
             while let Some(target) = job.ready.pop_front().map(|x| &job.dep_graph.targets[x]) {
                 job.worker
                     .push_target(target, &job.dep_graph.files, self.tx.clone());
+                scheduler.curr_parallelism += 1;
+                if scheduler.curr_parallelism >= scheduler.max_parallelism {
+                    return;
+                }
             }
         }
     }
@@ -235,22 +280,23 @@ impl Server {
         format!("http://{host}:{port}/job/{job_id}")
     }
 
-    pub async fn handle_request_file_finished(&mut self, hash: DigestHash) {
-        let cas_path = self.storage.cas_path(&hash);
+    pub async fn handle_request_file_finished(&mut self, digest: Digest) {
         let scheduler = self.scheduler.as_mut().unwrap();
-        for (job_id, file) in self.storage.handle_request_file_finished(hash) {
+        for (job_id, file) in self
+            .storage
+            .handle_request_file_finished(digest.hash.clone())
+        {
             let Some(job) = scheduler.jobs.iter_mut().find(|x| x.id == job_id) else {
                 continue;
             };
-            job.set_file_received(file, &cas_path).await;
+            job.set_file_received(file, &digest).await;
         }
         self.start_ready_targets();
     }
 
-    pub fn handle_request_file_failed(&mut self, hash: DigestHash, err: String) {
-        todo!(
-            "handle_request_file_failed: {err:?} files={:?}",
-            self.storage.handle_request_file_failed(hash)
-        );
+    #[instrument(skip(self))]
+    pub fn handle_request_file_failed(&mut self, digest: Digest, err: String) {
+        warn!("");
+        self.storage.handle_request_file_failed(digest.hash);
     }
 }

@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 pub struct DependencyGraph {
     pub targets: Vec<Target>,
     pub files: Vec<File>,
+    /// a file can be job input or is created by exactly one target
     pub creator_for_file: HashMap<FileId, TargetId>,
     pub target_by_name: HashMap<String, TargetId>,
     pub deps: Vec<Vec<TargetId>>,

@@ -7,10 +7,10 @@ use std::path::PathBuf;
 #[derive(Parser)]
 struct Cli {
     /// config file to read
-    #[clap(short, long)]
+    #[clap(short, long, env = "RAZEL_SERVER_CONFIG")]
     config: PathBuf,
     /// node name from config file
-    #[clap(short, long)]
+    #[clap(short, long, env = "RAZEL_SERVER_NAME")]
     name: String,
 }
 

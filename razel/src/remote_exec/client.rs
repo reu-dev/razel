@@ -3,6 +3,7 @@ use crate::remote_exec::*;
 use crate::types::File;
 use crate::types::FileId;
 use crate::types::Target;
+use crate::types::WorkerTag;
 use anyhow::{Result, anyhow, bail};
 use quinn::Connection;
 use quinn::Endpoint;
@@ -76,6 +77,7 @@ impl Client {
                     ts: chrono::Utc::now(),
                     project: "".to_string(),
                     kind,
+                    default_tags: WorkerTag::local_default_tags(),
                 },
                 auth: "".to_string(),
             })
@@ -154,11 +156,11 @@ impl Client {
         }
     }
 
-    #[instrument(skip(self))]
-    pub async fn close(self, reason: &str) {
-        tracing::info!("");
-        self.connection.close(0u32.into(), reason.as_bytes());
-        self.endpoint.wait_idle().await;
+    pub fn close(self) {
+        spawn(async move {
+            close_connection(self.connection, ConnectionCloseCode::JobFinished);
+            self.endpoint.wait_idle().await;
+        });
     }
 }
 

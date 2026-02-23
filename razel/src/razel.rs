@@ -877,6 +877,7 @@ mod tests {
                     stderr: None,
                     deps: vec![],
                     tags: vec![],
+                    worker: vec![],
                 })
                 .unwrap();
         }

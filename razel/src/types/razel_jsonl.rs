@@ -1,4 +1,4 @@
-use crate::types::Tag;
+use crate::types::{Tag, WorkerTag};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -29,6 +29,8 @@ pub struct RazelJsonCommand {
     pub deps: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<Tag>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub worker: Vec<WorkerTag>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

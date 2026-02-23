@@ -14,3 +14,4 @@ pub static RESPONSE_FILE_PREFIX: &str = "@";
 pub static SANDBOX_LINK_TYPE: LinkType = LinkType::Symlink;
 pub static OUT_DIR_LINK_TYPE: LinkType = LinkType::Symlink;
 pub static EXE_SUFFIX: &str = if cfg!(windows) { ".exe" } else { "" };
+pub static REMOTE_EXEC_KEEP_ALIVE_INTERVAL_S: u64 = 20;

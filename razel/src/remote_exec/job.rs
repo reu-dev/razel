@@ -1,3 +1,4 @@
+use crate::types::WorkerTag;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -11,6 +12,7 @@ pub struct Job {
     /// to separate caches per project
     pub project: String,
     pub kind: JobKind,
+    pub default_tags: Vec<WorkerTag>,
 }
 
 #[derive(Serialize, Deserialize)]

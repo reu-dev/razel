@@ -60,9 +60,10 @@ impl Sandbox for TmpDirSandbox {
             let ws_path = self.ws_dir.join(input);
             let tmp_path = self.tmp_dir.join(input);
             match crate::config::SANDBOX_LINK_TYPE {
-                LinkType::Hardlink => crate::force_hardlink(&ws_path, &tmp_path).await?,
-                LinkType::Symlink => crate::force_symlink(&ws_path, &tmp_path).await?,
+                LinkType::Hardlink => crate::force_hardlink(&ws_path, &tmp_path).await,
+                LinkType::Symlink => crate::force_symlink(&ws_path, &tmp_path).await,
             }
+            .with_context(|| format!("link input file into sandbox: {ws_path:?} -> {tmp_path:?}"))?
         }
         for output in outputs {
             let output_abs = self.tmp_dir.join(output);

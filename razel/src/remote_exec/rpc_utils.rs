@@ -1,6 +1,6 @@
 use crate::remote_exec::{ClientToServerMsg, MessageVersion, ServerToClientMsg};
 use anyhow::{Context, Result, ensure};
-use quinn::{Connection, RecvStream, SendStream};
+use quinn::{Connection, RecvStream, SendStream, VarInt};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -148,6 +148,13 @@ pub async fn rpc_recv_impl<T: DeserializeOwned>(
     Ok(msg)
 }
 
+pub async fn rpc_recv_uni_impl<T: DeserializeOwned>(
+    connection: &Connection,
+    exp_version: MessageVersion,
+) -> Result<T> {
+    rpc_recv_impl(&mut connection.accept_uni().await?, exp_version).await
+}
+
 /// An IPv6 url looks like `https://[::1]:4433/Cargo.toml`, wherein the host `[::1]` is the
 /// IPv6 address `::1` wrapped in brackets, per RFC 2732. This strips those.
 pub fn strip_ipv6_brackets(host: &str) -> &str {
@@ -156,4 +163,22 @@ pub fn strip_ipv6_brackets(host: &str) -> &str {
     } else {
         host
     }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum ConnectionCloseCode {
+    JobFinished = 1,
+    JobCanceled = 2,
+    KeepPreviousConnection = 3,
+}
+
+impl From<ConnectionCloseCode> for VarInt {
+    fn from(code: ConnectionCloseCode) -> Self {
+        VarInt::from_u32(code as u32)
+    }
+}
+
+pub fn close_connection(connection: Connection, code: ConnectionCloseCode) {
+    tracing::info!(?code, "close connection");
+    connection.close(code.into(), format!("{code:?}").as_bytes());
 }
