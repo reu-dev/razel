@@ -180,7 +180,7 @@ impl Razel {
 
     pub fn list_targets(&mut self) {
         self.create_dependency_graph();
-        while let Some(id) = self.scheduler.pop_ready_and_run() {
+        while let Some(id) = self.dep_graph.ready.first().cloned() {
             let target = &self.dep_graph.targets[id];
             println!("# {}", target.name);
             println!(
@@ -188,18 +188,10 @@ impl Razel {
                 self.tui
                     .format_command_line(&target.kind.command_line_with_redirects())
             );
-            self.scheduler
-                .set_finished_and_get_retry_flag(target, false);
-            for rdep_id in self.dep_graph.reverse_deps[id].clone() {
-                let deps = self.dep_graph.deps.get_mut(rdep_id).unwrap();
-                assert!(!deps.is_empty());
-                deps.swap_remove(deps.iter().position(|x| *x == id).unwrap());
-                if deps.is_empty() {
-                    self.dep_graph.waiting.remove(&rdep_id);
-                    self.scheduler.push_ready(&self.dep_graph.targets[rdep_id]);
-                }
-            }
+            self.dep_graph.set_succeeded(id);
         }
+        assert!(self.dep_graph.ready.is_empty());
+        assert!(self.dep_graph.waiting.is_empty());
     }
 
     pub fn show_info(&self, cache_dir: Option<PathBuf>) -> Result<()> {
@@ -346,6 +338,14 @@ impl Razel {
             Err(e) => debug!("create_cgroup(): {e}"),
         };
         self.create_dependency_graph();
+        for target in self
+            .dep_graph
+            .ready
+            .iter()
+            .map(|id| &self.dep_graph.targets[*id])
+        {
+            self.scheduler.push_ready(target);
+        }
         self.remove_unknown_or_excluded_files_from_out_dir(&self.out_dir)
             .ok();
         self.digest_input_files().await?;
@@ -360,14 +360,6 @@ impl Razel {
         assert_eq!(builder.out_dir, self.out_dir);
         self.file_by_path = std::mem::take(&mut builder.file_by_path);
         self.dep_graph = DependencyGraph::from_builder(builder);
-        for target in self
-            .dep_graph
-            .ready
-            .iter()
-            .map(|id| &self.dep_graph.targets[*id])
-        {
-            self.scheduler.push_ready(target);
-        }
     }
 
     fn remove_unknown_or_excluded_files_from_out_dir(&self, dir: &Path) -> Result<()> {
