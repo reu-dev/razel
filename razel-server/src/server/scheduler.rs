@@ -246,13 +246,12 @@ impl Server {
     pub fn handle_execute_target_result(&mut self, msg: ExecuteTargetResult) {
         let scheduler = self.scheduler.as_mut().unwrap();
         scheduler.curr_parallelism -= 1;
-        let Some(job) = scheduler.jobs.iter_mut().find(|x| x.id == msg.job_id) else {
-            return;
-        };
-        job.handle_execute_target_result(&msg);
-        ServerToClientMsg::ExecuteTargetResult(msg)
-            .spawn_send_uni(job.connection.clone())
-            .unwrap();
+        if let Some(job) = scheduler.jobs.iter_mut().find(|x| x.id == msg.job_id) {
+            job.handle_execute_target_result(&msg);
+            ServerToClientMsg::ExecuteTargetResult(msg)
+                .spawn_send_uni(job.connection.clone())
+                .unwrap();
+        }
         self.start_ready_targets();
     }
 
