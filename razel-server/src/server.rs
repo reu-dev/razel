@@ -7,7 +7,7 @@ use quinn::{Connection, ConnectionError, Endpoint};
 use razel::remote_exec::rpc_endpoint::new_client_endpoint;
 use razel::remote_exec::{
     ClientToServerMsg, ConnectionCloseCode, ExecuteTargetResult, ExecuteTargetsRequest,
-    close_connection,
+    close_connection, close_connection_on_error,
 };
 use razel::types::{Digest, WorkerTag};
 use std::collections::HashMap;
@@ -32,7 +32,7 @@ pub enum QueueMsg {
     ExecuteTargetsRequest(ExecuteTargetsRequest),
     ExecuteTargetResult(ExecuteTargetResult),
     RequestFileFinished(Digest),
-    RequestFileFailed((Digest, String)),
+    RequestFileFailed(Digest),
 }
 
 pub struct Server {
@@ -144,13 +144,22 @@ impl Server {
                 self.handle_outgoing_server_connection(i, c)
             }
             QueueMsg::ServerConnectionLost(id) => self.handle_server_connection_lost(id),
-            QueueMsg::ClientMsg((id, msg, send)) => self.handle_client_msg(id, msg, send).await?,
+            QueueMsg::ClientMsg((id, msg, send)) => {
+                if let Err(e) = self.handle_client_msg(id, msg, send).await {
+                    tracing::error!("ClientMsg: {e:?}");
+                    close_connection_on_error(
+                        self.clients[&id].connection.clone(),
+                        ConnectionCloseCode::JobError,
+                        e,
+                    );
+                }
+            }
             QueueMsg::ServerMsgUni((id, msg)) => self.handle_server_msg_uni(id, msg)?,
             QueueMsg::ServerMsgBi((id, msg, send)) => self.handle_server_msg_bi(id, msg, send)?,
             QueueMsg::ExecuteTargetsRequest(_) => todo!(),
             QueueMsg::ExecuteTargetResult(m) => self.handle_execute_target_result(m),
             QueueMsg::RequestFileFinished(d) => self.handle_request_file_finished(d).await,
-            QueueMsg::RequestFileFailed((d, err)) => self.handle_request_file_failed(d, err),
+            QueueMsg::RequestFileFailed(d) => self.handle_request_file_failed(d),
         }
         Ok(())
     }

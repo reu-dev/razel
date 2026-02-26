@@ -293,9 +293,7 @@ impl Server {
         self.start_ready_targets();
     }
 
-    #[instrument(skip(self))]
-    pub fn handle_request_file_failed(&mut self, digest: Digest, err: String) {
-        warn!("");
+    pub fn handle_request_file_failed(&mut self, digest: Digest) {
         self.storage.handle_request_file_failed(digest.hash);
     }
 }

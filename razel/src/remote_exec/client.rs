@@ -5,8 +5,8 @@ use crate::types::FileId;
 use crate::types::Target;
 use crate::types::WorkerTag;
 use anyhow::{Result, anyhow, bail};
-use quinn::Connection;
-use quinn::Endpoint;
+use quinn::{Connection, VarInt};
+use quinn::{ConnectionError, Endpoint};
 use rand::rng;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
@@ -101,13 +101,27 @@ impl Client {
         let connection = self.connection.clone();
         let job_id = self.job_id.unwrap();
         tokio::spawn(async move {
-            match Self::spawn_exec_impl(connection, job_id, targets, files, keep_going, tx.clone())
-                .await
+            match Self::spawn_exec_impl(
+                connection.clone(),
+                job_id,
+                targets,
+                files,
+                keep_going,
+                tx.clone(),
+            )
+            .await
             {
                 Ok(()) => {}
                 Err(_) if tx.is_closed() => {}
                 Err(e) => {
-                    tx.send(ClientChannelMsg::Error(e.to_string())).ok();
+                    let error = match connection.close_reason() {
+                        None => e.to_string(),
+                        Some(ConnectionError::ApplicationClosed(a)) => {
+                            String::from_utf8_lossy(&a.reason).to_string()
+                        }
+                        Some(x) => x.to_string(),
+                    };
+                    tx.send(ClientChannelMsg::Error(error)).ok();
                 }
             }
         });
@@ -184,11 +198,16 @@ fn user() -> Result<String> {
     }
 }
 
-// TODO fix error handling
 fn spawn_upload_file(path: PathBuf, mut stream: quinn::SendStream) {
     spawn(async move {
-        let mut file = tokio::fs::File::open(&path).await.unwrap();
-        tokio::io::copy(&mut file, &mut stream).await.unwrap();
-        stream.finish().unwrap();
+        let Ok(mut file) = tokio::fs::File::open(&path).await else {
+            stream.reset(VarInt::from_u32(1)).ok();
+            return;
+        };
+        if tokio::io::copy(&mut file, &mut stream).await.is_err() {
+            stream.reset(VarInt::from_u32(2)).ok();
+            return;
+        }
+        stream.finish().ok();
     });
 }

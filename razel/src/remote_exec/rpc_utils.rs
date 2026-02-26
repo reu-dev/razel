@@ -169,7 +169,8 @@ pub fn strip_ipv6_brackets(host: &str) -> &str {
 pub enum ConnectionCloseCode {
     JobFinished = 1,
     JobCanceled = 2,
-    KeepPreviousConnection = 3,
+    JobError = 3,
+    KeepPreviousConnection = 4,
 }
 
 impl From<ConnectionCloseCode> for VarInt {
@@ -181,4 +182,13 @@ impl From<ConnectionCloseCode> for VarInt {
 pub fn close_connection(connection: Connection, code: ConnectionCloseCode) {
     tracing::info!(?code, "close connection");
     connection.close(code.into(), format!("{code:?}").as_bytes());
+}
+
+pub fn close_connection_on_error(
+    connection: Connection,
+    code: ConnectionCloseCode,
+    error: anyhow::Error,
+) {
+    tracing::info!(?code, ?error, "close connection");
+    connection.close(code.into(), format!("{error:?}").as_bytes());
 }
