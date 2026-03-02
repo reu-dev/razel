@@ -90,6 +90,10 @@ impl Razel {
         client.close();
         self.remove_outputs_of_not_run_actions_from_out_dir();
         TmpDirSandbox::cleanup(self.sandbox_dir.as_ref().unwrap());
+        assert!(
+            self.scheduler.is_empty(),
+            "scheduler should not be used for remote exec"
+        );
         self.push_logs_for_not_started_targets();
         let stats = SchedulerStats {
             exec: SchedulerExecStats {

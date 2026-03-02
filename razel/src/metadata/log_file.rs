@@ -65,6 +65,7 @@ impl LogFile {
         output_size: Option<u64>,
         measurements: Map<String, Value>,
     ) {
+        debug_assert!(!self.items.iter().any(|x| x.name == target.name));
         let custom_tags = target
             .tags
             .iter()
