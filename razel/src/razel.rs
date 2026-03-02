@@ -271,7 +271,7 @@ impl Razel {
         while self.scheduler.running() != 0 {
             tokio::select! {
                 Some((id, execution_result, output_files)) = rx.recv() => {
-                    self.on_command_finished(id, &execution_result, output_files);
+                    self.on_command_finished_locally(id, &execution_result, output_files);
                     if execution_result.status == ExecutionStatus::SystemError
                         || (!self.failed.is_empty() && !keep_going)
                     {
@@ -705,7 +705,7 @@ impl Razel {
         Ok(execution_result)
     }
 
-    fn on_command_finished(
+    fn on_command_finished_locally(
         &mut self,
         id: TargetId,
         execution_result: &ExecutionResult,

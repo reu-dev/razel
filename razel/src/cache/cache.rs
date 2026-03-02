@@ -1,7 +1,7 @@
 use crate::SandboxDir;
 use crate::bazel_remote_exec::{ActionResult, OutputFile};
 use crate::cache::{BlobDigest, GrpcRemoteCache, LocalCache, MessageDigest};
-use crate::types::{CacheHit, File};
+use crate::types::{CacheHit, DigestHash, File};
 use anyhow::{Context, Result, bail};
 use itertools::Itertools;
 use std::collections::HashMap;
@@ -19,7 +19,7 @@ pub struct Cache {
     remote_cache: Option<GrpcRemoteCache>,
     /// Only cache commands with: output size / exec time < threshold [kilobyte / s]
     remote_cache_threshold: Option<u32>,
-    cas_states: Arc<Mutex<HashMap<String, CacheState>>>,
+    cas_states: Arc<Mutex<HashMap<DigestHash, CacheState>>>,
 }
 
 impl Cache {
