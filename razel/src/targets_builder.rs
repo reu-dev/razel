@@ -403,7 +403,7 @@ impl TargetsBuilder {
         if let Some(id) = self.file_by_path.get(&path) {
             if !self.files[*id].path.starts_with(&self.out_dir) {
                 bail!(
-                    "File {:?} cannot be output because it's already input",
+                    "File {:?} cannot be output, already input of another target",
                     path
                 );
             }
