@@ -336,7 +336,7 @@ impl TargetsBuilder {
         let path = match executable_type {
             ExecutableType::ExecutableInWorkspace | ExecutableType::WasiModule => abs_path
                 .strip_prefix(&self.current_dir)
-                .map_err(|_| anyhow!("executable should be in workspace"))?
+                .map_err(|_| anyhow!("executable should be in workspace: {abs_path:?}"))?
                 .into(),
             ExecutableType::ExecutableOutsideWorkspace
             | ExecutableType::SystemExecutable
@@ -401,6 +401,12 @@ impl TargetsBuilder {
     fn push_output_file_with_relative_path(&mut self, arg: &str) -> Result<FileId> {
         let path = self.rel_path(arg)?;
         if let Some(id) = self.file_by_path.get(&path) {
+            if !self.files[*id].path.starts_with(&self.out_dir) {
+                bail!(
+                    "File {:?} cannot be output, already input of another target",
+                    path
+                );
+            }
             return Ok(*id);
         }
         let id = self.files.len();

@@ -66,12 +66,9 @@ impl Storage {
                     .send(QueueMsg::RequestFileFinished(file.digest.unwrap()))
                     .ok(),
                 Err(e) => {
-                    tracing::warn!(path=?file.path, "download file from client: {e:?}");
-                    tx.send(QueueMsg::RequestFileFailed((
-                        file.digest.unwrap(),
-                        e.to_string(),
-                    )))
-                    .ok()
+                    tracing::debug!(path=?file.path, "download file from client failed ({e})");
+                    tx.send(QueueMsg::RequestFileFailed(file.digest.unwrap()))
+                        .ok()
                 }
             }
         });

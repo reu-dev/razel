@@ -89,6 +89,7 @@ pub struct Razel {
     /// maps paths relative to current_dir (without out_dir prefix) to FileId
     file_by_path: HashMap<PathBuf, FileId>,
     excluded_targets_len: usize,
+    remote_exec: bool,
     /// single Linux cgroup for all commands to trigger OOM killer
     cgroup: Option<CGroup>,
     http_remote_exec_state: HttpRemoteExecState,
@@ -123,6 +124,7 @@ impl Razel {
             dep_graph: Default::default(),
             file_by_path: Default::default(),
             excluded_targets_len: 0,
+            remote_exec: false,
             cgroup: None,
             http_remote_exec_state: Default::default(),
             wasi_state: SharedWasiExecutorState::new(),
@@ -180,7 +182,7 @@ impl Razel {
 
     pub fn list_targets(&mut self) {
         self.create_dependency_graph();
-        while let Some(id) = self.scheduler.pop_ready_and_run() {
+        while let Some(id) = self.dep_graph.ready.first().cloned() {
             let target = &self.dep_graph.targets[id];
             println!("# {}", target.name);
             println!(
@@ -188,18 +190,10 @@ impl Razel {
                 self.tui
                     .format_command_line(&target.kind.command_line_with_redirects())
             );
-            self.scheduler
-                .set_finished_and_get_retry_flag(target, false);
-            for rdep_id in self.dep_graph.reverse_deps[id].clone() {
-                let deps = self.dep_graph.deps.get_mut(rdep_id).unwrap();
-                assert!(!deps.is_empty());
-                deps.swap_remove(deps.iter().position(|x| *x == id).unwrap());
-                if deps.is_empty() {
-                    self.dep_graph.waiting.remove(&rdep_id);
-                    self.scheduler.push_ready(&self.dep_graph.targets[rdep_id]);
-                }
-            }
+            self.dep_graph.set_succeeded(id);
         }
+        assert!(self.dep_graph.ready.is_empty());
+        assert!(self.dep_graph.waiting.is_empty());
     }
 
     pub fn show_info(&self, cache_dir: Option<PathBuf>) -> Result<()> {
@@ -234,6 +228,7 @@ impl Razel {
         }
         self.tui.verbose = verbose;
         if !remote_exec.is_empty() {
+            self.remote_exec = true;
             self.run_remotely(keep_going, group_by_tag, cache_dir, remote_exec)
                 .await
         } else {
@@ -279,7 +274,7 @@ impl Razel {
         while self.scheduler.running() != 0 {
             tokio::select! {
                 Some((id, execution_result, output_files)) = rx.recv() => {
-                    self.on_command_finished(id, &execution_result, output_files);
+                    self.on_command_finished_locally(id, &execution_result, output_files);
                     if execution_result.status == ExecutionStatus::SystemError
                         || (!self.failed.is_empty() && !keep_going)
                     {
@@ -346,6 +341,14 @@ impl Razel {
             Err(e) => debug!("create_cgroup(): {e}"),
         };
         self.create_dependency_graph();
+        for target in self
+            .dep_graph
+            .ready
+            .iter()
+            .map(|id| &self.dep_graph.targets[*id])
+        {
+            self.scheduler.push_ready(target);
+        }
         self.remove_unknown_or_excluded_files_from_out_dir(&self.out_dir)
             .ok();
         self.digest_input_files().await?;
@@ -360,14 +363,6 @@ impl Razel {
         assert_eq!(builder.out_dir, self.out_dir);
         self.file_by_path = std::mem::take(&mut builder.file_by_path);
         self.dep_graph = DependencyGraph::from_builder(builder);
-        for target in self
-            .dep_graph
-            .ready
-            .iter()
-            .map(|id| &self.dep_graph.targets[*id])
-        {
-            self.scheduler.push_ready(target);
-        }
     }
 
     fn remove_unknown_or_excluded_files_from_out_dir(&self, dir: &Path) -> Result<()> {
@@ -479,6 +474,7 @@ impl Razel {
     }
 
     fn start_ready_targets(&mut self, tx: &UnboundedSender<ExecutionResultChannel>) {
+        assert!(!self.remote_exec);
         while let Some(id) = self.scheduler.pop_ready_and_run() {
             self.start_target(id, tx.clone());
             self.tui_dirty = true;
@@ -713,7 +709,7 @@ impl Razel {
         Ok(execution_result)
     }
 
-    fn on_command_finished(
+    fn on_command_finished_locally(
         &mut self,
         id: TargetId,
         execution_result: &ExecutionResult,
@@ -764,9 +760,12 @@ impl Razel {
         }
         let target = &self.dep_graph.targets[id];
         self.tui.target_succeeded(target, execution_result);
-        for ready_id in self.dep_graph.set_succeeded(id) {
-            let ready = &self.dep_graph.targets[ready_id];
-            self.scheduler.push_ready(ready);
+        let succeeded = self.dep_graph.set_succeeded(id);
+        if !self.remote_exec {
+            for ready_id in succeeded {
+                let ready = &self.dep_graph.targets[ready_id];
+                self.scheduler.push_ready(ready);
+            }
         }
     }
 

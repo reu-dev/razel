@@ -58,13 +58,13 @@ pub struct CTestJsonVersion {
     pub minor: i32,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct CTestJsonProperty {
     pub name: String,
     pub value: serde_json::Value,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct CTestJsonTest {
     #[serde(default)]
     pub command: Vec<String>,
