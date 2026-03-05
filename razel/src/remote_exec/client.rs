@@ -32,7 +32,7 @@ impl Client {
         for url in urls {
             match Self::connect(&endpoint, &url).await {
                 Ok(connection) => {
-                    tracing::info!("connected to {}", url.as_str());
+                    tracing::info!("connected to {:?}", url.as_str());
                     return Ok(Self {
                         url,
                         endpoint,
@@ -41,15 +41,21 @@ impl Client {
                     });
                 }
                 Err(e) => {
-                    tracing::info!("failed to connect to server {}: {e}", url.as_str());
+                    tracing::info!("failed to connect to server {:?}: {e}", url.as_str());
                 }
             }
         }
         endpoint.wait_idle().await;
-        bail!("failed to connect to remote executors")
+        bail!("failed to connect to remote executor")
     }
 
     async fn connect(endpoint: &Endpoint, url: &Url) -> Result<Connection> {
+        if url.scheme() != "razel" {
+            bail!("only razel protocol is supported");
+        }
+        if !url.has_host() {
+            bail!("URL must have a host");
+        }
         let host = strip_ipv6_brackets(url.host_str().unwrap());
         let addr = (host, url.port().unwrap_or(4433))
             .to_socket_addrs()?
