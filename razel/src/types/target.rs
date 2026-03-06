@@ -53,6 +53,26 @@ pub struct Target {
     pub is_excluded: bool,
 }
 
+impl Target {
+    pub fn cpus(&self) -> f32 {
+        self.tags
+            .iter()
+            .filter_map(|t| if let Tag::Cpus(x) = t { Some(*x) } else { None })
+            .next()
+            .unwrap_or(1.0)
+    }
+
+    pub fn locks(&self) -> impl Iterator<Item = &str> + '_ {
+        self.tags.iter().filter_map(|t| {
+            if let Tag::Lock(x) = t {
+                Some(x.as_str())
+            } else {
+                None
+            }
+        })
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub enum TargetKind {
     Command(CommandTarget),
