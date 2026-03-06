@@ -29,6 +29,7 @@ impl Client {
     pub async fn new(mut urls: Vec<Url>) -> Result<Self> {
         let endpoint = new_client_endpoint()?;
         urls.shuffle(&mut rng());
+        let single_url = urls.len() == 1;
         for url in urls {
             match Self::connect(&endpoint, &url).await {
                 Ok(connection) => {
@@ -40,13 +41,22 @@ impl Client {
                         job_id: None,
                     });
                 }
+                Err(e) if single_url => {
+                    bail!(
+                        "failed to connect to remote executor {:?}: {e}",
+                        url.as_str()
+                    );
+                }
                 Err(e) => {
-                    tracing::info!("failed to connect to server {:?}: {e}", url.as_str());
+                    tracing::info!(
+                        "failed to connect to remote executor {:?}: {e}",
+                        url.as_str()
+                    );
                 }
             }
         }
         endpoint.wait_idle().await;
-        bail!("failed to connect to remote executor")
+        bail!("failed to connect to remote executors")
     }
 
     async fn connect(endpoint: &Endpoint, url: &Url) -> Result<Connection> {
