@@ -33,7 +33,7 @@ pub struct JobWorker {
 impl JobWorker {
     pub fn new(job_id: JobId, storage: &Path) -> Result<Self> {
         let cache_dir = storage.join("cache");
-        let job_dir = storage.join(format!("job-{}", job_id.as_u128()));
+        let job_dir = storage.join(format!("job-{job_id}"));
         let ws_dir = job_dir.join("ws");
         let out_dir = ws_dir.join(OUT_DIR);
         let sandbox_dir = job_dir.join("sandbox");
