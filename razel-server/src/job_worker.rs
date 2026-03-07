@@ -35,7 +35,7 @@ impl JobWorker {
         let cache_dir = storage.join("cache");
         let job_dir = storage.join(format!("job-{}", job_id.as_u128()));
         let ws_dir = job_dir.join("ws");
-        let out_dir = job_dir.join(OUT_DIR);
+        let out_dir = ws_dir.join(OUT_DIR);
         let sandbox_dir = job_dir.join("sandbox");
         debug!("cache directory:   {cache_dir:?}");
         debug!("job directory:     {job_dir:?}");
