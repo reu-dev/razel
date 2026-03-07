@@ -2,7 +2,7 @@ use crate::{QueueMsg, Tx};
 use anyhow::{Context, Result, bail};
 use itertools::chain;
 use razel::cache::{Cache, MessageDigest};
-use razel::config::LinkType;
+use razel::config::{LinkType, OUT_DIR};
 use razel::executors::{
     CommandExecutor, ExecutionResult, ExecutionStatus, Executor, SharedWasiExecutorState,
     TaskExecutor, WasiExecutor,
@@ -35,10 +35,13 @@ impl JobWorker {
         let cache_dir = storage.join("cache");
         let job_dir = storage.join(format!("job-{}", job_id.as_u128()));
         let ws_dir = job_dir.join("ws");
+        let out_dir = job_dir.join(OUT_DIR);
         let sandbox_dir = job_dir.join("sandbox");
         debug!("cache directory:   {cache_dir:?}");
         debug!("job directory:     {job_dir:?}");
         debug!("sandbox directory: {sandbox_dir:?}");
+        std::fs::create_dir_all(&out_dir)
+            .with_context(|| format!("failed to create dir: {out_dir:?}"))?;
         let cache = Cache::new(cache_dir, ws_dir.clone())?;
         Ok(Self {
             job_id,
@@ -188,7 +191,7 @@ impl JobWorker {
                 _ => assert!(file.path.is_relative()),
             }
             let rel_dir = file.path.parent().unwrap();
-            if !self.created_dirs.contains(rel_dir) {
+            if rel_dir != "" && !self.created_dirs.contains(rel_dir) {
                 let abs_dir = self.ws_dir.join(rel_dir);
                 std::fs::create_dir_all(&abs_dir)
                     .with_context(|| format!("failed to create dir: {abs_dir:?}"))?;
