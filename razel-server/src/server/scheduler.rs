@@ -40,12 +40,12 @@ impl Scheduler {
                 job.connection.take();
                 if job.running == 0 {
                     info!(client_id, job_id=?job.id, "job finished");
-                    true
-                } else {
                     false
+                } else {
+                    true
                 }
             } else {
-                false
+                true
             }
         });
     }
