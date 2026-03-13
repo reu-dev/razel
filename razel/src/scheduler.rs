@@ -20,7 +20,7 @@ pub struct Scheduler {
     cpus: Cpus,
     http_remote_exec_state: HttpRemoteExecState,
     // TODO sort by weight, e.g. recursive number of rdeps
-    ready_items: Vec<ReadyItem>,
+    ready_items: VecDeque<ReadyItem>,
     ready_for_remote_exec: Vec<(Arc<HttpRemoteExecDomain>, VecDeque<TargetId>)>,
     ready_for_remote_exec_len: usize,
     running_items: HashMap<TargetId, (Group, Cpus)>,
@@ -94,12 +94,18 @@ impl Scheduler {
         let group = Self::group_for_command(target);
         let slots = target.cpus().max(self.slots_for_group(&group));
         let locks = target.locks().map(String::from).collect();
-        self.ready_items.push(ReadyItem {
+        let item = ReadyItem {
             id: target.id,
             group,
             slots,
             locks,
-        });
+        };
+        if item.slots > 1.0 || !item.locks.is_empty() {
+            // schedule with higher priority
+            self.ready_items.push_front(item);
+        } else {
+            self.ready_items.push_back(item);
+        }
     }
 
     fn push_ready_for_remote_exec(&mut self, target: &Target) -> bool {
@@ -135,7 +141,7 @@ impl Scheduler {
         if let Some((index, _)) = self.ready_items.iter().find_position(|x| {
             x.slots <= free_slots && !x.locks.iter().any(|l| self.locks.contains(l))
         }) {
-            let item = self.ready_items.remove(index);
+            let item = self.ready_items.remove(index).unwrap();
             self.locks.extend(item.locks);
             self.running_items.insert(item.id, (item.group, item.slots));
             self.cpus += item.slots;
@@ -171,14 +177,7 @@ impl Scheduler {
             self.locks.remove(lock);
         }
         if oom_killed && self.scale_up_memory_requirement(&group, cpus) {
-            let slots = self.slots_for_group(&group);
-            let locks = target.locks().map(String::from).collect();
-            self.ready_items.push(ReadyItem {
-                id,
-                group,
-                slots,
-                locks,
-            });
+            self.push_ready(target);
             true
         } else {
             false

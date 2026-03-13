@@ -144,7 +144,7 @@ impl JobData {
             if requested_files.is_empty() {
                 self.requested_files_for_ready_target.remove(&target_id);
                 tracing::trace!(target_id, "target is ready after requesting files");
-                self.ready.push_back(target_id);
+                Self::push_ready(&self.dep_graph.targets[target_id], &mut self.ready);
             }
         }
     }
@@ -158,12 +158,21 @@ impl JobData {
                 .collect_vec();
             if requested_files.is_empty() {
                 tracing::trace!(target_id, "target is ready");
-                self.ready.push_back(target_id);
+                Self::push_ready(target, &mut self.ready);
             } else {
                 tracing::trace!(target_id, ?requested_files, "target is waiting for files");
                 self.requested_files_for_ready_target
                     .insert(target_id, requested_files);
             }
+        }
+    }
+
+    fn push_ready(target: &Target, ready: &mut VecDeque<TargetId>) {
+        if target.cpus() > 1.0 || target.locks().next().is_some() {
+            // schedule with higher priority
+            ready.push_front(target.id);
+        } else {
+            ready.push_back(target.id);
         }
     }
 
