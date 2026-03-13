@@ -6,6 +6,11 @@ pub enum Tag {
     Quiet,
     Verbose,
     Condition,
+    /// How many CPUs the target uses. Defaults to 1.
+    Cpus(f32),
+    /// Targets specifying the same resource lock will not run concurrently. Multiple locks can be set.
+    Lock(String),
+    /// Kill command after the specified number of seconds.
     Timeout(u16),
     NoCache,
     NoRemoteCache,
@@ -22,6 +27,8 @@ impl Serialize for Tag {
             Tag::Quiet => "razel:quiet",
             Tag::Verbose => "razel:verbose",
             Tag::Condition => "razel:condition",
+            Tag::Cpus(x) => &format!("razel:cpus:{x}"),
+            Tag::Lock(x) => &format!("razel:lock:{x}"),
             Tag::Timeout(x) => &format!("razel:timeout:{x}"),
             Tag::NoCache => "razel:no-cache",
             Tag::NoRemoteCache => "razel:no-remote-cache",
@@ -46,6 +53,19 @@ impl<'de> Deserialize<'de> for Tag {
                 ("quiet", None) => Ok(Tag::Quiet),
                 ("verbose", None) => Ok(Tag::Verbose),
                 ("condition", None) => Ok(Tag::Condition),
+                ("cpus", Some(x)) => {
+                    let cpus = x
+                        .parse()
+                        .map_err(|x| Error::custom(format!("failed to parse cpus: {x}")))?;
+                    if cpus <= 0.0 {
+                        Err(Error::custom("cpus should be > 0"))
+                    } else {
+                        Ok(Tag::Cpus(cpus))
+                    }
+                }
+                ("cpus", None) => Err(Error::custom(format!("cpus value missing: {tag}"))),
+                ("lock", Some(x)) => Ok(Tag::Lock(x.into())),
+                ("lock", None) => Err(Error::custom(format!("lock value missing: {tag}"))),
                 ("timeout", Some(x)) => {
                     let secs = x
                         .parse()

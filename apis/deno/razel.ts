@@ -299,6 +299,21 @@ export class CustomCommand extends Command {
         return this;
     }
 
+    // How many CPUs the target uses. Defaults to 1.
+    setCpus(cpus: number): this {
+        return this.addTag(`razel:cpus:${cpus}`);
+    }
+
+    // Targets specifying the same resource lock will not run concurrently. Multiple locks can be set.
+    addLock(resource: string): this {
+        return this.addTag(`razel:lock:${resource}`);
+    }
+
+    // Kill command after the specified number of seconds.
+    setTimeout(seconds: number): this {
+        return this.addTag(`razel:timeout:${seconds}`);
+    }
+
     writeStdoutToFile(path?: string): CustomCommand {
         const newFile = Razel.instance().addOutputFile(path ? path : this.name + ".stdout.txt");
         if (this.stdout) {

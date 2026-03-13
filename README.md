@@ -110,6 +110,8 @@ Tags with `razel:` prefix are reserved and have special meaning:
 - `razel:quiet`: don't be verbose if command succeeded
 - `razel:verbose`: always show verbose output
 - `razel:condition`: keep running and don't be verbose if command failed
+- `razel:cpus:<n>`: how many CPUs the target uses (defaults to 1)
+- `razel:lock:<name>`: targets specifying the same resource lock will not run concurrently (multiple locks can be set)
 - `razel:timeout:<seconds>`: kill command after the specified number of seconds
 - `razel:no-cache`: always execute a command without caching
 - `razel:no-remote-cache`: don't use remote cache

@@ -10,33 +10,50 @@ use std::collections::{HashSet, VecDeque};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
+type Cpus = f32;
+
 pub struct Scheduler {
-    max_parallelism: usize,
-    curr_parallelism: usize,
+    max_cpus: Cpus,
     jobs: Vec<JobData>,
+    targets: usize,
+    cpus: Cpus,
+    locks: HashSet<String>,
 }
 
 impl Scheduler {
     pub fn new(max_parallelism: usize) -> Self {
-        let curr_parallelism = 1; // reserve one core for server/scheduler tasks
-        assert!(max_parallelism > curr_parallelism);
+        // reserve one core for server/scheduler tasks
+        let max_cpus = max_parallelism as Cpus - 1.0;
+        assert!(max_cpus >= 1.0);
         Self {
-            max_parallelism,
-            curr_parallelism,
+            max_cpus,
+            cpus: 0.0,
             jobs: Default::default(),
+            targets: 0,
+            locks: Default::default(),
         }
     }
 
     pub fn handle_client_connection_lost(&mut self, client_id: ClientId) {
-        for job in self.jobs.extract_if(.., |job| job.client_id == client_id) {
-            info!(client_id, job_id=?job.id, "job finished");
-        }
+        self.jobs.retain_mut(|job| {
+            if job.client_id == client_id {
+                job.connection.take();
+                if job.running == 0 {
+                    info!(client_id, job_id=?job.id, "job finished");
+                    false
+                } else {
+                    true
+                }
+            } else {
+                true
+            }
+        });
     }
 }
 
 struct JobData {
     client_id: ClientId,
-    connection: quinn::Connection,
+    connection: Option<quinn::Connection>,
     id: JobId,
     #[allow(dead_code)]
     job: Job,
@@ -45,6 +62,8 @@ struct JobData {
     requested_files: HashSet<FileId>,
     requested_files_for_ready_target: HashMap<TargetId, Vec<FileId>>,
     ready: VecDeque<TargetId>,
+    running: usize,
+    cpus: Cpus,
     succeeded: Vec<TargetId>,
     failed: Vec<TargetId>,
     keep_going: bool,
@@ -61,7 +80,7 @@ impl JobData {
     ) -> Self {
         Self {
             client_id,
-            connection,
+            connection: Some(connection),
             id,
             job,
             dep_graph: Default::default(),
@@ -69,6 +88,8 @@ impl JobData {
             requested_files: Default::default(),
             requested_files_for_ready_target: Default::default(),
             ready: Default::default(),
+            running: 0,
+            cpus: 0.0,
             succeeded: vec![],
             failed: vec![],
             keep_going: false,
@@ -123,7 +144,7 @@ impl JobData {
             if requested_files.is_empty() {
                 self.requested_files_for_ready_target.remove(&target_id);
                 tracing::trace!(target_id, "target is ready after requesting files");
-                self.ready.push_back(target_id);
+                Self::push_ready(&self.dep_graph.targets[target_id], &mut self.ready);
             }
         }
     }
@@ -137,12 +158,21 @@ impl JobData {
                 .collect_vec();
             if requested_files.is_empty() {
                 tracing::trace!(target_id, "target is ready");
-                self.ready.push_back(target_id);
+                Self::push_ready(target, &mut self.ready);
             } else {
                 tracing::trace!(target_id, ?requested_files, "target is waiting for files");
                 self.requested_files_for_ready_target
                     .insert(target_id, requested_files);
             }
+        }
+    }
+
+    fn push_ready(target: &Target, ready: &mut VecDeque<TargetId>) {
+        if target.cpus() > 1.0 || target.locks().next().is_some() {
+            // schedule with higher priority
+            ready.push_front(target.id);
+        } else {
+            ready.push_back(target.id);
         }
     }
 
@@ -210,6 +240,9 @@ impl Server {
         let Some(job) = scheduler.jobs.iter_mut().find(|x| x.id == msg.job_id) else {
             return Ok(());
         };
+        if job.connection.is_none() {
+            return Ok(());
+        }
         let mut stored_inputs: Vec<FileId> = Default::default();
         let mut requested_inputs: Vec<FileId> = Default::default();
         for file in &mut msg.files {
@@ -224,10 +257,12 @@ impl Server {
                 bail!("file has scary path: {file:?}");
             }
             if file.digest.is_some() {
-                if self
-                    .storage
-                    .request_file_from_client(job.id, file, &job.connection, &self.tx)
-                {
+                if self.storage.request_file_from_client(
+                    job.id,
+                    file,
+                    job.connection.as_ref().unwrap(),
+                    &self.tx,
+                ) {
                     stored_inputs.push(file.id);
                 } else {
                     requested_inputs.push(file.id);
@@ -245,27 +280,64 @@ impl Server {
     #[instrument(skip_all)]
     pub fn handle_execute_target_result(&mut self, msg: ExecuteTargetResult) {
         let scheduler = self.scheduler.as_mut().unwrap();
-        scheduler.curr_parallelism -= 1;
-        if let Some(job) = scheduler.jobs.iter_mut().find(|x| x.id == msg.job_id) {
-            job.handle_execute_target_result(&msg);
-            ServerToClientMsg::ExecuteTargetResult(msg)
-                .spawn_send_uni(job.connection.clone())
-                .unwrap();
+        let job = scheduler
+            .jobs
+            .iter_mut()
+            .find(|x| x.id == msg.job_id)
+            .unwrap();
+        let target = &job.dep_graph.targets[msg.target_id];
+        let cpus = target.cpus();
+        scheduler.targets -= 1;
+        scheduler.cpus -= cpus;
+        assert!(scheduler.cpus > -0.01);
+        for lock in target.locks() {
+            scheduler.locks.remove(lock);
         }
-        self.start_ready_targets();
+        job.running -= 1;
+        job.cpus -= cpus;
+        assert!(job.cpus > -0.01);
+        job.handle_execute_target_result(&msg);
+        if let Some(connection) = job.connection.as_ref() {
+            ServerToClientMsg::ExecuteTargetResult(msg)
+                .spawn_send_uni(connection.clone())
+                .unwrap();
+            self.start_ready_targets();
+        } else if job.running == 0 {
+            info!(client_id=job.client_id, job_id=?job.id, "job finished");
+            let pos = scheduler
+                .jobs
+                .iter()
+                .position(|x| x.id == msg.job_id)
+                .unwrap();
+            scheduler.jobs.remove(pos);
+        }
     }
 
     fn start_ready_targets(&mut self) {
         let scheduler = self.scheduler.as_mut().unwrap();
-        if scheduler.curr_parallelism >= scheduler.max_parallelism {
+        if scheduler.cpus + 1.0 > scheduler.max_cpus {
             return;
         }
         for job in &mut scheduler.jobs {
-            while let Some(target) = job.ready.pop_front().map(|x| &job.dep_graph.targets[x]) {
+            let mut i = 0;
+            while i < job.ready.len() {
+                let target_id = job.ready[i];
+                let target = &job.dep_graph.targets[target_id];
+                if target.cpus() > scheduler.max_cpus - scheduler.cpus
+                    || target.locks().any(|lock| scheduler.locks.contains(lock))
+                {
+                    i += 1;
+                    continue;
+                }
+                job.ready.swap_remove_back(i);
+                job.running += 1;
+                job.cpus += target.cpus();
                 job.worker
                     .push_target(target, &job.dep_graph.files, self.tx.clone());
-                scheduler.curr_parallelism += 1;
-                if scheduler.curr_parallelism >= scheduler.max_parallelism {
+                scheduler.targets += 1;
+                scheduler.cpus += target.cpus();
+                scheduler.locks.extend(target.locks().map(String::from));
+                if scheduler.cpus + 1.0 > scheduler.max_cpus {
                     return;
                 }
             }

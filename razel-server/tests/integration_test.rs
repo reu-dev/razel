@@ -53,7 +53,7 @@ async fn run_client(
             None,
             vec![],
             None,
-            vec![Url::parse(&format!("http://localhost:{PORT}")).unwrap()],
+            vec![Url::parse(&format!("razel://localhost:{PORT}")).unwrap()],
         )
         .await
         .unwrap();

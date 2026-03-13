@@ -305,6 +305,21 @@ class CustomCommand(Command):
             self._outputs.append(file)
         return self
 
+    def set_cpus(self, n: float) -> CustomCommand:
+        """How many CPUs the target uses. Defaults to 1."""
+        self.add_tag(f'razel:cpus:{n}')
+        return self
+
+    def add_lock(self, resource: str) -> CustomCommand:
+        """Targets specifying the same resource lock will not run concurrently. Multiple locks can be set."""
+        self.add_tag(f'razel:lock:{resource}')
+        return self
+
+    def set_timeout(self, seconds: int) -> CustomCommand:
+        """Kill command after the specified number of seconds."""
+        self.add_tag(f'razel:timeout:{seconds}')
+        return self
+
     def write_stdout_to_file(self, path: Optional[str] = None) -> CustomCommand:
         new_file = Razel.instance().add_output_file(path if path else self._name + ".stdout.txt")
         if self._stdout:

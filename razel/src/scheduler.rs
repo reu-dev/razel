@@ -1,44 +1,48 @@
 use crate::executors::{HttpRemoteExecDomain, HttpRemoteExecState};
 use crate::types::{Target, TargetId, TargetKind, Task};
 use itertools::Itertools;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
+type Cpus = f32;
 type Group = String;
 
 struct ReadyItem {
     id: TargetId,
     group: Group,
-    slots: usize,
+    slots: Cpus,
+    locks: Vec<String>,
 }
 
 /// Keeps track of ready/running targets and selects next to run depending on resources
 pub struct Scheduler {
-    available_slots: usize,
+    max_cpus: Cpus,
+    cpus: Cpus,
     http_remote_exec_state: HttpRemoteExecState,
-    used_slots: usize,
     // TODO sort by weight, e.g. recursive number of rdeps
-    ready_items: Vec<ReadyItem>,
+    ready_items: VecDeque<ReadyItem>,
     ready_for_remote_exec: Vec<(Arc<HttpRemoteExecDomain>, VecDeque<TargetId>)>,
     ready_for_remote_exec_len: usize,
-    running_items: HashMap<TargetId, Group>,
+    running_items: HashMap<TargetId, (Group, Cpus)>,
     running_with_remote_exec: usize,
     /// groups targets by estimated resource requirement
-    group_to_slots: HashMap<String, usize>,
+    group_to_slots: HashMap<String, Cpus>,
+    locks: HashSet<String>,
 }
 
 impl Scheduler {
     pub fn new(available_slots: usize) -> Self {
         Self {
-            available_slots,
+            max_cpus: available_slots as Cpus,
+            cpus: 0.0,
             http_remote_exec_state: Default::default(),
-            used_slots: 0,
             ready_items: Default::default(),
             ready_for_remote_exec: Default::default(),
             ready_for_remote_exec_len: 0,
             running_items: Default::default(),
             running_with_remote_exec: 0,
             group_to_slots: Default::default(),
+            locks: Default::default(),
         }
     }
 
@@ -88,12 +92,20 @@ impl Scheduler {
             return;
         }
         let group = Self::group_for_command(target);
-        let slots = self.slots_for_group(&group);
-        self.ready_items.push(ReadyItem {
+        let slots = target.cpus().max(self.slots_for_group(&group));
+        let locks = target.locks().map(String::from).collect();
+        let item = ReadyItem {
             id: target.id,
             group,
             slots,
-        });
+            locks,
+        };
+        if item.slots > 1.0 || !item.locks.is_empty() {
+            // schedule with higher priority
+            self.ready_items.push_front(item);
+        } else {
+            self.ready_items.push_back(item);
+        }
     }
 
     fn push_ready_for_remote_exec(&mut self, target: &Target) -> bool {
@@ -122,18 +134,17 @@ impl Scheduler {
         if let Some(x) = self.pop_ready_and_run_remote_exec() {
             return Some(x);
         }
-        if self.used_slots >= self.available_slots || self.ready_items.is_empty() {
+        if self.cpus + 1.0 > self.max_cpus || self.ready_items.is_empty() {
             return None;
         }
-        let free_slots = self.available_slots - self.used_slots;
-        if let Some((index, _)) = self
-            .ready_items
-            .iter()
-            .find_position(|x| x.slots <= free_slots)
-        {
-            let item = self.ready_items.remove(index);
-            self.running_items.insert(item.id, item.group);
-            self.used_slots += item.slots;
+        let free_slots = self.max_cpus - self.cpus;
+        if let Some((index, _)) = self.ready_items.iter().find_position(|x| {
+            x.slots <= free_slots && !x.locks.iter().any(|l| self.locks.contains(l))
+        }) {
+            let item = self.ready_items.remove(index).unwrap();
+            self.locks.extend(item.locks);
+            self.running_items.insert(item.id, (item.group, item.slots));
+            self.cpus += item.slots;
             Some(item.id)
         } else {
             None
@@ -159,18 +170,18 @@ impl Scheduler {
             return false;
         }
         let id = target.id;
-        let group = self.running_items.remove(&id).unwrap();
-        self.used_slots -= self.slots_for_group(&group);
-        if oom_killed {
-            self.scale_up_memory_requirement(&group);
-            // stop retry only when target was run exclusively
-            if !self.running_items.is_empty() {
-                let slots = self.slots_for_group(&group);
-                self.ready_items.push(ReadyItem { id, group, slots });
-                return true;
-            }
+        let (group, cpus) = self.running_items.remove(&id).unwrap();
+        self.cpus -= cpus;
+        assert!(self.cpus > -0.01);
+        for lock in target.locks() {
+            self.locks.remove(lock);
         }
-        false
+        if oom_killed && self.scale_up_memory_requirement(&group, cpus) {
+            self.push_ready(target);
+            true
+        } else {
+            false
+        }
     }
 
     fn unschedule_remote_exec(&mut self, target: &Target) -> bool {
@@ -189,28 +200,21 @@ impl Scheduler {
         true
     }
 
-    fn scale_up_memory_requirement(&mut self, group: &Group) -> bool {
-        let slots_old = self.slots_for_group(group);
-        let slots_new = (slots_old * 2).min(self.available_slots);
-        if slots_new == slots_old {
-            return false;
+    fn scale_up_memory_requirement(&mut self, group: &Group, target_cpus: Cpus) -> bool {
+        let group_cpus = self.slots_for_group(group);
+        let new = (target_cpus * 2.0).max(group_cpus).min(self.max_cpus);
+        if new > group_cpus {
+            self.group_to_slots.insert(group.clone(), new);
+            self.ready_items
+                .iter_mut()
+                .filter(|x| x.group == *group)
+                .for_each(|x| x.slots = new);
         }
-        self.group_to_slots.insert(group.clone(), slots_new);
-        let running_in_group = self
-            .running_items
-            .iter()
-            .filter(|(_, x)| *x == group)
-            .count();
-        self.used_slots += running_in_group * (slots_new - slots_old);
-        self.ready_items
-            .iter_mut()
-            .filter(|x| x.group == *group)
-            .for_each(|x| x.slots = slots_new);
-        true
+        new > target_cpus
     }
 
-    fn slots_for_group(&self, group: &Group) -> usize {
-        *self.group_to_slots.get(group).unwrap_or(&1)
+    fn slots_for_group(&self, group: &Group) -> Cpus {
+        *self.group_to_slots.get(group).unwrap_or(&0.0)
     }
 
     fn group_for_command(target: &Target) -> Group {
@@ -270,72 +274,78 @@ mod tests {
 
     #[test]
     fn simple() {
-        let (mut s, targets) = create(3, vec!["exec_0", "exec_0", "exec_1", "exec_1"]);
-        let c0 = s.pop_ready_and_run().unwrap();
-        let c1 = s.pop_ready_and_run().unwrap();
-        let c2 = s.pop_ready_and_run().unwrap();
+        let (mut s, targets) = create(3, vec!["a", "a", "b", "b"]);
+        let t0 = s.pop_ready_and_run().unwrap();
+        let t1 = s.pop_ready_and_run().unwrap();
+        let t2 = s.pop_ready_and_run().unwrap();
         assert_eq!(s.pop_ready_and_run(), None);
-        assert_eq!(s.used_slots, 3);
+        assert_eq!(s.cpus, 3.0);
         assert_eq!(
-            s.set_finished_and_get_retry_flag(&targets[c1], false),
+            s.set_finished_and_get_retry_flag(&targets[t1], false),
             false
         );
-        let c3 = s.pop_ready_and_run().unwrap();
+        let t3 = s.pop_ready_and_run().unwrap();
         assert_eq!(
-            s.set_finished_and_get_retry_flag(&targets[c0], false),
-            false
-        );
-        assert_eq!(
-            s.set_finished_and_get_retry_flag(&targets[c2], false),
+            s.set_finished_and_get_retry_flag(&targets[t0], false),
             false
         );
         assert_eq!(
-            s.set_finished_and_get_retry_flag(&targets[c3], false),
+            s.set_finished_and_get_retry_flag(&targets[t2], false),
+            false
+        );
+        assert_eq!(
+            s.set_finished_and_get_retry_flag(&targets[t3], false),
             false
         );
         assert_eq!(s.len(), 0);
-        assert_eq!(s.used_slots, 0);
+        assert_eq!(s.cpus, 0.0);
     }
 
     #[test]
     fn killed() {
-        let (mut s, targets) = create(3, vec!["exec_0", "exec_0", "exec_1", "exec_1"]);
-        let c0 = s.pop_ready_and_run().unwrap();
-        let c1 = s.pop_ready_and_run().unwrap();
-        let c2 = s.pop_ready_and_run().unwrap();
+        let (mut s, targets) = create(3, vec!["a", "a", "b", "b"]);
+        let t0 = s.pop_ready_and_run().unwrap();
+        let t1 = s.pop_ready_and_run().unwrap();
+        let t2 = s.pop_ready_and_run().unwrap();
         assert_eq!(s.pop_ready_and_run(), None);
-        assert_eq!(s.used_slots, 3);
-        assert_eq!(s.set_finished_and_get_retry_flag(&targets[c1], true), true); // -> exec_0: 2 slots
-        assert_eq!(s.used_slots, 3); // c0 (2), c2 (1)
+        assert_eq!(s.cpus, 3.0); // 0 1 2
+        assert_eq!(s.group_to_slots.get("a"), None);
+        assert_eq!(s.set_finished_and_get_retry_flag(&targets[t1], true), true);
+        assert_eq!(s.cpus, 2.0); // 0 2
+        assert_eq!(s.group_to_slots["a"], 2.0);
+        let t3 = s.pop_ready_and_run().unwrap();
         assert_eq!(s.pop_ready_and_run(), None);
-        assert_eq!(s.set_finished_and_get_retry_flag(&targets[c0], true), true); // -> exec_0: 3 slots
-        assert_eq!(s.used_slots, 1); // c2 (1)
+        assert_eq!(s.cpus, 3.0); // 0 2 3
+        assert_eq!(s.set_finished_and_get_retry_flag(&targets[t0], true), true);
+        assert_eq!(s.cpus, 2.0); // 2 3
+        assert_eq!(s.group_to_slots["a"], 2.0);
         assert_eq!(
-            s.set_finished_and_get_retry_flag(&targets[c2], false),
+            s.set_finished_and_get_retry_flag(&targets[t2], false),
             false
         );
-        assert_eq!(s.used_slots, 0);
-        let c3 = s.pop_ready_and_run().unwrap();
-        assert_eq!(s.used_slots, 1); // c4 (1)
+        assert_eq!(s.cpus, 1.0); // 3
+        assert_eq!(
+            s.set_finished_and_get_retry_flag(&targets[t3], false),
+            false
+        );
+        assert_eq!(s.cpus, 0.0);
+        let t0_or_1 = s.pop_ready_and_run().unwrap();
+        assert_eq!(s.cpus, 2.0);
         assert_eq!(s.pop_ready_and_run(), None);
         assert_eq!(
-            s.set_finished_and_get_retry_flag(&targets[c3], false),
+            s.set_finished_and_get_retry_flag(&targets[t0_or_1], false),
             false
         );
-        assert_eq!(s.used_slots, 0);
-        let c0_or_c1 = s.pop_ready_and_run().unwrap();
-        assert_eq!(s.used_slots, 3);
-        assert_eq!(s.pop_ready_and_run(), None);
+        let t0_or_1 = s.pop_ready_and_run().unwrap();
         assert_eq!(
-            s.set_finished_and_get_retry_flag(&targets[c0_or_c1], false),
-            false
+            s.set_finished_and_get_retry_flag(&targets[t0_or_1], true),
+            true
         );
-        let c0_or_c1 = s.pop_ready_and_run().unwrap();
-        assert_eq!(
-            s.set_finished_and_get_retry_flag(&targets[c0_or_c1], true),
-            false
-        );
+        assert_eq!(s.group_to_slots["a"], 3.0);
+        let x = s.pop_ready_and_run().unwrap();
+        assert_eq!(s.cpus, 3.0);
+        assert_eq!(s.set_finished_and_get_retry_flag(&targets[x], false), false);
         assert_eq!(s.len(), 0);
-        assert_eq!(s.used_slots, 0);
+        assert_eq!(s.cpus, 0.0);
     }
 }

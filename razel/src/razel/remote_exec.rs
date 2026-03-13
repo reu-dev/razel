@@ -25,7 +25,7 @@ impl Razel {
                         true
                     }
                     Err(x) => {
-                        println!("{url} {x:?}");
+                        println!("{x:?}");
                         false
                     }
                 }
