@@ -150,13 +150,13 @@ impl HttpRemoteExecutor {
                 url.set_port(Some(port)).unwrap();
             }
             let result = self.request(&host.client, url).await;
-            if let Err(err) = &result {
-                if host.is_ok.swap(false, Ordering::Relaxed) {
-                    domain
-                        .available_slots
-                        .fetch_sub(host.available_slots, Ordering::Relaxed);
-                    warn!("{:?} failed on host {:?}: {err}", domain.domain, host.host);
-                }
+            if let Err(err) = &result
+                && host.is_ok.swap(false, Ordering::Relaxed)
+            {
+                domain
+                    .available_slots
+                    .fetch_sub(host.available_slots, Ordering::Relaxed);
+                warn!("{:?} failed on host {:?}: {err}", domain.domain, host.host);
             };
             host.used_slots.fetch_sub(1, Ordering::Relaxed);
             if result.is_ok() {

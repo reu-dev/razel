@@ -13,10 +13,10 @@ pub async fn force_symlink(src: &PathBuf, dst: &PathBuf) -> Result<()> {
         let src_abs = fs::canonicalize(&src)
             .await
             .with_context(|| format!("canonicalize() {src:?}"))?;
-        if let Ok(existing) = fs::read_link(&dst).await {
-            if existing == src_abs {
-                return Ok(());
-            }
+        if let Ok(existing) = fs::read_link(&dst).await
+            && existing == src_abs
+        {
+            return Ok(());
         }
         force_remove_file(&dst).await?; // to avoid symlink() fail with "File exists"
         let parent = dst.parent().unwrap();

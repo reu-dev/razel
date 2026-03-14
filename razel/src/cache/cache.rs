@@ -230,11 +230,11 @@ impl Cache {
                 .context("move_output_file_into_cache()")?;
             *cas_state = CacheState::LocallyCreatedButNotUploaded;
         }
-        if cas_state.is_upload_needed() {
-            if let Some(remote_cache) = remote_cache {
-                remote_cache.push_blob(file.digest, file.cas_path);
-                *cas_state = CacheState::LocallyCreatedAndUploaded;
-            }
+        if cas_state.is_upload_needed()
+            && let Some(remote_cache) = remote_cache
+        {
+            remote_cache.push_blob(file.digest, file.cas_path);
+            *cas_state = CacheState::LocallyCreatedAndUploaded;
         }
         Ok(())
     }
