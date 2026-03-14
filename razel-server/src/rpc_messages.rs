@@ -1,9 +1,10 @@
 use crate::Node;
 use anyhow::Result;
 use razel::remote_exec::{
-    ExecuteTargetResult, ExecuteTargetsRequest, JobId, MessageVersion, rpc_recv_impl,
-    rpc_recv_uni_impl, rpc_send_impl, rpc_spawn_send_uni,
+    ExecuteTargetResult, ExecuteTargetsRequest, MessageVersion, rpc_recv_impl, rpc_recv_uni_impl,
+    rpc_send_impl, rpc_spawn_send_uni,
 };
+use razel::types::JobId;
 use serde::{Deserialize, Serialize};
 
 /// Messages exchanged between servers

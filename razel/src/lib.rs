@@ -76,13 +76,11 @@ pub mod metadata {
 #[cfg(feature = "remote_exec")]
 pub mod remote_exec {
     mod client;
-    mod job;
     pub mod rpc_endpoint;
     mod rpc_messages;
     mod rpc_utils;
 
     pub use client::*;
-    pub use job::*;
     pub use rpc_messages::*;
     pub use rpc_utils::*;
 }
@@ -126,6 +124,7 @@ pub mod tasks {
 
 pub mod types {
     pub use dependency_graph::*;
+    pub use job::*;
     pub use razel_jsonl::*;
     pub use razel_jsonl_io::*;
     pub use result::*;
@@ -135,6 +134,7 @@ pub mod types {
     pub use worker_tags::*;
 
     mod dependency_graph;
+    mod job;
     mod razel_jsonl;
     mod razel_jsonl_io;
     mod result;

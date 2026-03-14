@@ -1,7 +1,7 @@
 use super::*;
 use anyhow::{Result, ensure};
-use razel::remote_exec::{JobId, ServerToClientMsg};
-use razel::types::{DigestHash, File, FileId};
+use razel::remote_exec::ServerToClientMsg;
+use razel::types::{DigestHash, File, FileId, JobId};
 use razel::{force_remove_file_std, set_file_permissions};
 use std::collections::HashSet;
 use std::path::PathBuf;

@@ -1,7 +1,6 @@
 use crate::cache::MessageDigest;
 use crate::executors::ExecutionResult;
-use crate::remote_exec::{Job, JobId};
-use crate::types::{Digest, File, FileId, Target, TargetId};
+use crate::types::*;
 use serde::{Deserialize, Serialize};
 
 #[repr(u8)]

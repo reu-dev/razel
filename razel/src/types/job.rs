@@ -1,4 +1,4 @@
-use crate::types::WorkerTag;
+use super::WorkerTag;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -6,7 +6,7 @@ use uuid::Uuid;
 pub type JobId = Uuid;
 
 /// A razel remote exec job created by `razel exec` and sent to server
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Job {
     pub ts: DateTime<Utc>,
     /// to separate caches per project
@@ -15,19 +15,19 @@ pub struct Job {
     pub default_tags: Vec<WorkerTag>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub enum JobKind {
     Interactive(InteractiveJob),
     /// if GITLAB_CI environment variable is set
     GitLabCi(GitLabCiJob),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct InteractiveJob {
     pub user: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct GitLabCiJob {
     /// GITLAB_USER_LOGIN
     pub user: String,
