@@ -67,7 +67,7 @@ impl JobWorker {
         let cas_path = self.cache.cas_path(digest);
         let ws_path = self.ws_dir.join(file_path);
         tracing::trace!(?cas_path, ?ws_path);
-        let link_type = LinkType::Symlink; // TODO move to config file
+        let link_type = LinkType::Hardlink; // Hardlink is needed for wasi
         match link_type {
             LinkType::Hardlink => razel::force_hardlink(&cas_path, &ws_path).await?,
             LinkType::Symlink => razel::force_symlink(&cas_path, &ws_path).await?,
@@ -160,16 +160,15 @@ impl JobWorker {
     }
 
     fn new_wasi_sandbox(&self, target: &Target, files: &[File]) -> BoxedSandbox {
-        //let cache = &self.cache;
+        let cache = &self.cache;
         let inputs = target
             .inputs
             .iter()
             .map(|x| &files[*x])
-            // TODO .filter(|x| x.file_type == FileType::OutputFile)
             .map(|x| {
                 (
                     x.path.clone(),
-                    None, // TODO x.locally_cached.then_some(cache.cas_path(x.digest.as_ref().unwrap())),
+                    Some(cache.cas_path(x.digest.as_ref().unwrap())), // input file always exists in CAS in case of remote exec
                 )
             })
             .collect();

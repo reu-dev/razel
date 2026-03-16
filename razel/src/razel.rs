@@ -516,16 +516,14 @@ impl Razel {
     }
 
     fn new_wasi_sandbox(&self, target: &Target) -> BoxedSandbox {
-        //let cache = self.cache.as_ref().unwrap();
         let inputs = target
             .inputs
             .iter()
             .map(|x| &self.dep_graph.files[*x])
-            // TODO .filter(|x| x.file_type == FileType::OutputFile)
             .map(|x| {
                 (
                     x.path.clone(),
-                    None, // TODO x.locally_cached.then_some(cache.cas_path(x.digest.as_ref().unwrap())),
+                    None,
                 )
             })
             .collect();
