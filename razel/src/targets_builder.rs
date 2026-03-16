@@ -299,8 +299,7 @@ impl TargetsBuilder {
     fn push_executable_file(&mut self, arg: &str) -> Result<FileId> {
         let path = Path::new(&arg);
         if path.is_relative() {
-            let abs = self.workspace_dir.join(path);
-            let cwd_path = abs.strip_prefix(&self.current_dir).unwrap().to_path_buf();
+            let cwd_path = self.rel_path(arg)?;
             if let Some(id) = self.file_by_path.get(&cwd_path) {
                 return Ok(*id);
             }

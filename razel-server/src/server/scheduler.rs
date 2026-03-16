@@ -280,11 +280,10 @@ impl Server {
     #[instrument(skip_all)]
     pub fn handle_execute_target_result(&mut self, msg: ExecuteTargetResult) {
         let scheduler = self.scheduler.as_mut().unwrap();
-        let job = scheduler
-            .jobs
-            .iter_mut()
-            .find(|x| x.id == msg.job_id)
-            .unwrap();
+        let Some(job) = scheduler.jobs.iter_mut().find(|x| x.id == msg.job_id) else {
+            tracing::error!(job_id=?msg.job_id, target_id=msg.target_id, "Job not found in handle_execute_target_result()");
+            return;
+        };
         let target = &job.dep_graph.targets[msg.target_id];
         let cpus = target.cpus();
         scheduler.targets -= 1;
