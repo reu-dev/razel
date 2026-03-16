@@ -435,14 +435,14 @@ impl TargetsBuilder {
                 path.strip_prefix(&self.current_dir).unwrap_or(path),
             ))
         } else {
-            self.workspace_dir
-                .join(path)
+            let abs_path = self.workspace_dir.join(path);
+            abs_path
                 .strip_prefix(&self.current_dir)
                 .map(PathBuf::from)
                 .with_context(|| {
                     format!(
-                        "File is not within cwd ({:?}): {:?}",
-                        self.current_dir, path
+                        "File is not within cwd ({:?}): {abs_path:?}",
+                        self.current_dir
                     )
                 })
         }
