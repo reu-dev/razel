@@ -520,12 +520,7 @@ impl Razel {
             .inputs
             .iter()
             .map(|x| &self.dep_graph.files[*x])
-            .map(|x| {
-                (
-                    x.path.clone(),
-                    None,
-                )
-            })
+            .map(|x| (x.path.clone(), None))
             .collect();
         Box::new(WasiSandbox::new(
             self.current_dir.clone(),
