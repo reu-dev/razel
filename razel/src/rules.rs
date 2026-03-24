@@ -55,6 +55,8 @@ impl Rules {
     }
 
     pub fn add(&mut self, spec: &str) -> Result<()> {
+        // drop comment after rule
+        let spec = spec.split_once('#').map_or(spec, |x| x.0);
         let rule = Rule::new(spec)?;
         self.rules.insert(rule.executable.clone(), rule);
         Ok(())
