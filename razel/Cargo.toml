@@ -45,7 +45,9 @@ uuid = { workspace = true }
 url = { workspace = true }
 wasmtime = { workspace = true, optional = true }
 wasmtime-wasi = { workspace = true, optional = true }
-which = { version = "7" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+which = "7"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 procfs = { version = "0.17", default-features = false, optional = true }

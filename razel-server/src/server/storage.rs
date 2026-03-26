@@ -10,28 +10,53 @@ use tokio::task::spawn_blocking;
 
 pub struct Storage {
     pub path: PathBuf,
+    ac_dir: PathBuf,
     cas_dir: PathBuf,
     download_dir: PathBuf,
     #[allow(dead_code)]
     max_size_gb: Option<usize>,
+    pub bytes: u64,
     locally_cached: HashSet<DigestHash>,
     requested_from_clients: HashMap<DigestHash, Vec<(JobId, FileId)>>,
 }
 
 impl Storage {
     pub fn new(path: PathBuf, max_size_gb: Option<usize>) -> Result<Self> {
+        let ac_dir = path.join("cache/ac");
         let cas_dir = path.join("cache/cas");
         let download_dir = path.join("download");
+        std::fs::create_dir_all(&ac_dir)?;
         std::fs::create_dir_all(&cas_dir)?;
         std::fs::create_dir_all(&download_dir)?;
         Ok(Self {
             path,
+            ac_dir,
             cas_dir,
             download_dir,
             max_size_gb,
+            bytes: 0,
             locally_cached: Default::default(),
             requested_from_clients: Default::default(),
         })
+    }
+
+    /// Scans the AC and CAS directories.
+    pub fn read(&mut self) -> Result<()> {
+        let mut bytes = std::fs::read_dir(&self.ac_dir)?
+            .filter_map(|e| e.ok())
+            .filter_map(|e| e.metadata().ok())
+            .map(|m| m.len())
+            .sum::<u64>();
+        for entry in std::fs::read_dir(&self.cas_dir)?.filter_map(|e| e.ok()) {
+            if let Ok(metadata) = entry.metadata() {
+                bytes += metadata.len();
+            }
+            if let Some(name) = entry.file_name().to_str().map(|s| s.to_string()) {
+                self.locally_cached.insert(name);
+            }
+        }
+        self.bytes = bytes;
+        Ok(())
     }
 
     /// Returns true if file is locally cached, or requests the file from distributed cache or client.
@@ -75,9 +100,10 @@ impl Storage {
         false
     }
 
-    pub fn handle_request_file_finished(&mut self, hash: DigestHash) -> Vec<(JobId, FileId)> {
-        let requests = self.requested_from_clients.remove(&hash).unwrap();
-        self.locally_cached.insert(hash);
+    pub fn handle_request_file_finished(&mut self, digest: Digest) -> Vec<(JobId, FileId)> {
+        let requests = self.requested_from_clients.remove(&digest.hash).unwrap();
+        self.bytes += digest.size_bytes as u64;
+        self.locally_cached.insert(digest.hash);
         requests
     }
 

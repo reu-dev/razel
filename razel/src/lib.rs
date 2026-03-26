@@ -26,6 +26,7 @@ mod rules;
 mod sandbox;
 #[cfg(feature = "full")]
 mod scheduler;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod targets_builder;
 
 #[cfg(feature = "full")]
@@ -126,6 +127,7 @@ pub mod types {
     pub use dependency_graph::*;
     pub use job::*;
     pub use razel_jsonl::*;
+    #[cfg(not(target_arch = "wasm32"))]
     pub use razel_jsonl_io::*;
     pub use result::*;
     pub use tags::*;
@@ -136,6 +138,7 @@ pub mod types {
     mod dependency_graph;
     mod job;
     mod razel_jsonl;
+    #[cfg(not(target_arch = "wasm32"))]
     mod razel_jsonl_io;
     mod result;
     mod tags;

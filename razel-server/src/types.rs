@@ -1,25 +1,17 @@
+use crate::webui_types::NodeStats;
 use quinn::Connection;
-use razel::types::WorkerTag;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Display;
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct Node {
-    pub host: String,
-    pub server_port: u16,
-    pub client_port: Option<u16>,
-    pub physical_machine: String,
-    pub max_cpu_slots: usize,
-    pub tags: Vec<WorkerTag>,
-}
-
+pub type Node = crate::webui_types::Node;
 pub type RemoteNodeId = usize;
 
 pub struct RemoteNode {
     pub id: RemoteNodeId,
     pub connection: Option<Connection>,
     pub node: Node,
+    /// stats received from remote node
+    pub stats: Option<NodeStats>,
 }
 
 impl Display for RemoteNode {
@@ -33,18 +25,26 @@ impl RemoteNode {
         nodes
             .drain()
             .enumerate()
-            .filter_map(|(id, (host, node))| {
-                node.server_endpoint.map(|e| RemoteNode {
-                    id,
-                    connection: None,
-                    node: Node {
+            .filter_map(|(id, (host, config_node))| {
+                config_node.server_endpoint.map(|e| {
+                    let node = Node {
                         host,
                         server_port: e.port,
-                        client_port: node.scheduler.as_ref().map(|x| x.client_endpoint.port),
-                        physical_machine: node.physical_machine.unwrap_or_default(),
-                        max_cpu_slots: node.max_cpu_slots.unwrap_or_default(),
-                        tags: node.worker.map(|w| w.tags).unwrap_or_default(),
-                    },
+                        client_port: config_node
+                            .scheduler
+                            .as_ref()
+                            .map(|x| x.client_endpoint.port),
+                        physical_machine: config_node.physical_machine.unwrap_or_default(),
+                        max_cpu_slots: config_node.max_cpu_slots.unwrap_or_default(),
+                        tags: config_node.worker.map(|w| w.tags).unwrap_or_default(),
+                        storage_max_size_gb: config_node.storage.max_size_gb,
+                    };
+                    RemoteNode {
+                        id,
+                        connection: None,
+                        node,
+                        stats: None,
+                    }
                 })
             })
             .collect()
