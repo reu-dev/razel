@@ -9,7 +9,7 @@ use tokio::time::sleep;
 use tracing::instrument;
 use url::Url;
 
-const PORT: u16 = 4434;
+const PORT: u16 = 4433;
 
 fn prepare() -> ChangeDir {
     setup_tracing();

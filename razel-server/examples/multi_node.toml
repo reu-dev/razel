@@ -1,22 +1,22 @@
 # scheduler and worker on linux host
 [node.linux_aarch64_01]
-server_endpoint = { port = 4433 }
+server_endpoint = { port = 4434 }
 max_parallelism = 64
-scheduler = { client_endpoint = { port = 4434 }, webui = true }
+scheduler = { client_endpoint = { port = 4433 }, webui = true }
 worker = { tags = [] }  # default: ["linux", "aarch64"]
 storage = { path = "data", max_size_gb = 4000 }
 
 # scheduler and worker on linux VM
 [node.pve01_linux]
 physical_machine = "pve01"
-server_endpoint = { port = 4433 }
-scheduler = { client_endpoint = { port = 4434 }, webui = true }
+server_endpoint = { port = 4434 }
+scheduler = { client_endpoint = { port = 4433 }, webui = true }
 worker = { tags = [] }  # default: ["linux", "x86_64"]
 storage = { path = "data", max_size_gb = 1000 }
 
 # worker on windows VM
 [node.pve01_windows]
 physical_machine = "pve01"
-server_endpoint = { port = 4433 }
+server_endpoint = { port = 4434 }
 worker = { tags = [] }  # default: ["windows", "x86_64"]
 storage = { path = "data", max_size_gb = 1000 }
