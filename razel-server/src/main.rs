@@ -44,7 +44,7 @@ async fn server_main() -> anyhow::Result<()> {
         name: String,
     }
 
-    let cli = if std::env::var("LEPTOS_SITE_ADDR").is_ok() {
+    let cli = if std::env::var("LEPTOS_RELOAD_PORT").is_ok() {
         // to simplify running "cargo leptos serve"
         Cli {
             config: PathBuf::from("razel-server/examples/localhost.toml"),
