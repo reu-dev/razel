@@ -1,4 +1,4 @@
-use crate::types::CacheHit;
+use crate::types::{CacheHit, File};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -37,6 +37,16 @@ impl ExecutionResult {
                 ..Default::default()
             },
         }
+    }
+
+    /// total size of all output files and stdout/stderr [bytes]
+    pub fn output_size(&self, output_files: &[File]) -> u64 {
+        output_files
+            .iter()
+            .map(|x| x.digest.as_ref().unwrap().size_bytes as u64)
+            .sum::<u64>()
+            + self.stdout.len() as u64
+            + self.stderr.len() as u64
     }
 
     pub fn success(&self) -> bool {

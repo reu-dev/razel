@@ -717,12 +717,7 @@ impl Razel {
         } else {
             let measurements = self.measurements.collect(&target.name, execution_result);
             self.profile.collect(target, execution_result);
-            let output_size = output_files
-                .iter()
-                .map(|x| x.digest.as_ref().unwrap().size_bytes as u64)
-                .sum::<u64>()
-                + execution_result.stdout.len() as u64
-                + execution_result.stderr.len() as u64;
+            let output_size = execution_result.output_size(&output_files);
             self.log_file
                 .push(target, execution_result, Some(output_size), measurements);
             if execution_result.success() {
