@@ -83,8 +83,8 @@ impl Server {
             physical_machine: self_config
                 .physical_machine
                 .map_or(name.clone(), |x| x.clone()),
-            max_parallelism: self_config
-                .max_parallelism
+            max_cpu_slots: self_config
+                .max_cpu_slots
                 .map_or(available_parallelism, |max| max.min(available_parallelism)),
             tags: self_config
                 .worker
@@ -99,12 +99,12 @@ impl Server {
                 .unwrap_or_default(),
         };
         if self_config.worker.is_some() {
-            info!(max_parallelism=node.max_parallelism, tags=?node.tags, "local worker");
+            info!(max_cpu_slots=node.max_cpu_slots, tags=?node.tags, "local worker");
         }
         let storage = Storage::new(self_config.storage.path, self_config.storage.max_size_gb)?;
         let scheduler = self_config
             .scheduler
-            .map(|_| Scheduler::new(node.max_parallelism));
+            .map(|_| Scheduler::new(node.max_cpu_slots));
         let (tx, rx) = mpsc::unbounded_channel();
         Ok(Self {
             node,

@@ -10,24 +10,24 @@ use std::collections::{HashSet, VecDeque};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-type Cpus = f32;
+type CpuSlots = f32;
 
 pub struct Scheduler {
-    max_cpus: Cpus,
+    max_cpu_slots: CpuSlots,
     jobs: Vec<JobData>,
     targets: usize,
-    cpus: Cpus,
+    cpu_slots: CpuSlots,
     locks: HashSet<String>,
 }
 
 impl Scheduler {
-    pub fn new(max_parallelism: usize) -> Self {
+    pub fn new(max_cpu_slots: usize) -> Self {
         // reserve one core for server/scheduler tasks
-        let max_cpus = max_parallelism as Cpus - 1.0;
-        assert!(max_cpus >= 1.0);
+        let max_cpu_slots = max_cpu_slots as CpuSlots - 1.0;
+        assert!(max_cpu_slots >= 1.0);
         Self {
-            max_cpus,
-            cpus: 0.0,
+            max_cpu_slots,
+            cpu_slots: 0.0,
             jobs: Default::default(),
             targets: 0,
             locks: Default::default(),
@@ -63,7 +63,7 @@ struct JobData {
     requested_files_for_ready_target: HashMap<TargetId, Vec<FileId>>,
     ready: VecDeque<TargetId>,
     running: usize,
-    cpus: Cpus,
+    cpu_slots: CpuSlots,
     succeeded: Vec<TargetId>,
     failed: Vec<TargetId>,
     keep_going: bool,
@@ -89,7 +89,7 @@ impl JobData {
             requested_files_for_ready_target: Default::default(),
             ready: Default::default(),
             running: 0,
-            cpus: 0.0,
+            cpu_slots: 0.0,
             succeeded: vec![],
             failed: vec![],
             keep_going: false,
@@ -285,16 +285,16 @@ impl Server {
             return;
         };
         let target = &job.dep_graph.targets[msg.target_id];
-        let cpus = target.cpus();
+        let cpu_slots = target.cpus();
         scheduler.targets -= 1;
-        scheduler.cpus -= cpus;
-        assert!(scheduler.cpus > -0.01);
+        scheduler.cpu_slots -= cpu_slots;
+        assert!(scheduler.cpu_slots > -0.01);
         for lock in target.locks() {
             scheduler.locks.remove(lock);
         }
         job.running -= 1;
-        job.cpus -= cpus;
-        assert!(job.cpus > -0.01);
+        job.cpu_slots -= cpu_slots;
+        assert!(job.cpu_slots > -0.01);
         job.handle_execute_target_result(&msg);
         if let Some(connection) = job.connection.as_ref() {
             ServerToClientMsg::ExecuteTargetResult(msg)
@@ -314,7 +314,7 @@ impl Server {
 
     fn start_ready_targets(&mut self) {
         let scheduler = self.scheduler.as_mut().unwrap();
-        if scheduler.cpus + 1.0 > scheduler.max_cpus {
+        if scheduler.cpu_slots + 1.0 > scheduler.max_cpu_slots {
             return;
         }
         for job in &mut scheduler.jobs {
@@ -322,7 +322,7 @@ impl Server {
             while i < job.ready.len() {
                 let target_id = job.ready[i];
                 let target = &job.dep_graph.targets[target_id];
-                if target.cpus() > scheduler.max_cpus - scheduler.cpus
+                if target.cpus() > scheduler.max_cpu_slots - scheduler.cpu_slots
                     || target.locks().any(|lock| scheduler.locks.contains(lock))
                 {
                     i += 1;
@@ -330,13 +330,13 @@ impl Server {
                 }
                 job.ready.swap_remove_back(i);
                 job.running += 1;
-                job.cpus += target.cpus();
+                job.cpu_slots += target.cpus();
                 job.worker
                     .push_target(target, &job.dep_graph.files, self.tx.clone());
                 scheduler.targets += 1;
-                scheduler.cpus += target.cpus();
+                scheduler.cpu_slots += target.cpus();
                 scheduler.locks.extend(target.locks().map(String::from));
-                if scheduler.cpus + 1.0 > scheduler.max_cpus {
+                if scheduler.cpu_slots + 1.0 > scheduler.max_cpu_slots {
                     return;
                 }
             }

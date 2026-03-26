@@ -1,7 +1,7 @@
 # scheduler and worker on linux host
 [node.linux_aarch64_01]
 server_endpoint = { port = 4434 }
-max_parallelism = 64
+max_cpu_slots = 64
 scheduler = { client_endpoint = { port = 4433 }, webui = true }
 worker = { tags = [] }  # default: ["linux", "aarch64"]
 storage = { path = "data", max_size_gb = 4000 }

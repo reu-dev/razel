@@ -28,7 +28,7 @@ pub struct Config {
 pub struct Node {
     pub physical_machine: Option<String>,
     pub server_endpoint: Option<Endpoint>,
-    pub max_parallelism: Option<usize>,
+    pub max_cpu_slots: Option<usize>,
     pub scheduler: Option<Scheduler>,
     pub worker: Option<Worker>,
     pub storage: Storage,
