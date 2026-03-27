@@ -142,8 +142,8 @@ pub struct CodemodelTarget {
 }
 
 impl CodemodelTarget {
-    pub fn read(&self, query_dir: &Path) -> Result<Target> {
-        read_json_file(&query_dir.join(&self.jsonFile))
+    pub fn read(&self, reply_dir: &Path) -> Result<Target> {
+        read_json_file(&reply_dir.join(&self.jsonFile))
     }
 }
 
