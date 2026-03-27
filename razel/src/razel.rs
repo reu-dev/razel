@@ -9,16 +9,16 @@ use crate::metadata::{LogFile, Measurements, Profile, Report};
 use crate::targets_builder::TargetsBuilder;
 use crate::tui::TUI;
 use crate::types::{
-    CommandTarget, DependencyGraph, Digest, File, FileId, RazelJson, RazelJsonCommand,
-    RazelJsonHandler, Tag, Target, TargetId, TargetKind, Task, TaskTarget,
+    CommandTarget, DependencyGraph, Digest, ExecutableType, File, FileId, RazelJson,
+    RazelJsonCommand, RazelJsonHandler, Tag, Target, TargetId, TargetKind, Task, TaskTarget,
 };
 use crate::{
     BoxedSandbox, CGroup, GITIGNORE_FILENAME, Scheduler, TmpDirSandbox, WasiSandbox,
     bazel_remote_exec, config, create_cgroup, exec_action_with_sandbox,
-    exec_action_without_sandbox, get_execution_result_from_cache, select_cache_dir,
-    select_sandbox_dir, write_gitignore,
+    exec_action_without_sandbox, get_execution_result_from_cache, is_file_executable,
+    select_cache_dir, select_sandbox_dir, write_gitignore,
 };
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use itertools::{Itertools, chain};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -412,8 +412,14 @@ impl Razel {
         let mut missing_files = 0;
         while let Some((id, result)) = rx.recv().await {
             match result {
-                Ok(digest) => {
-                    self.dep_graph.files[id].digest = Some(digest);
+                Ok((digest, is_executable)) => {
+                    let file = &mut self.dep_graph.files[id];
+                    file.digest = Some(digest);
+                    if is_executable && file.executable.is_none() {
+                        // e.g. shared lib
+                        self.dep_graph.files[id].executable =
+                            Some(ExecutableType::ExecutableInWorkspace);
+                    }
                 }
                 Err(x) => {
                     warn!("{x}");
@@ -428,10 +434,11 @@ impl Razel {
         Ok(())
     }
 
+    #[allow(clippy::type_complexity)]
     fn spawn_digest_input_file(
         &self,
         next_id: &mut FileId,
-        tx_option: &mut Option<Sender<(FileId, Result<BlobDigest>)>>,
+        tx_option: &mut Option<Sender<(FileId, Result<(BlobDigest, bool)>)>>,
     ) {
         if tx_option.is_none() {
             return;
@@ -447,7 +454,20 @@ impl Razel {
                 let path = file.path.clone();
                 let tx = tx_option.clone().unwrap();
                 tokio::spawn(async move {
-                    tx.send((id, Digest::for_path(path).await)).await.ok();
+                    let result = async {
+                        let file = tokio::fs::File::open(&path)
+                            .await
+                            .map_err(|e| anyhow!("open({path:?}): {e}"))?;
+                        let is_executable = is_file_executable(&file)
+                            .await
+                            .map_err(|e| anyhow!("is_file_executable({path:?}): {e}"))?;
+                        let digest = Digest::for_file(file)
+                            .await
+                            .map_err(|e| anyhow!("Digest::for_file({path:?}): {e}"))?;
+                        Ok((digest, is_executable))
+                    }
+                    .await;
+                    tx.send((id, result)).await.ok();
                 });
                 return;
             }
