@@ -1,6 +1,8 @@
 use crate::config::Config;
+use crate::job_database::JobDatabase;
 use crate::rpc_endpoint::new_server_endpoint;
 use crate::rpc_messages::{ServerMessage, ServerMessageNodes};
+use crate::webui_types::*;
 use crate::{JobWorker, Node, RemoteNode, RemoteNodeId};
 use anyhow::{Context, Result, anyhow, bail};
 use quinn::{Connection, ConnectionError, Endpoint};
@@ -13,7 +15,8 @@ use razel::types::{Digest, WorkerTag};
 use std::collections::HashMap;
 use std::env::current_dir;
 use std::fs::create_dir_all;
-use tokio::sync::mpsc;
+use std::iter::once;
+use tokio::sync::{mpsc, watch};
 use tracing::{info, instrument};
 
 pub type Tx = mpsc::UnboundedSender<QueueMsg>;
@@ -36,7 +39,6 @@ pub enum QueueMsg {
 }
 
 pub struct Server {
-    #[allow(dead_code)]
     node: Node,
     client_endpoint: Option<Endpoint>,
     server_endpoint: Endpoint,
@@ -47,10 +49,12 @@ pub struct Server {
     next_client_id: ClientId,
     tx: Tx,
     rx: Rx,
+    stats_tx: watch::Sender<Stats>,
+    node_stats: NodeStats,
 }
 
 impl Server {
-    pub fn new(mut config: Config, name: String) -> Result<Self> {
+    pub fn new(mut config: Config, name: String, stats_tx: watch::Sender<Stats>) -> Result<Self> {
         let Some(mut self_config) = config.node.remove(&name) else {
             bail!("config missing for node name: {name}");
         };
@@ -71,6 +75,7 @@ impl Server {
             new_client_endpoint().context("endpoint for servers")?
         };
         let available_parallelism: usize = std::thread::available_parallelism().unwrap().into();
+        let storage_max_size_gb = self_config.storage.max_size_gb;
         let node = Node {
             host: name.clone(),
             server_port: self_config
@@ -97,14 +102,24 @@ impl Server {
                     }
                 })
                 .unwrap_or_default(),
+            storage_max_size_gb,
         };
         if self_config.worker.is_some() {
             info!(max_cpu_slots=node.max_cpu_slots, tags=?node.tags, "local worker");
         }
-        let storage = Storage::new(self_config.storage.path, self_config.storage.max_size_gb)?;
-        let scheduler = self_config
-            .scheduler
-            .map(|_| Scheduler::new(node.max_cpu_slots));
+        let mut storage = Storage::new(self_config.storage.path.clone(), storage_max_size_gb)?;
+        storage.read()?;
+        let scheduler = if self_config.scheduler.is_some() {
+            let mut job_db = JobDatabase::new(&self_config.storage.path)?;
+            job_db.read_jobs()?;
+            Some(Scheduler::new(
+                node.max_cpu_slots,
+                node.host.clone(),
+                job_db,
+            ))
+        } else {
+            None
+        };
         let (tx, rx) = mpsc::unbounded_channel();
         Ok(Self {
             node,
@@ -117,6 +132,11 @@ impl Server {
             next_client_id: 0,
             tx,
             rx,
+            stats_tx,
+            node_stats: NodeStats {
+                status: ServerStatus::Starting,
+                ..Default::default()
+            },
         })
     }
 
@@ -124,10 +144,51 @@ impl Server {
         self.connect_to_servers();
         self.accept_incoming_server_connections();
         self.accept_incoming_client_connections();
-        while let Some(m) = self.rx.recv().await {
-            self.handle_queue_msg(m).await?;
+        self.node_stats.status = ServerStatus::Running;
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(1));
+        loop {
+            tokio::select! {
+                Some(m) = self.rx.recv() => {
+                    self.handle_queue_msg(m).await?;
+                }
+                _ = ticker.tick() => {
+                    let stats = self.collect_stats();
+                    self.stats_tx.send_if_modified(|current| {
+                        if *current == stats {
+                            return false;
+                        }
+                        *current = stats;
+                        true
+                    });
+                }
+            }
         }
-        Ok(())
+    }
+
+    fn collect_stats(&mut self) -> Stats {
+        self.node_stats.server_connections = self
+            .remote_nodes
+            .iter()
+            .filter(|n| n.connection.is_some())
+            .count();
+        self.node_stats.client_connections = self.clients.len();
+        self.node_stats.storage_used = self.storage.bytes;
+        let mut running_jobs = vec![];
+        let mut finished_jobs = vec![];
+        if let Some(scheduler) = &self.scheduler {
+            scheduler.collect_stats(&mut self.node_stats, &mut running_jobs, &mut finished_jobs);
+        }
+        Stats {
+            nodes: once((self.node.clone(), Some(self.node_stats.clone())))
+                .chain(
+                    self.remote_nodes
+                        .iter()
+                        .map(|n| (n.node.clone(), n.stats.clone())),
+                )
+                .collect(),
+            running_jobs,
+            finished_jobs,
+        }
     }
 
     // TODO drop async
@@ -219,6 +280,7 @@ impl Server {
                     server_port: port,
                     ..Default::default()
                 },
+                stats: None,
             });
             id
         };
@@ -346,6 +408,7 @@ impl Server {
                         server_port,
                         ..Default::default()
                     },
+                    stats: None,
                 });
                 self.connect_to_server(self.remote_nodes.last().unwrap());
             }

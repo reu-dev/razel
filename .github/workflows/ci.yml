@@ -72,10 +72,14 @@ jobs:
 
       - run: rustup show
       - run: rustup target add ${{matrix.target}}
+      - run: rustup target add wasm32-unknown-unknown
       - run: rustup run stable rustc --version
 
-      - run: cargo check -p razel --no-default-features
       - run: cargo check
+      - run: cargo check -p razel --no-default-features
+      - run: cargo check -p razel-server --lib --target=wasm32-unknown-unknown --no-default-features -F hydrate
+      - run: cargo check -p razel-server --no-default-features -F ssr
+
       - run: cargo run -- exec --info -f examples/razel.jsonl
 
       - run: cargo test -- --nocapture --skip real_time_test --skip grpc_server

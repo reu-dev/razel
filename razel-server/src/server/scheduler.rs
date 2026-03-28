@@ -1,4 +1,6 @@
 use super::*;
+use crate::job_database::{FinishedJob, JobDatabase};
+use crate::webui_types::{FinishedJobStats, JobStatus, NodeStats, RunningJobStats};
 use anyhow::Result;
 use itertools::{Itertools, chain};
 use quinn::SendStream;
@@ -13,40 +15,87 @@ use uuid::Uuid;
 type CpuSlots = f32;
 
 pub struct Scheduler {
+    node: String,
     max_cpu_slots: CpuSlots,
     jobs: Vec<JobData>,
     targets: usize,
     cpu_slots: CpuSlots,
     locks: HashSet<String>,
+    job_db: JobDatabase,
 }
 
 impl Scheduler {
-    pub fn new(max_cpu_slots: usize) -> Self {
+    pub fn new(max_cpu_slots: usize, node: String, job_db: JobDatabase) -> Self {
         // reserve one core for server/scheduler tasks
         let max_cpu_slots = max_cpu_slots as CpuSlots - 1.0;
         assert!(max_cpu_slots >= 1.0);
         Self {
+            node,
             max_cpu_slots,
             cpu_slots: 0.0,
             jobs: Default::default(),
             targets: 0,
             locks: Default::default(),
+            job_db,
         }
     }
 
+    pub fn collect_stats(
+        &self,
+        node_stats: &mut NodeStats,
+        running_jobs: &mut Vec<RunningJobStats>,
+        finished_jobs: &mut Vec<FinishedJobStats>,
+    ) {
+        node_stats.storage_used += self.job_db.bytes;
+        node_stats.jobs_running = self.jobs.iter().filter(|j| j.running != 0).count();
+        node_stats.jobs_pending = self.jobs.len() - node_stats.jobs_running;
+        node_stats.cpu_slots = self.cpu_slots;
+        running_jobs.extend(self.jobs.iter().map(|j| j.collect_stats(&self.node)));
+        finished_jobs.extend(self.job_db.jobs.iter().map(|j| j.stats.clone()));
+    }
+
     pub fn handle_client_connection_lost(&mut self, client_id: ClientId) {
-        self.jobs.retain_mut(|job| {
-            if job.client_id == client_id {
-                job.connection.take();
-                if job.running == 0 {
-                    info!(client_id, job_id=?job.id, "job finished");
-                    false
+        let finished = self
+            .jobs
+            .extract_if(.., |job| {
+                if job.client_id == client_id {
+                    job.connection.take();
+                    job.running == 0
                 } else {
-                    true
+                    false
                 }
+            })
+            .collect_vec();
+        for job in finished {
+            self.finish_job(job);
+        }
+    }
+
+    fn finish_job(&mut self, job: JobData) {
+        info!(client_id=job.client_id, job_id=?job.id, "job finished");
+        let status = if job.is_finished() {
+            if job.failed.is_empty() {
+                JobStatus::Success
             } else {
-                true
+                JobStatus::Failed
             }
+        } else {
+            JobStatus::Canceled
+        };
+        self.job_db.push(FinishedJob {
+            stats: FinishedJobStats {
+                id: job.id,
+                job: job.job,
+                node: self.node.clone(),
+                status,
+                succeeded: job.succeeded.len(),
+                cached: job.cached,
+                failed: job.failed.len(),
+                skipped: job.dep_graph.skipped.len(),
+                exec_cpu_secs: job.exec_cpu_secs,
+                total_cpu_secs: job.total_cpu_secs,
+                output_size_bytes: job.output_size_bytes,
+            },
         });
     }
 }
@@ -55,7 +104,6 @@ struct JobData {
     client_id: ClientId,
     connection: Option<quinn::Connection>,
     id: JobId,
-    #[allow(dead_code)]
     job: Job,
     dep_graph: DependencyGraph,
     targets_for_input_file: HashMap<FileId, Vec<TargetId>>,
@@ -65,9 +113,13 @@ struct JobData {
     running: usize,
     cpu_slots: CpuSlots,
     succeeded: Vec<TargetId>,
+    cached: usize,
     failed: Vec<TargetId>,
     keep_going: bool,
     worker: JobWorker,
+    exec_cpu_secs: f64,
+    total_cpu_secs: f64,
+    output_size_bytes: u64,
 }
 
 impl JobData {
@@ -91,9 +143,13 @@ impl JobData {
             running: 0,
             cpu_slots: 0.0,
             succeeded: vec![],
+            cached: 0,
             failed: vec![],
             keep_going: false,
             worker,
+            exec_cpu_secs: 0.0,
+            total_cpu_secs: 0.0,
+            output_size_bytes: 0,
         }
     }
 
@@ -179,8 +235,19 @@ impl JobData {
     pub fn handle_execute_target_result(&mut self, msg: &ExecuteTargetResult) {
         let target_id = msg.target_id;
         tracing::debug!(job_id=?self.id, target_id, result=?msg.result, output_files=?msg.output_files.iter().map(|x| x.id).collect_vec());
+        let cpus = self.dep_graph.targets[target_id].cpus() as f64;
+        if let Some(d) = msg.result.exec_duration {
+            self.exec_cpu_secs += d.as_secs_f64() * cpus;
+        }
+        if let Some(d) = msg.result.total_duration {
+            self.total_cpu_secs += d.as_secs_f64() * cpus;
+        }
+        self.output_size_bytes += msg.result.output_size(&msg.output_files);
         if msg.result.success() {
             self.succeeded.push(target_id);
+            if msg.result.cache_hit.is_some() {
+                self.cached += 1;
+            }
             self.set_output_file_digests(&msg.output_files);
             let ready = self.dep_graph.set_succeeded(target_id);
             self.push_ready_from_dep_graph(ready);
@@ -200,6 +267,42 @@ impl JobData {
             assert!(file.digest.is_some());
             assert!(self.dep_graph.files[file.id].digest.is_none());
             self.dep_graph.files[file.id].digest = file.digest.clone();
+        }
+    }
+
+    fn is_finished(&self) -> bool {
+        self.dep_graph.waiting.is_empty() && self.ready.is_empty() && self.running == 0
+    }
+
+    fn collect_stats(&self, node: &str) -> RunningJobStats {
+        let status = if self.is_finished() {
+            if self.connection.is_none() {
+                JobStatus::Canceled
+            } else if self.failed.is_empty() {
+                JobStatus::Success
+            } else {
+                JobStatus::Failed
+            }
+        } else if self.running > 0 {
+            JobStatus::Running
+        } else {
+            JobStatus::Pending
+        };
+        RunningJobStats {
+            id: self.id,
+            job: self.job.clone(),
+            node: node.to_string(),
+            status,
+            waiting: self.dep_graph.waiting.len(),
+            ready: self.ready.len(),
+            running: self.running,
+            succeeded: self.succeeded.len(),
+            cached: self.cached,
+            failed: self.failed.len(),
+            skipped: self.dep_graph.skipped.len(),
+            exec_cpu_secs: self.exec_cpu_secs,
+            total_cpu_secs: self.total_cpu_secs,
+            output_size_bytes: self.output_size_bytes,
         }
     }
 }
@@ -302,13 +405,13 @@ impl Server {
                 .unwrap();
             self.start_ready_targets();
         } else if job.running == 0 {
-            info!(client_id=job.client_id, job_id=?job.id, "job finished");
             let pos = scheduler
                 .jobs
                 .iter()
                 .position(|x| x.id == msg.job_id)
                 .unwrap();
-            scheduler.jobs.remove(pos);
+            let job = scheduler.jobs.remove(pos);
+            scheduler.finish_job(job);
         }
     }
 
@@ -352,10 +455,7 @@ impl Server {
 
     pub async fn handle_request_file_finished(&mut self, digest: Digest) {
         let scheduler = self.scheduler.as_mut().unwrap();
-        for (job_id, file) in self
-            .storage
-            .handle_request_file_finished(digest.hash.clone())
-        {
+        for (job_id, file) in self.storage.handle_request_file_finished(digest.clone()) {
             let Some(job) = scheduler.jobs.iter_mut().find(|x| x.id == job_id) else {
                 continue;
             };

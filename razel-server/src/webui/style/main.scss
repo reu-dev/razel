@@ -1,0 +1,191 @@
+*, *::before, *::after {
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0;
+}
+
+:root {
+	--bg:          #0d1117;
+	--bg-surface:  #161b22;
+	--bg-elevated: #1c2128;
+	--border:      #30363d;
+	--text:        #e6edf3;
+	--text-muted:  #8b949e;
+	--accent:      #58a6ff;
+	--green:       #3fb950;
+	--yellow:      #d29922;
+	--red:         #f85149;
+}
+
+html, body {
+	height: 100%;
+}
+
+body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+	background: var(--bg);
+	color: var(--text);
+	font-size: 14px;
+	line-height: 1.5;
+}
+
+// ── Top bar ──────────────────────────────────────────────────────────────────
+
+.topbar {
+	position: sticky;
+	top: 0;
+	z-index: 100;
+	display: flex;
+	align-items: center;
+	height: 68px;
+	padding: 0 28px;
+	background: var(--bg-surface);
+	border-bottom: 1px solid var(--border);
+
+	&__title {
+		flex: 1;
+		font-size: 20px;
+		font-weight: 700;
+		color: #ffffff;
+		letter-spacing: 0.04em;
+	}
+
+	&__stats {
+		flex: 0 0 auto;
+		display: flex;
+		justify-content: center;
+		gap: 40px;
+	}
+
+	&__ws {
+		flex: 1;
+		display: flex;
+		justify-content: flex-end;
+		align-items: center;
+		gap: 7px;
+		font-size: 12px;
+		color: var(--text-muted);
+	}
+}
+
+// ── Summary stats ─────────────────────────────────────────────────────────────
+
+.stat {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	line-height: 1.25;
+
+	&__label {
+		font-size: 10px;
+		font-weight: 600;
+		line-height: 1.2;
+		color: var(--text-muted);
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		text-align: center;
+	}
+
+	&__value {
+		font-size: 20px;
+		font-weight: 600;
+		font-variant-numeric: tabular-nums;
+		color: var(--text);
+	}
+}
+
+// ── WebSocket status dot ──────────────────────────────────────────────────────
+
+.ws-dot {
+	width: 9px;
+	height: 9px;
+	border-radius: 50%;
+	background: var(--text-muted);
+	flex-shrink: 0;
+
+	&--Connected {
+		background: var(--green);
+		box-shadow: 0 0 7px var(--green);
+	}
+
+	&--Connecting {
+		background: var(--yellow);
+	}
+
+	&--Disconnected {
+		background: var(--red);
+	}
+}
+
+// ── Page content ──────────────────────────────────────────────────────────────
+
+.content {
+	padding: 28px 32px;
+	display: flex;
+	flex-direction: column;
+	gap: 40px;
+}
+
+// ── Sections & tables ─────────────────────────────────────────────────────────
+
+section {
+	background: var(--bg-surface);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	overflow: hidden;
+
+	> h2 {
+		margin: 0;
+		padding: 12px 18px 12px 15px;
+		font-size: 12px;
+		font-weight: 700;
+		color: var(--text);
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		background: var(--bg-elevated);
+		border-bottom: 1px solid var(--border);
+		border-left: 3px solid var(--accent);
+	}
+}
+
+table {
+	width: 100%;
+	border-collapse: collapse;
+}
+
+thead th {
+	padding: 9px 16px;
+	text-align: left;
+	white-space: normal;
+	word-break: keep-all;
+	font-size: 13px;
+	font-weight: 500;
+	color: var(--text-muted);
+	background: var(--bg-elevated);
+	border-bottom: 1px solid var(--border);
+}
+
+tbody td {
+	padding: 10px 16px;
+	text-align: left;
+	white-space: nowrap;
+	color: var(--text);
+	border-bottom: 1px solid var(--border);
+}
+
+tbody tr {
+	&:last-child td {
+		border-bottom: none;
+	}
+
+	&:hover td {
+		background: var(--bg-elevated);
+	}
+}
+
+// ── Numeric cells ─────────────────────────────────────────────────────────────
+
+.num {
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+}

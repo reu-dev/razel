@@ -1,4 +1,3 @@
-use crate::targets_builder::TargetsBuilder;
 use crate::types::*;
 use anyhow::{Result, bail};
 use itertools::{Itertools, chain};
@@ -19,7 +18,8 @@ pub struct DependencyGraph {
 }
 
 impl DependencyGraph {
-    pub fn from_builder(builder: TargetsBuilder) -> Self {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn from_builder(builder: crate::targets_builder::TargetsBuilder) -> Self {
         let mut instance = Self {
             targets: builder.targets,
             files: builder.files,
