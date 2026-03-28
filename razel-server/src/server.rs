@@ -35,7 +35,7 @@ pub enum QueueMsg {
     ExecuteTargetsRequest(ExecuteTargetsRequest),
     ExecuteTargetResult(ExecuteTargetResult),
     RequestFileFinished(Digest),
-    RequestFileFailed(Digest),
+    RequestFileFailed(Digest, anyhow::Error),
 }
 
 pub struct Server {
@@ -220,7 +220,7 @@ impl Server {
             QueueMsg::ExecuteTargetsRequest(_) => todo!(),
             QueueMsg::ExecuteTargetResult(m) => self.handle_execute_target_result(m),
             QueueMsg::RequestFileFinished(d) => self.handle_request_file_finished(d).await,
-            QueueMsg::RequestFileFailed(d) => self.handle_request_file_failed(d),
+            QueueMsg::RequestFileFailed(d, e) => self.handle_request_file_failed(d, e),
         }
         Ok(())
     }

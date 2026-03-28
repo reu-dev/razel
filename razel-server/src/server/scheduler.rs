@@ -1,7 +1,7 @@
 use super::*;
 use crate::job_database::{FinishedJob, JobDatabase};
 use crate::webui_types::{FinishedJobStats, JobStatus, NodeStats, RunningJobStats};
-use anyhow::Result;
+use anyhow::{Error, Result, anyhow};
 use itertools::{Itertools, chain};
 use quinn::SendStream;
 use razel::remote_exec::{
@@ -176,13 +176,9 @@ impl JobData {
                 .unwrap();
         }
         self.dep_graph.push_targets(targets, files);
-        self.set_files_requested(requested_files);
+        self.requested_files.extend(&requested_files);
         let ready = self.dep_graph.ready.clone();
         self.push_ready_from_dep_graph(ready);
-    }
-
-    fn set_files_requested(&mut self, files: Vec<FileId>) {
-        self.requested_files.extend(&files);
     }
 
     pub async fn set_file_received(&mut self, file: FileId, digest: &Digest) {
@@ -360,7 +356,7 @@ impl Server {
                 bail!("file has scary path: {file:?}");
             }
             if file.digest.is_some() {
-                if self.storage.request_file_from_client(
+                if self.storage.check_if_file_is_cached_or_request_from_client(
                     job.id,
                     file,
                     job.connection.as_ref().unwrap(),
@@ -464,7 +460,22 @@ impl Server {
         self.start_ready_targets();
     }
 
-    pub fn handle_request_file_failed(&mut self, digest: Digest) {
-        self.storage.handle_request_file_failed(digest.hash);
+    pub fn handle_request_file_failed(&mut self, digest: Digest, error: Error) {
+        let failed = self
+            .storage
+            .handle_request_file_failed(digest.hash, &self.tx);
+        if failed.is_empty() {
+            return; // retry already in flight
+        }
+        let error = format!("{error:?}");
+        let scheduler = self.scheduler.as_mut().unwrap();
+        for (job_id, _file_id) in failed {
+            let Some(job) = scheduler.jobs.iter_mut().find(|x| x.id == job_id) else {
+                continue;
+            };
+            if let Some(c) = job.connection.take() {
+                close_connection_on_error(c, ConnectionCloseCode::JobError, anyhow!(error.clone()));
+            }
+        }
     }
 }
