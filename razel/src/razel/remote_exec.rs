@@ -82,7 +82,7 @@ impl Razel {
                     self.running_remotely = s.running;
                     self.tui_dirty = true;
                 }
-                ClientChannelMsg::Error(e) => bail!(e),
+                ClientChannelMsg::Error(e) => bail!("run_remotely: {e:?}"),
             }
         }
         drop(rx);

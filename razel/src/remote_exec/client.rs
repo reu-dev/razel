@@ -11,7 +11,7 @@ use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 use tokio::spawn;
 use tokio::sync::mpsc::UnboundedSender;
-use tracing::instrument;
+use tracing::{debug, error, instrument};
 use url::Url;
 use uuid::Uuid;
 
@@ -213,11 +213,16 @@ fn user() -> Result<String> {
 
 fn spawn_upload_file(path: PathBuf, mut stream: quinn::SendStream) {
     spawn(async move {
-        let Ok(mut file) = tokio::fs::File::open(&path).await else {
-            stream.reset(VarInt::from_u32(1)).ok();
-            return;
+        let mut file = match tokio::fs::File::open(&path).await {
+            Ok(f) => f,
+            Err(e) => {
+                error!(?path, "Failed to open file for upload: {e:?}");
+                stream.reset(VarInt::from_u32(1)).ok();
+                return;
+            }
         };
-        if tokio::io::copy(&mut file, &mut stream).await.is_err() {
+        if let Err(e) = tokio::io::copy(&mut file, &mut stream).await {
+            debug!(?path, "Failed to read file for upload: {e:?}");
             stream.reset(VarInt::from_u32(2)).ok();
             return;
         }
