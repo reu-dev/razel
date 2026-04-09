@@ -83,6 +83,9 @@ pub struct RunArgs {
     /// Prefix of tags to group the report
     #[clap(long, default_value = "group")]
     pub group_by_tag: String,
+    /// Write a JUnit XML report to this path
+    #[clap(long, env = "RAZEL_OUTPUT_JUNIT")]
+    pub output_junit: Option<PathBuf>,
     /// Local cache directory (use --info to show default value)
     #[clap(long, env = "RAZEL_CACHE_DIR")]
     pub cache_dir: Option<PathBuf>,
@@ -108,6 +111,7 @@ impl Default for RunArgs {
             keep_going: false,
             verbose: true,
             group_by_tag: "group".to_string(),
+            output_junit: None,
             cache_dir: None,
             remote_cache: vec![],
             remote_cache_threshold: None,
