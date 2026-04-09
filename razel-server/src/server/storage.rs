@@ -185,6 +185,14 @@ async fn download_to_cas(
     tmp_path: &PathBuf,
     cas_path: PathBuf,
 ) -> Result<()> {
+    ensure!(
+        tmp_path.parent().is_some_and(|p| p.exists()),
+        "missing tmp parent directory: {tmp_path:?}"
+    );
+    ensure!(
+        cas_path.parent().is_some_and(|p| p.exists()),
+        "missing CAS parent directory: {cas_path:?}"
+    );
     let mut tokio_file = tokio::fs::File::create(tmp_path).await?;
     let received = tokio::io::copy(recv, &mut tokio_file).await?;
     tokio_file.flush().await?;

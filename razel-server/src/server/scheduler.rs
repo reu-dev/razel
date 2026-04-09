@@ -1,7 +1,7 @@
 use super::*;
 use crate::job_database::{FinishedJob, JobDatabase};
 use crate::webui_types::{FinishedJobStats, JobStatus, NodeStats, RunningJobStats};
-use anyhow::{Error, Result, anyhow};
+use anyhow::{Error, Result, anyhow, ensure};
 use itertools::{Itertools, chain};
 use quinn::SendStream;
 use razel::remote_exec::{
@@ -355,7 +355,12 @@ impl Server {
             if file.path.is_absolute() || file.path.starts_with("..") {
                 bail!("file has scary path: {file:?}");
             }
-            if file.digest.is_some() {
+            if let Some(digest) = &file.digest {
+                ensure!(
+                    digest.is_valid(),
+                    "invalid digest for file {:?}: {digest:?}",
+                    file.path,
+                );
                 if self.storage.check_if_file_is_cached_or_request_from_client(
                     job.id,
                     file,

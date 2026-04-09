@@ -36,6 +36,12 @@ pub struct Digest {
     pub size_bytes: i64,
 }
 
+impl Digest {
+    pub fn is_valid(&self) -> bool {
+        self.hash.len() == 64 && self.hash.bytes().all(|b| b.is_ascii_hexdigit())
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Target {
     pub id: TargetId,
