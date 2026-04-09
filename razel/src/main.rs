@@ -36,10 +36,11 @@ async fn main() -> Result<()> {
     else {
         return Ok(());
     };
-    if let Some(junit_path) = run_args.output_junit {
+    if let Some(junit_path) = run_args.junit {
         razel.add_log_writer(Box::new(JunitWriter::new(
             junit_path,
             run_args.group_by_tag.clone(),
+            run_args.junit_classname.clone(),
         )));
     }
     if run_args.info {

@@ -20,17 +20,19 @@ struct JunitItem {
 /// Accumulates execution results and writes a JUnit XML report.
 pub struct JunitWriter {
     path: PathBuf,
-    group_by_tag: String,
+    group_by_tag_prefix: String,
+    classname: Option<String>,
     max_output_bytes: Option<usize>,
     include_output_on_success: bool,
     items: Vec<JunitItem>,
 }
 
 impl JunitWriter {
-    pub fn new(path: PathBuf, group_by_tag: String) -> Self {
+    pub fn new(path: PathBuf, group_by_tag: String, classname: Option<String>) -> Self {
         Self {
             path,
-            group_by_tag,
+            group_by_tag_prefix: format!("{group_by_tag}:"),
+            classname: classname.map(|x| escape_attr(&x)),
             max_output_bytes: Some(4096),
             include_output_on_success: false,
             items: vec![],
@@ -39,15 +41,16 @@ impl JunitWriter {
 
     fn push(&mut self, target: &Target, execution_result: &ExecutionResult) {
         debug_assert!(!self.items.iter().any(|x| x.name == target.name));
-        let prefix = format!("{}:", self.group_by_tag);
-        let classname = target
-            .tags
-            .iter()
-            .find_map(|t| match t {
-                Tag::Custom(v) => v.strip_prefix(&prefix).map(escape_attr),
-                _ => None,
-            })
-            .unwrap_or_default();
+        let classname = self.classname.clone().unwrap_or_else(|| {
+            target
+                .tags
+                .iter()
+                .find_map(|t| match t {
+                    Tag::Custom(v) => v.strip_prefix(&self.group_by_tag_prefix).map(escape_attr),
+                    _ => None,
+                })
+                .unwrap_or_default()
+        });
         self.items.push(JunitItem {
             name: target.name.clone(),
             classname,
@@ -75,6 +78,7 @@ impl JunitWriter {
     }
 
     fn write_testcase(&self, w: &mut impl Write, item: &JunitItem) -> Result<()> {
+        let status = item.status;
         let classname = &item.classname;
         let name = escape_attr(&item.name);
         let time = item.exec_duration.unwrap_or(0.0);
@@ -82,38 +86,32 @@ impl JunitWriter {
             w,
             r#"    <testcase classname="{classname}" name="{name}" time="{time:.3}">"#,
         )?;
-        match item.status {
+        match status {
             ExecutionStatus::Success => {}
             ExecutionStatus::Skipped => {
-                writeln!(w, "      <skipped>depends on a failed target</skipped>")?;
+                writeln!(w, "      <skipped>depends on a failed condition</skipped>")?;
             }
             ExecutionStatus::NotStarted => {
                 writeln!(w, "      <skipped>not started</skipped>")?;
             }
             ExecutionStatus::SystemError => {
-                let msg = item
-                    .error
-                    .as_deref()
-                    .unwrap_or("system error (cache/sandbox)");
-                writeln!(w, "      <error>{}</error>", escape_content(msg))?;
+                if let Some(error) = item.error.as_deref().map(escape_content) {
+                    writeln!(w, "      <error>{status:?}: {error}</error>")?;
+                } else {
+                    writeln!(w, "      <error>{status:?}</error>")?;
+                }
             }
             _ => {
-                let fallback = match item.status {
-                    ExecutionStatus::FailedToStart => "failed to start",
-                    ExecutionStatus::FailedToCreateResponseFile => "failed to create response file",
-                    ExecutionStatus::FailedToWriteStdoutFile => "failed to write stdout file",
-                    ExecutionStatus::FailedToWriteStderrFile => "failed to write stderr file",
-                    ExecutionStatus::Crashed => "crashed (core dump or signal)",
-                    ExecutionStatus::Timeout => "timed out",
-                    _ => "failed",
-                };
-                let msg = item.error.as_deref().unwrap_or(fallback);
-                writeln!(w, "      <failure>{}</failure>", escape_content(msg))?;
+                if let Some(error) = item.error.as_deref().map(escape_content) {
+                    writeln!(w, "      <failure>{status:?}: {error}</failure>")?;
+                } else {
+                    writeln!(w, "      <failure>{status:?}</failure>")?;
+                }
             }
         }
 
         let emit_output =
-            self.include_output_on_success || !matches!(item.status, ExecutionStatus::Success);
+            self.include_output_on_success || !matches!(status, ExecutionStatus::Success);
         if emit_output {
             if !item.stdout.is_empty() {
                 let text = escape_content(&String::from_utf8_lossy(&item.stdout));
