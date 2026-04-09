@@ -42,7 +42,6 @@ impl Razel {
     pub(crate) async fn run_remotely(
         &mut self,
         keep_going: bool,
-        group_by_tag: &str,
         cache_dir: Option<PathBuf>,
         remote_exec: Vec<Url>,
     ) -> Result<SchedulerStats> {
@@ -107,8 +106,7 @@ impl Razel {
             execution_duration: execution_start.elapsed(),
         };
         self.tui.finished(&stats);
-        self.write_metadata(group_by_tag)
-            .context("Failed to write metadata")?;
+        self.write_metadata().context("Failed to write metadata")?;
         Ok(stats)
     }
 
@@ -163,8 +161,9 @@ impl Razel {
         let measurements = self.measurements.collect(&target.name, execution_result);
         self.profile.collect(target, execution_result);
         let output_size = execution_result.output_size(&output_files);
-        self.log_file
-            .push(target, execution_result, Some(output_size), measurements);
+        for log in &mut self.log_writers {
+            log.push_target_finished(target, execution_result, Some(output_size), &measurements);
+        }
         if execution_result.success() {
             self.set_output_file_digests(output_files);
             self.on_command_succeeded(id, execution_result);

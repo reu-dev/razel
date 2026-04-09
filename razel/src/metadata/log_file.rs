@@ -1,4 +1,5 @@
 use crate::executors::{ExecutionResult, ExecutionStatus};
+use crate::metadata::LogWriter;
 use crate::read_json_file;
 use crate::types::{CacheHit, Tag, Target};
 use anyhow::Result;
@@ -47,62 +48,28 @@ impl LogFileItem {
     }
 }
 
-#[derive(Default, Deserialize, Serialize)]
 pub struct LogFile {
+    pub path: PathBuf,
     pub items: Vec<LogFileItem>,
 }
 
 impl LogFile {
+    pub fn new(path: PathBuf) -> Self {
+        Self {
+            path,
+            items: vec![],
+        }
+    }
+
     pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<Self> {
+        let path = path.as_ref().to_path_buf();
         let items = read_json_file(path.as_ref())?;
-        Ok(Self { items })
-    }
-
-    pub fn push(
-        &mut self,
-        target: &Target,
-        execution_result: &ExecutionResult,
-        output_size: Option<u64>,
-        measurements: Map<String, Value>,
-    ) {
-        debug_assert!(!self.items.iter().any(|x| x.name == target.name));
-        let custom_tags = target
-            .tags
-            .iter()
-            .filter_map(|x| match x {
-                Tag::Custom(x) => Some(x.clone()),
-                _ => None,
-            })
-            .collect_vec();
-        self.items.push(LogFileItem {
-            name: target.name.clone(),
-            tags: custom_tags,
-            status: execution_result.status,
-            error: execution_result.error.clone(),
-            cache: execution_result.cache_hit,
-            exec: execution_result.exec_duration.map(|x| x.as_secs_f32()),
-            total: execution_result.total_duration.map(|x| x.as_secs_f32()),
-            output_size: output_size.filter(|&x| x != 0),
-            measurements,
-        });
-    }
-
-    pub fn push_not_run(&mut self, target: &Target, status: ExecutionStatus) {
-        assert!(status == ExecutionStatus::NotStarted || status == ExecutionStatus::Skipped);
-        self.push(
-            target,
-            &ExecutionResult {
-                status,
-                ..Default::default()
-            },
-            None,
-            Default::default(),
-        );
+        Ok(Self { path, items })
     }
 
     /// Write a json file with one item per line
-    pub fn write(&self, path: &PathBuf) -> Result<()> {
-        let mut writer = BufWriter::new(File::create(path)?);
+    pub fn write(&self) -> Result<()> {
+        let mut writer = BufWriter::new(File::create(&self.path)?);
         writer.write_all(b"[\n")?;
         let mut is_first = true;
         for item in &self.items {
@@ -117,4 +84,57 @@ impl LogFile {
         writer.flush()?;
         Ok(())
     }
+}
+
+impl LogWriter for LogFile {
+    fn push_target_finished(
+        &mut self,
+        target: &Target,
+        execution_result: &ExecutionResult,
+        output_size: Option<u64>,
+        measurements: &Map<String, Value>,
+    ) {
+        debug_assert!(!self.items.iter().any(|x| x.name == target.name));
+        self.items.push(LogFileItem {
+            name: target.name.clone(),
+            tags: custom_tags(target),
+            status: execution_result.status,
+            error: execution_result.error.clone(),
+            cache: execution_result.cache_hit,
+            exec: execution_result.exec_duration.map(|x| x.as_secs_f32()),
+            total: execution_result.total_duration.map(|x| x.as_secs_f32()),
+            output_size: output_size.filter(|&x| x != 0),
+            measurements: measurements.clone(),
+        });
+    }
+
+    fn push_target_not_run(&mut self, target: &Target, status: ExecutionStatus) {
+        assert!(status == ExecutionStatus::NotStarted || status == ExecutionStatus::Skipped);
+        self.items.push(LogFileItem {
+            name: target.name.clone(),
+            tags: custom_tags(target),
+            status,
+            error: None,
+            cache: None,
+            exec: None,
+            total: None,
+            output_size: None,
+            measurements: Default::default(),
+        });
+    }
+
+    fn finish(&self) -> Result<()> {
+        self.write()
+    }
+}
+
+fn custom_tags(target: &Target) -> Vec<String> {
+    target
+        .tags
+        .iter()
+        .filter_map(|x| match x {
+            Tag::Custom(x) => Some(x.clone()),
+            _ => None,
+        })
+        .collect_vec()
 }
