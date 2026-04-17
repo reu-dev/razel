@@ -10,8 +10,9 @@ mkdir -p $DIR/build/bazel/remote/execution/v2 $DIR/build/bazel/semver
 curl -o $DIR/build/bazel/remote/execution/v2/remote_execution.proto https://raw.githubusercontent.com/bazelbuild/remote-apis/main/build/bazel/remote/execution/v2/remote_execution.proto
 curl -o $DIR/build/bazel/semver/semver.proto                        https://raw.githubusercontent.com/bazelbuild/remote-apis/main/build/bazel/semver/semver.proto
 
-mkdir -p $DIR/google/api $DIR/google/longrunning $DIR/google/rpc
+mkdir -p $DIR/google/api $DIR/google/bytestream $DIR/google/longrunning $DIR/google/rpc
 curl -o $DIR/google/api/annotations.proto         https://raw.githubusercontent.com/googleapis/googleapis/master/google/api/annotations.proto
+curl -o $DIR/google/bytestream/bytestream.proto   https://raw.githubusercontent.com/googleapis/googleapis/master/google/bytestream/bytestream.proto
 curl -o $DIR/google/api/client.proto              https://raw.githubusercontent.com/googleapis/googleapis/master/google/api/client.proto
 curl -o $DIR/google/api/field_behavior.proto      https://raw.githubusercontent.com/googleapis/googleapis/master/google/api/field_behavior.proto
 curl -o $DIR/google/api/http.proto                https://raw.githubusercontent.com/googleapis/googleapis/master/google/api/http.proto

@@ -1,6 +1,7 @@
 #![allow(clippy::all, dead_code)]
 
 pub use build::bazel::remote::execution::v2::*;
+pub use google::*;
 
 mod google {
     pub mod rpc {
@@ -9,6 +10,10 @@ mod google {
 
     pub mod longrunning {
         tonic::include_proto!("google.longrunning");
+    }
+
+    pub mod bytestream {
+        tonic::include_proto!("google.bytestream");
     }
 
     #[cfg(not(doctest))]
