@@ -129,18 +129,24 @@ impl JunitWriter {
     fn limit_bytes(&self, bytes: &[u8]) -> Vec<u8> {
         match self.max_output_bytes {
             Some(limit) if bytes.len() > limit => {
-                let safe_end = (0..=limit)
+                let half = limit / 2;
+                let head_end = (0..=half)
                     .rev()
                     .find(|&i| std::str::from_utf8(&bytes[..i]).is_ok())
                     .unwrap_or(0);
-                let mut out = bytes[..safe_end].to_vec();
+                let tail_start = ((bytes.len() - half)..bytes.len())
+                    .find(|&i| std::str::from_utf8(&bytes[i..]).is_ok())
+                    .unwrap_or(bytes.len());
+                let omitted = tail_start - head_end;
+                let mut out = bytes[..head_end].to_vec();
                 out.extend_from_slice(
                     format!(
-                        "\n[... output truncated at {limit} bytes ({} total) ...]",
+                        "\n[... {omitted} bytes omitted ({} total) ...]\n",
                         bytes.len()
                     )
                     .as_bytes(),
                 );
+                out.extend_from_slice(&bytes[tail_start..]);
                 out
             }
             _ => bytes.to_vec(),
