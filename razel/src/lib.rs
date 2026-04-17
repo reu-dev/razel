@@ -62,13 +62,17 @@ pub mod executors {
 
 #[cfg(feature = "full")]
 pub mod metadata {
+    pub use junit_writer::*;
     pub use log_file::*;
+    pub use log_writer::*;
     pub use measurements::*;
     pub use profile::*;
     pub use report::*;
 
     mod graphs;
+    mod junit_writer;
     mod log_file;
+    mod log_writer;
     mod measurements;
     mod profile;
     mod report;

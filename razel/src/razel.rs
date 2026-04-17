@@ -5,7 +5,7 @@ use crate::executors::{
     CommandExecutor, ExecutionResult, ExecutionStatus, Executor, HttpRemoteExecState,
     HttpRemoteExecutor, SharedWasiExecutorState, TaskExecutor, WasiExecutor,
 };
-use crate::metadata::{LogFile, Measurements, Profile, Report};
+use crate::metadata::{LogFile, LogWriter, Measurements, Profile, ReportWriter};
 use crate::targets_builder::TargetsBuilder;
 use crate::tui::TUI;
 use crate::types::{
@@ -55,7 +55,7 @@ pub struct SchedulerStats {
     pub execution_duration: Duration,
 }
 
-#[derive(Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub struct SchedulerExecStats {
     pub succeeded: usize,
     pub failed: usize,
@@ -103,7 +103,7 @@ pub struct Razel {
     tui_dirty: bool,
     measurements: Measurements,
     profile: Profile,
-    log_file: LogFile,
+    log_writers: Vec<Box<dyn LogWriter>>,
 }
 
 impl Razel {
@@ -137,8 +137,12 @@ impl Razel {
             tui_dirty: false,
             measurements: Measurements::new(),
             profile: Profile::new(),
-            log_file: Default::default(),
+            log_writers: vec![],
         }
+    }
+
+    pub fn add_log_writer(&mut self, writer: Box<dyn LogWriter>) {
+        self.log_writers.push(writer);
     }
 
     /// Remove the binary directory
@@ -226,20 +230,19 @@ impl Razel {
         if self.targets_builder.as_ref().unwrap().targets.is_empty() {
             bail!("No targets added");
         }
+        let metadata_dir = self.out_dir.join("razel-metadata");
+        self.add_log_writer(Box::new(LogFile::new(metadata_dir.join("log.json"))));
+        self.add_log_writer(Box::new(ReportWriter::new(
+            metadata_dir.join("report.json"),
+            group_by_tag,
+        )));
         self.tui.verbose = verbose;
         if !remote_exec.is_empty() {
             self.remote_exec = true;
-            self.run_remotely(keep_going, group_by_tag, cache_dir, remote_exec)
-                .await
+            self.run_remotely(keep_going, cache_dir, remote_exec).await
         } else {
-            self.run_locally(
-                keep_going,
-                group_by_tag,
-                cache_dir,
-                remote_cache,
-                remote_cache_threshold,
-            )
-            .await
+            self.run_locally(keep_going, cache_dir, remote_cache, remote_cache_threshold)
+                .await
         }
     }
 
@@ -247,7 +250,6 @@ impl Razel {
     async fn run_remotely(
         &mut self,
         _keep_going: bool,
-        _group_by_tag: &str,
         _cache_dir: Option<PathBuf>,
         _remote_exec: Vec<Url>,
     ) -> Result<SchedulerStats> {
@@ -257,7 +259,6 @@ impl Razel {
     async fn run_locally(
         &mut self,
         keep_going: bool,
-        group_by_tag: &str,
         cache_dir: Option<PathBuf>,
         remote_cache: Vec<String>,
         remote_cache_threshold: Option<u32>,
@@ -302,8 +303,7 @@ impl Razel {
             execution_duration: execution_start.elapsed(),
         };
         self.tui.finished(&stats);
-        self.write_metadata(group_by_tag)
-            .context("Failed to write metadata")?;
+        self.write_metadata().context("Failed to write metadata")?;
         Ok(stats)
     }
 
@@ -738,8 +738,14 @@ impl Razel {
             let measurements = self.measurements.collect(&target.name, execution_result);
             self.profile.collect(target, execution_result);
             let output_size = execution_result.output_size(&output_files);
-            self.log_file
-                .push(target, execution_result, Some(output_size), measurements);
+            for log in &mut self.log_writers {
+                log.push_target_finished(
+                    target,
+                    execution_result,
+                    Some(output_size),
+                    &measurements,
+                );
+            }
             if execution_result.success() {
                 self.set_output_file_digests(output_files);
                 self.on_command_succeeded(id, execution_result);
@@ -794,8 +800,9 @@ impl Razel {
         self.tui.target_failed(target, execution_result);
         for skipped_id in self.dep_graph.set_failed(id) {
             let skipped = &self.dep_graph.targets[skipped_id];
-            self.log_file
-                .push_not_run(skipped, ExecutionStatus::Skipped);
+            for log in &mut self.log_writers {
+                log.push_target_not_run(skipped, ExecutionStatus::Skipped);
+            }
         }
     }
 
@@ -807,12 +814,14 @@ impl Razel {
             .iter()
             .chain(self.scheduler.ready_ids().iter())
         {
-            self.log_file
-                .push_not_run(&self.dep_graph.targets[*id], ExecutionStatus::NotStarted);
+            let target = &self.dep_graph.targets[*id];
+            for log in &mut self.log_writers {
+                log.push_target_not_run(target, ExecutionStatus::NotStarted);
+            }
         }
     }
 
-    fn write_metadata(&self, group_by_tag: &str) -> Result<()> {
+    fn write_metadata(&self) -> Result<()> {
         let dir = self.out_dir.join("razel-metadata");
         fs::create_dir_all(&dir)
             .with_context(|| format!("Failed to create metadata directory: {dir:?}"))?;
@@ -820,10 +829,9 @@ impl Razel {
             .write_graphs_html(self.excluded_targets_len, &dir.join("graphs.html"))?;
         self.measurements.write_csv(&dir.join("measurements.csv"))?;
         self.profile.write_json(&dir.join("execution_times.json"))?;
-        self.log_file.write(&dir.join("log.json"))?;
-        let report = Report::new(group_by_tag, &self.log_file.items);
-        report.print();
-        report.write(&dir.join("report.json"))?;
+        for writer in &self.log_writers {
+            writer.finish().context("Failed to finish log writer")?;
+        }
         Ok(())
     }
 }

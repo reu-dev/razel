@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use razel::Razel;
 use razel::cli::parse_cli;
+use razel::metadata::JunitWriter;
 use tracing::debug;
 
 #[tokio::main]
@@ -35,6 +36,15 @@ async fn main() -> Result<()> {
     else {
         return Ok(());
     };
+    if let Some(junit_path) = run_args.junit {
+        razel.add_log_writer(Box::new(JunitWriter::new(
+            junit_path,
+            run_args.group_by_tag.clone(),
+            run_args.junit_classname.clone(),
+            run_args.junit_failed_output_bytes,
+            run_args.junit_passed_output_bytes,
+        )));
+    }
     if run_args.info {
         razel.show_info(run_args.cache_dir)?;
         return Ok(());
