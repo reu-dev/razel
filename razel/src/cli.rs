@@ -87,8 +87,14 @@ pub struct RunArgs {
     #[clap(long, env = "RAZEL_JUNIT", visible_alias = "output-junit")]
     pub junit: Option<PathBuf>,
     /// Override JUnit testcase classname (otherwise derived from --group-by-tag)
-    #[clap(long, env = "RAZEL_JUNIT_CLASSNAME", requires("junit"))]
+    #[clap(long, env = "RAZEL_JUNIT_CLASSNAME")]
     pub junit_classname: Option<String>,
+    /// Max stdout/stderr bytes per failed testcase in JUnit report (0 = omit)
+    #[clap(long, env = "RAZEL_JUNIT_FAILED_BYTES", default_value = "4096")]
+    pub junit_failed_output_bytes: usize,
+    /// Max stdout/stderr bytes per passed testcase in JUnit report (0 = omit)
+    #[clap(long, env = "RAZEL_JUNIT_PASSED_BYTES", default_value = "0")]
+    pub junit_passed_output_bytes: usize,
     /// Local cache directory (use --info to show default value)
     #[clap(long, env = "RAZEL_CACHE_DIR")]
     pub cache_dir: Option<PathBuf>,
@@ -116,6 +122,8 @@ impl Default for RunArgs {
             group_by_tag: "group".to_string(),
             junit: None,
             junit_classname: None,
+            junit_failed_output_bytes: 4096,
+            junit_passed_output_bytes: 0,
             cache_dir: None,
             remote_cache: vec![],
             remote_cache_threshold: None,

@@ -22,19 +22,25 @@ pub struct JunitWriter {
     path: PathBuf,
     group_by_tag_prefix: String,
     classname: Option<String>,
-    max_output_bytes: Option<usize>,
-    include_output_on_success: bool,
+    failed_output_bytes: usize,
+    passed_output_bytes: usize,
     items: Vec<JunitItem>,
 }
 
 impl JunitWriter {
-    pub fn new(path: PathBuf, group_by_tag: String, classname: Option<String>) -> Self {
+    pub fn new(
+        path: PathBuf,
+        group_by_tag: String,
+        classname: Option<String>,
+        failed_output_bytes: usize,
+        passed_output_bytes: usize,
+    ) -> Self {
         Self {
             path,
             group_by_tag_prefix: format!("{group_by_tag}:"),
             classname: classname.map(|x| escape_attr(&x)),
-            max_output_bytes: Some(4096),
-            include_output_on_success: false,
+            failed_output_bytes,
+            passed_output_bytes,
             items: vec![],
         }
     }
@@ -51,14 +57,19 @@ impl JunitWriter {
                 })
                 .unwrap_or_default()
         });
+        let limit = if execution_result.status == ExecutionStatus::Success {
+            self.passed_output_bytes
+        } else {
+            self.failed_output_bytes
+        };
         self.items.push(JunitItem {
             name: target.name.clone(),
             classname,
             status: execution_result.status,
             error: execution_result.error.clone(),
             exec_duration: execution_result.exec_duration.map(|d| d.as_secs_f32()),
-            stdout: self.limit_bytes(&execution_result.stdout),
-            stderr: self.limit_bytes(&execution_result.stderr),
+            stdout: Self::limit_bytes(&execution_result.stdout, limit),
+            stderr: Self::limit_bytes(&execution_result.stderr, limit),
         });
     }
 
@@ -109,26 +120,22 @@ impl JunitWriter {
                 }
             }
         }
-
-        let emit_output =
-            self.include_output_on_success || !matches!(status, ExecutionStatus::Success);
-        if emit_output {
-            if !item.stdout.is_empty() {
-                let text = escape_content(&String::from_utf8_lossy(&item.stdout));
-                writeln!(w, "      <system-out>{text}</system-out>")?;
-            }
-            if !item.stderr.is_empty() {
-                let text = escape_content(&String::from_utf8_lossy(&item.stderr));
-                writeln!(w, "      <system-err>{text}</system-err>")?;
-            }
+        if !item.stdout.is_empty() {
+            let text = escape_content(&String::from_utf8_lossy(&item.stdout));
+            writeln!(w, "      <system-out>{text}</system-out>")?;
+        }
+        if !item.stderr.is_empty() {
+            let text = escape_content(&String::from_utf8_lossy(&item.stderr));
+            writeln!(w, "      <system-err>{text}</system-err>")?;
         }
         writeln!(w, "    </testcase>")?;
         Ok(())
     }
 
-    fn limit_bytes(&self, bytes: &[u8]) -> Vec<u8> {
-        match self.max_output_bytes {
-            Some(limit) if bytes.len() > limit => {
+    fn limit_bytes(bytes: &[u8], limit: usize) -> Vec<u8> {
+        match limit {
+            0 => vec![],
+            limit if bytes.len() > limit => {
                 let half = limit / 2;
                 let head_end = (0..=half)
                     .rev()

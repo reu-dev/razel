@@ -41,6 +41,8 @@ async fn main() -> Result<()> {
             junit_path,
             run_args.group_by_tag.clone(),
             run_args.junit_classname.clone(),
+            run_args.junit_failed_output_bytes,
+            run_args.junit_passed_output_bytes,
         )));
     }
     if run_args.info {
