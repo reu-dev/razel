@@ -11,6 +11,7 @@ pub use build::bazel::remote::execution::v2::{
     command::EnvironmentVariable,
     content_addressable_storage_client::ContentAddressableStorageClient, digest_function,
 };
+pub use google::bytestream::{ReadRequest, WriteRequest, byte_stream_client::ByteStreamClient};
 use itertools::{Itertools, chain};
 use tokio::fs::File;
 
@@ -158,6 +159,10 @@ mod google {
 
     pub mod longrunning {
         tonic::include_proto!("google.longrunning");
+    }
+
+    pub mod bytestream {
+        tonic::include_proto!("google.bytestream");
     }
 
     #[cfg(not(doctest))]
