@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.5.7](https://github.com/reu-dev/razel/releases/tag/v0.5.7) - 2026-04-17
+
+### Fixed
+
+- remote cache: support files > 4MB
+
 ## [v0.5.6](https://github.com/reu-dev/razel/releases/tag/v0.5.6) - 2025-11-11
 
 ### Added
