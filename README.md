@@ -171,16 +171,15 @@ providing more storage for expensive commands.
 The following remote cache implementations are tested with Razel:
 
 * [bazel-remote-cache](https://github.com/buchgr/bazel-remote)
-    - run with `podman run -p 9092:9092 buchgr/bazel-remote-cache --max_size 10`
+    - run with `docker run -p 9092:9092 buchgr/bazel-remote-cache --max_size 10`
     - call razel with `RAZEL_REMOTE_CACHE=grpc://localhost:9092`
 * [nativelink](https://github.com/TraceMachina/nativelink)
-    - run with instance_name `main` on port 50051:
+    - run with instance_name `main`:
         ```
-        mkdir -p nativelink-config
-        curl https://raw.githubusercontent.com/TraceMachina/nativelink/main/nativelink-config/examples/basic_cas.json --output nativelink-config/basic_cas.json
-        podman run -p 50051:50051 -v $PWD/nativelink-config:/nativelink-config:ro ghcr.io/tracemachina/nativelink:v0.2.0 /nativelink-config/basic_cas.json
+        curl -O https://raw.githubusercontent.com/TraceMachina/nativelink/v1.0.0/nativelink-config/examples/basic_cas.json5
+        docker run -v $(pwd)/basic_cas.json5:/config -p 9092:50051 ghcr.io/tracemachina/nativelink:v1.0.0 config
         ```
-    - call razel with `RAZEL_REMOTE_CACHE=grpc://localhost:50051/main`
+    - call razel with `RAZEL_REMOTE_CACHE=grpc://localhost:9092/main`
 
 ## Configuration
 
