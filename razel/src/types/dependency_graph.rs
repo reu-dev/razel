@@ -144,9 +144,6 @@ impl DependencyGraph {
         self.reverse_deps.resize(self.targets.len(), Vec::new());
         self.waiting.reserve(self.targets.len());
         for target in &self.targets {
-            if target.is_excluded {
-                continue;
-            }
             let target_deps = &mut self.deps[target.id];
             for input_id in chain!(&target.executables, &target.inputs) {
                 if let Some(dep) = self.creator_for_file.get(input_id).cloned() {

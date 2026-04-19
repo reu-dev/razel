@@ -266,7 +266,6 @@ mod tests {
                 deps: vec![],
                 tags: vec![],
                 worker: vec![],
-                is_excluded: false,
             });
             scheduler.push_ready(&targets[id]);
         }

@@ -6,12 +6,10 @@ use std::collections::HashSet;
 use std::path::Path;
 
 impl DependencyGraph {
-    pub fn write_graphs_html(&self, excluded_commands_len: usize, output: &Path) -> Result<()> {
+    pub fn write_graphs_html(&self, output: &Path) -> Result<()> {
         let template = include_str!("graphs.in.html");
         let ignored_files = self.collect_ignored_files();
-        let contents = if self.targets.len() - excluded_commands_len < 100
-            && self.files.len() - ignored_files.len() < 100
-        {
+        let contents = if self.targets.len() < 100 && self.files.len() - ignored_files.len() < 100 {
             template
                 .replacen(
                     "{{graph_with_subgraphs}}",
@@ -31,13 +29,12 @@ impl DependencyGraph {
             self.files
                 .iter()
                 .filter(|x| {
-                    x.is_excluded
-                        || x.executable.as_ref().is_some_and(|x| {
-                            matches!(
-                                x,
-                                ExecutableType::SystemExecutable | ExecutableType::RazelExecutable
-                            )
-                        })
+                    x.executable.as_ref().is_some_and(|x| {
+                        matches!(
+                            x,
+                            ExecutableType::SystemExecutable | ExecutableType::RazelExecutable
+                        )
+                    })
                 })
                 .map(|x| x.id),
         )
@@ -56,7 +53,7 @@ impl DependencyGraph {
             lines.push(format!("f{id}([{p:?}])"));
             lines.push(format!("style f{id} fill:#fff4dd"));
         }
-        for command in self.targets.iter().filter(|c| !c.is_excluded) {
+        for command in self.targets.iter() {
             let command_id = command.id;
             lines.push(format!("subgraph cg{command_id} [{}]", command.name));
             lines.push(format!("ce{command_id}[[{}]]", executable(command)));
@@ -92,7 +89,7 @@ impl DependencyGraph {
             lines.push(format!("f{id}[{p:?}]"));
             lines.push(format!("style f{id} fill:#fff4dd"));
         }
-        for command in self.targets.iter().filter(|c| !c.is_excluded) {
+        for command in self.targets.iter() {
             let command_id = command.id;
             if command.inputs.len() == 1 && command.outputs.len() == 1 {
                 let input_id = command.inputs.first().unwrap();

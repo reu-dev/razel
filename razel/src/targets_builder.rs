@@ -14,6 +14,8 @@ use std::{env, fs};
 use tracing::debug;
 use which::which;
 
+mod filter;
+
 pub struct TargetsBuilder {
     /// current working directory, used to make paths relative
     pub current_dir: PathBuf,
@@ -148,7 +150,6 @@ impl TargetsBuilder {
             deps,
             tags: command.tags,
             worker: command.worker,
-            is_excluded: false,
         };
         self.push_target(target)
     }
@@ -254,7 +255,6 @@ impl TargetsBuilder {
             deps: vec![],
             tags,
             worker: vec![],
-            is_excluded: false,
         };
         self.push_target(target)
     }
@@ -476,7 +476,6 @@ impl File {
             path,
             digest: None,
             executable,
-            is_excluded: false,
         }
     }
 }

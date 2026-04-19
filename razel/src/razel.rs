@@ -84,11 +84,10 @@ pub struct Razel {
     /// Should be but on same device as local cache dir to quickly move outfile file to cache.
     /// Ideally outside the workspace dir to help IDE indexer.
     sandbox_dir: Option<PathBuf>,
-    targets_builder: Option<TargetsBuilder>,
+    pub targets_builder: Option<TargetsBuilder>,
     dep_graph: DependencyGraph,
     /// maps paths relative to current_dir (without out_dir prefix) to FileId
     file_by_path: HashMap<PathBuf, FileId>,
-    excluded_targets_len: usize,
     remote_exec: bool,
     /// single Linux cgroup for all commands to trigger OOM killer
     cgroup: Option<CGroup>,
@@ -123,7 +122,6 @@ impl Razel {
             targets_builder: Some(targets_builder),
             dep_graph: Default::default(),
             file_by_path: Default::default(),
-            excluded_targets_len: 0,
             remote_exec: false,
             cgroup: None,
             http_remote_exec_state: Default::default(),
@@ -374,10 +372,7 @@ impl Razel {
                         .ok();
                 } else {
                     let path_wo_prefix = path.strip_prefix(&self.out_dir).unwrap();
-                    if self
-                        .file_by_path
-                        .get(path_wo_prefix)
-                        .is_none_or(|x| self.dep_graph.files[*x].is_excluded)
+                    if !self.file_by_path.contains_key(path_wo_prefix)
                         && path_wo_prefix.to_string_lossy() != GITIGNORE_FILENAME
                     {
                         fs::remove_file(path).ok();
@@ -449,7 +444,7 @@ impl Razel {
             let Some(file) = self.dep_graph.files.get(id) else {
                 break;
             };
-            if !file.is_excluded && !self.dep_graph.creator_for_file.contains_key(&file.id) {
+            if !self.dep_graph.creator_for_file.contains_key(&file.id) {
                 let id = file.id;
                 let path = file.path.clone();
                 let tx = tx_option.clone().unwrap();
@@ -480,7 +475,6 @@ impl Razel {
             .dep_graph
             .targets
             .iter()
-            .filter(|x| !x.is_excluded)
             .flat_map(|x| &x.outputs)
             .map(|x| self.dep_graph.files[*x].path.parent().unwrap())
             .sorted_unstable()
@@ -825,8 +819,7 @@ impl Razel {
         let dir = self.out_dir.join("razel-metadata");
         fs::create_dir_all(&dir)
             .with_context(|| format!("Failed to create metadata directory: {dir:?}"))?;
-        self.dep_graph
-            .write_graphs_html(self.excluded_targets_len, &dir.join("graphs.html"))?;
+        self.dep_graph.write_graphs_html(&dir.join("graphs.html"))?;
         self.measurements.write_csv(&dir.join("measurements.csv"))?;
         self.profile.write_json(&dir.join("execution_times.json"))?;
         for writer in &self.log_writers {
@@ -856,7 +849,6 @@ impl RazelJsonHandler for Razel {
     }
 }
 
-mod filter;
 mod import;
 #[cfg(feature = "remote_exec")]
 mod remote_exec;

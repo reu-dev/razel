@@ -183,7 +183,6 @@ impl JobWorker {
     fn create_dirs(&mut self, target: &Target, files: &[File]) -> Result<()> {
         for file in chain!(&target.executables, &target.inputs, &target.outputs).map(|x| &files[*x])
         {
-            assert!(!file.is_excluded);
             match file.executable {
                 Some(ExecutableType::SystemExecutable) => continue,
                 Some(ExecutableType::RazelExecutable) => unreachable!(),

@@ -237,12 +237,13 @@ fn apply_file(razel: &mut Razel, file: &String) -> Result<()> {
 }
 
 fn apply_filter(razel: &mut Razel, filter: &FilterArgs) -> Result<()> {
+    let builder = razel.targets_builder.as_mut().unwrap();
     if !filter.targets.is_empty() {
-        razel.filter_targets(&filter.targets);
+        builder.filter_targets(&filter.targets);
     } else if !filter.filter_regex.is_empty() {
-        razel.filter_targets_regex(&filter.filter_regex)?;
+        builder.filter_targets_regex(&filter.filter_regex)?;
     } else if !filter.filter_regex_all.is_empty() {
-        razel.filter_targets_regex_all(&filter.filter_regex_all)?;
+        builder.filter_targets_regex_all(&filter.filter_regex_all)?;
     }
     Ok(())
 }

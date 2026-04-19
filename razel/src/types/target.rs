@@ -14,7 +14,6 @@ pub struct File {
     pub path: PathBuf,
     pub digest: Option<Digest>,
     pub executable: Option<ExecutableType>,
-    pub is_excluded: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -56,7 +55,6 @@ pub struct Target {
     pub deps: Vec<TargetId>,
     pub tags: Vec<Tag>,
     pub worker: Vec<WorkerTag>,
-    pub is_excluded: bool,
 }
 
 impl Target {
