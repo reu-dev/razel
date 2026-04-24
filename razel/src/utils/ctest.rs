@@ -1,6 +1,7 @@
 use crate::cmake_file_api::CMakeFileApi;
 use crate::ctest_json::CTestJson;
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
+use itertools::Itertools;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use tracing::{info, instrument};
@@ -12,7 +13,20 @@ pub struct CTest {
 
 impl CTest {
     pub fn read(cmake_binary_dir: &Path, cmake_build_type: &str) -> Result<Self> {
-        let cmake = CMakeFileApi::read(cmake_binary_dir)?;
+        let mut cmake = CMakeFileApi::read(cmake_binary_dir)?;
+        let configurations = cmake
+            .codemodel
+            .configurations
+            .iter()
+            .map(|c| c.name.clone())
+            .collect_vec();
+        cmake
+            .codemodel
+            .configurations
+            .retain(|c| c.name.to_lowercase() == cmake_build_type.to_lowercase());
+        if cmake.codemodel.configurations.is_empty() {
+            bail!("configuration {cmake_build_type} not found in {configurations:?}",);
+        }
         let ctest = CTestJson::read(cmake_binary_dir, cmake_build_type)?;
         Ok(Self { cmake, ctest })
     }
