@@ -4,9 +4,10 @@ use crate::types::CommandTarget;
 use crate::{CGroup, SandboxDir};
 use anyhow::{Result, ensure};
 use std::path::{Path, PathBuf};
-use std::process::{ExitStatus, Stdio};
-use std::time::Instant;
-use tokio::io::AsyncWriteExt;
+use std::process::{ExitStatus, Output, Stdio};
+use std::time::{Duration, Instant};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tokio::task::JoinHandle;
 use tracing::instrument;
 
 pub struct CommandExecutor {
@@ -64,9 +65,8 @@ impl CommandExecutor {
         if let Some(cgroup) = &self.cgroup {
             cgroup.add_task("memory", child.id().unwrap()).ok();
         }
-        let (exec_result, timed_out) = self.wait_with_timeout(child).await;
-        match exec_result {
-            Ok(output) => {
+        match self.wait_with_timeout(child).await {
+            Ok((output, timed_out)) => {
                 if output.status.success() {
                     result.status = ExecutionStatus::Success;
                 } else if timed_out {
@@ -95,23 +95,51 @@ impl CommandExecutor {
     async fn wait_with_timeout(
         &self,
         mut child: tokio::process::Child,
-    ) -> (std::io::Result<std::process::Output>, bool) {
-        let timed_out = if let Some(timeout_s) = self.timeout {
-            let sleep = tokio::time::sleep(std::time::Duration::from_secs(timeout_s.into()));
-            tokio::pin!(sleep);
-            tokio::select! {
-                _ = child.wait() => {
-                    false
-                }
-                _ = &mut sleep => {
-                    let _ = child.kill().await;
-                    true
-                }
-            }
-        } else {
-            false
+    ) -> std::io::Result<(Output, bool)> {
+        let Some(timeout_s) = self.timeout else {
+            return child.wait_with_output().await.map(|output| (output, false));
         };
-        (child.wait_with_output().await, timed_out)
+
+        // With a timeout, stdout/stderr must be drained while waiting, or a fast
+        // child with enough output can block on full pipes until the timeout fires.
+        fn read_to_end<A: AsyncRead + Unpin + 'static + Send>(
+            io: Option<A>,
+        ) -> JoinHandle<std::io::Result<Vec<u8>>> {
+            tokio::spawn(async move {
+                let mut vec = Vec::new();
+                if let Some(mut io) = io {
+                    io.read_to_end(&mut vec).await?;
+                }
+                Ok(vec)
+            })
+        }
+
+        let stdout_pipe = child.stdout.take();
+        let stderr_pipe = child.stderr.take();
+        let stdout_fut = read_to_end(stdout_pipe);
+        let stderr_fut = read_to_end(stderr_pipe);
+        let (status, timed_out) =
+            match tokio::time::timeout(Duration::from_secs(timeout_s.into()), child.wait()).await {
+                Ok(status) => (status?, false),
+                Err(_) => {
+                    child.start_kill()?;
+                    (child.wait().await?, true)
+                }
+            };
+        let stdout = stdout_fut
+            .await
+            .map_err(|e| std::io::Error::other(format!("failed to read stdout: {e}")))??;
+        let stderr = stderr_fut
+            .await
+            .map_err(|e| std::io::Error::other(format!("failed to read stderr: {e}")))??;
+        Ok((
+            Output {
+                status,
+                stdout,
+                stderr,
+            },
+            timed_out,
+        ))
     }
 
     #[cfg(target_family = "windows")]
