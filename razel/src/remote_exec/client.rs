@@ -149,7 +149,7 @@ impl Client {
         keep_going: bool,
         tx: UnboundedSender<ClientChannelMsg>,
     ) -> Result<()> {
-        let (mut send, _recv) = connection.open_bi().await?;
+        let (mut send, mut recv) = connection.open_bi().await?;
         let inputs: HashMap<FileId, PathBuf> =
             HashMap::from_iter(files.iter().map(|f| (f.id, f.path.clone())));
         ClientToServerMsg::ExecuteTargetsRequest(ExecuteTargetsRequest {
@@ -161,11 +161,8 @@ impl Client {
         .send(&mut send)
         .await?;
         send.finish()?;
+        spawn_accept_bi_loop(connection.clone(), inputs);
         loop {
-            let (send, mut recv) = tokio::select! {
-                r = connection.accept_bi() => r.map(|(send, recv)| (Some(send), recv)),
-                r = connection.accept_uni() => r.map(|recv| (None, recv)),
-            }?;
             match ServerToClientMsg::recv(&mut recv).await? {
                 ServerToClientMsg::CreateJobResponse(_) => {
                     unreachable!("CreateJobResponse should be handled before starting execution")
@@ -176,8 +173,10 @@ impl Client {
                 ServerToClientMsg::ExecuteStats(s) => {
                     tx.send(ClientChannelMsg::Stats(s))?;
                 }
-                ServerToClientMsg::UploadFileRequest(id) => {
-                    spawn_upload_file(inputs[&id].clone(), send.unwrap())
+                ServerToClientMsg::UploadFileRequest(_) => {
+                    bail!(
+                        "UploadFileRequest must arrive on a fresh bi stream, not the request's reply stream"
+                    )
                 }
             }
         }
@@ -209,6 +208,34 @@ fn user() -> Result<String> {
     } else {
         bail!("failed to get user from environment");
     }
+}
+
+fn spawn_accept_bi_loop(connection: Connection, inputs: HashMap<FileId, PathBuf>) {
+    spawn(async move {
+        loop {
+            let Ok((send, mut recv)) = connection.accept_bi().await else {
+                break;
+            };
+            match ServerToClientMsg::recv(&mut recv).await {
+                Ok(ServerToClientMsg::UploadFileRequest(id)) => {
+                    if let Some(path) = inputs.get(&id) {
+                        spawn_upload_file(path.clone(), send);
+                    } else {
+                        error!("UploadFileRequest for unknown file id: {id}");
+                    }
+                }
+                Ok(other) => {
+                    error!(
+                        "unexpected message on bi stream: {:?}",
+                        std::mem::discriminant(&other)
+                    );
+                }
+                Err(e) => {
+                    debug!("bi stream recv failed: {e:?}");
+                }
+            }
+        }
+    });
 }
 
 fn spawn_upload_file(path: PathBuf, mut stream: quinn::SendStream) {

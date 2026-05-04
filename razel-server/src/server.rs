@@ -358,7 +358,7 @@ impl Server {
                 self.handle_create_job_request(client, send, r)?
             }
             ClientToServerMsg::ExecuteTargetsRequest(r) => {
-                self.handle_execute_targets_request(r).await?
+                self.handle_execute_targets_request(send, r).await?
             }
         }
         Ok(())

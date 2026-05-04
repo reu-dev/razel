@@ -60,6 +60,7 @@ impl Scheduler {
             .extract_if(.., |job| {
                 if job.client_id == client_id {
                     job.connection.take();
+                    job.client_tx.take();
                     job.running == 0
                 } else {
                     false
@@ -103,6 +104,7 @@ impl Scheduler {
 struct JobData {
     client_id: ClientId,
     connection: Option<quinn::Connection>,
+    client_tx: Option<mpsc::UnboundedSender<ServerToClientMsg>>,
     id: JobId,
     job: Job,
     dep_graph: DependencyGraph,
@@ -133,6 +135,7 @@ impl JobData {
         Self {
             client_id,
             connection: Some(connection),
+            client_tx: None,
             id,
             job,
             dep_graph: Default::default(),
@@ -329,10 +332,20 @@ impl Server {
         Ok(())
     }
 
-    // TODO drop async
+    /// Handles an `ExecuteTargetsRequest` for a job and reuses the request's bi stream as the
+    /// ordered reply channel for `ExecuteTargetResult` / `ExecuteStats`. All results travel
+    /// back over a single QUIC stream, so the client receives them in submission order - which
+    /// is what `DependencyGraph::set_succeeded` requires.
+    ///
+    /// Concurrent `ExecuteTargetsRequest`s for the same job are not supported: a second
+    /// request replaces `client_tx`, dropping (and finishing) the previous reply stream, so
+    /// any results still in flight for earlier targets are routed onto the new stream.
+    ///
+    /// TODO drop async
     #[instrument(skip_all)]
     pub async fn handle_execute_targets_request(
         &mut self,
+        send: quinn::SendStream,
         mut msg: ExecuteTargetsRequest,
     ) -> Result<()> {
         let scheduler = self.scheduler.as_mut().unwrap();
@@ -342,6 +355,7 @@ impl Server {
         if job.connection.is_none() {
             return Ok(());
         }
+        job.client_tx = Some(spawn_server_to_client_msg_sender(send));
         let mut stored_inputs: Vec<FileId> = Default::default();
         let mut requested_inputs: Vec<FileId> = Default::default();
         for file in &mut msg.files {
@@ -400,10 +414,8 @@ impl Server {
         job.cpu_slots -= cpu_slots;
         assert!(job.cpu_slots > -0.01);
         job.handle_execute_target_result(&msg);
-        if let Some(connection) = job.connection.as_ref() {
-            ServerToClientMsg::ExecuteTargetResult(msg)
-                .spawn_send_uni(connection.clone())
-                .unwrap();
+        if let Some(tx) = job.client_tx.as_ref() {
+            tx.send(ServerToClientMsg::ExecuteTargetResult(msg)).ok();
             self.start_ready_targets();
         } else if job.running == 0 {
             let pos = scheduler
@@ -479,8 +491,25 @@ impl Server {
                 continue;
             };
             if let Some(c) = job.connection.take() {
+                job.client_tx.take();
                 close_connection_on_error(c, ConnectionCloseCode::JobError, anyhow!(error.clone()));
             }
         }
     }
+}
+
+fn spawn_server_to_client_msg_sender(
+    mut stream: SendStream,
+) -> mpsc::UnboundedSender<ServerToClientMsg> {
+    let (tx, mut rx) = mpsc::unbounded_channel::<ServerToClientMsg>();
+    tokio::spawn(async move {
+        while let Some(msg) = rx.recv().await {
+            if let Err(e) = msg.send(&mut stream).await {
+                warn!("sending ServerToClientMsg failed: {e}");
+                break;
+            }
+        }
+        stream.finish().ok();
+    });
+    tx
 }
