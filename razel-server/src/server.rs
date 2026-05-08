@@ -1,5 +1,6 @@
+pub use crate::auth::AuthId;
+use crate::auth::AuthState;
 use crate::config::Config;
-use crate::job_database::JobDatabase;
 use crate::rpc_endpoint::new_server_endpoint;
 use crate::rpc_messages::{ServerMessage, ServerMessageNodes};
 use crate::webui_types::*;
@@ -16,6 +17,7 @@ use std::collections::HashMap;
 use std::env::current_dir;
 use std::fs::create_dir_all;
 use std::iter::once;
+use std::path::PathBuf;
 use tokio::sync::{mpsc, watch};
 use tracing::{info, instrument};
 
@@ -34,15 +36,15 @@ pub enum QueueMsg {
     ServerMsgBi((RemoteNodeId, ServerMessage, quinn::SendStream)),
     ExecuteTargetsRequest(ExecuteTargetsRequest),
     ExecuteTargetResult(ExecuteTargetResult),
-    RequestFileFinished(Digest),
-    RequestFileFailed(Digest, anyhow::Error),
+    RequestFileFinished(AuthId, Digest),
+    RequestFileFailed(AuthId, Digest, anyhow::Error),
 }
 
 pub struct Server {
     node: Node,
     client_endpoint: Option<Endpoint>,
     server_endpoint: Endpoint,
-    storage: Storage,
+    storage_root: PathBuf,
     remote_nodes: Vec<RemoteNode>,
     scheduler: Option<Scheduler>,
     clients: HashMap<ClientId, ClientConnection>,
@@ -107,16 +109,13 @@ impl Server {
         if self_config.worker.is_some() {
             info!(max_cpu_slots=node.max_cpu_slots, tags=?node.tags, "local worker");
         }
-        let mut storage = Storage::new(self_config.storage.path.clone(), storage_max_size_gb)?;
-        storage.read()?;
+        let storage_root = self_config.storage.path.clone();
         let scheduler = if self_config.scheduler.is_some() {
-            let mut job_db = JobDatabase::new(&self_config.storage.path)?;
-            job_db.read_jobs()?;
-            Some(Scheduler::new(
-                node.max_cpu_slots,
-                node.host.clone(),
-                job_db,
-            ))
+            let auth = AuthState::new();
+            let mut scheduler = Scheduler::new(node.max_cpu_slots, node.host.clone(), auth.clone());
+            scheduler.load_existing_projects(&storage_root)?;
+            auth.spawn_jwks_refresh();
+            Some(scheduler)
         } else {
             None
         };
@@ -125,7 +124,7 @@ impl Server {
             node,
             client_endpoint,
             server_endpoint,
-            storage,
+            storage_root,
             remote_nodes: RemoteNode::from_config(config.node),
             scheduler,
             clients: Default::default(),
@@ -172,7 +171,6 @@ impl Server {
             .filter(|n| n.connection.is_some())
             .count();
         self.node_stats.client_connections = self.clients.len();
-        self.node_stats.storage_used = self.storage.bytes;
         let mut running_jobs = vec![];
         let mut finished_jobs = vec![];
         if let Some(scheduler) = &self.scheduler {
@@ -219,8 +217,8 @@ impl Server {
             QueueMsg::ServerMsgBi((id, msg, send)) => self.handle_server_msg_bi(id, msg, send)?,
             QueueMsg::ExecuteTargetsRequest(_) => todo!(),
             QueueMsg::ExecuteTargetResult(m) => self.handle_execute_target_result(m),
-            QueueMsg::RequestFileFinished(d) => self.handle_request_file_finished(d).await,
-            QueueMsg::RequestFileFailed(d, e) => self.handle_request_file_failed(d, e),
+            QueueMsg::RequestFileFinished(p, d) => self.handle_request_file_finished(&p, d).await,
+            QueueMsg::RequestFileFailed(p, d, e) => self.handle_request_file_failed(&p, d, e),
         }
         Ok(())
     }
@@ -355,7 +353,7 @@ impl Server {
     ) -> Result<()> {
         match msg {
             ClientToServerMsg::CreateJobRequest(r) => {
-                self.handle_create_job_request(client, send, r)?
+                self.handle_create_job_request(client, send, r).await?
             }
             ClientToServerMsg::ExecuteTargetsRequest(r) => {
                 self.handle_execute_targets_request(send, r).await?
@@ -424,5 +422,3 @@ mod connections;
 use connections::*;
 mod scheduler;
 use scheduler::*;
-mod storage;
-use storage::*;

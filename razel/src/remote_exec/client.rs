@@ -1,3 +1,4 @@
+use crate::env_var;
 use crate::remote_exec::rpc_endpoint::new_client_endpoint;
 use crate::remote_exec::*;
 use crate::types::*;
@@ -73,29 +74,46 @@ impl Client {
         Ok(connection)
     }
 
-    pub async fn create_job(&mut self) -> Result<CreateJobResponse> {
-        let kind = if std::env::var("GITLAB_CI").is_ok() {
-            JobKind::GitLabCi(GitLabCiJob {
-                user: env_var("GITLAB_USER_LOGIN")?,
-                job_url: env_var("CI_JOB_URL")?,
+    pub async fn create_job(
+        &mut self,
+        token: String,
+        project: Option<String>,
+    ) -> Result<CreateJobResponse> {
+        let (kind, docker_image, docker_pull_credentials) = if std::env::var("GITLAB_CI").is_ok() {
+            let kind = JobRequestKind::GitLabCi(GitLabJobRequest {
                 job_name: env_var("CI_JOB_NAME")?,
-                image: std::env::var("GITLAB_CI").ok(),
-            })
+                job_url: env_var("CI_JOB_URL")?,
+            });
+            if let Ok(image) = std::env::var("CI_JOB_IMAGE") {
+                (
+                    kind,
+                    Some(image),
+                    Some((env_var("CI_REGISTRY_USER")?, env_var("CI_JOB_TOKEN")?)),
+                )
+            } else {
+                (kind, None, None)
+            }
         } else {
-            JobKind::Interactive(InteractiveJob { user: user()? })
+            (
+                JobRequestKind::Interactive(InteractiveJobRequest {
+                    user: user()?,
+                    project,
+                }),
+                None,
+                None,
+            )
+        };
+        let request = CreateJobRequest {
+            token,
+            kind,
+            default_tags: WorkerTag::local_default_tags(),
+            docker_image,
+            docker_pull_credentials,
         };
         let ServerToClientMsg::CreateJobResponse(response) =
-            ClientToServerMsg::CreateJobRequest(CreateJobRequest {
-                job: Job {
-                    ts: chrono::Utc::now(),
-                    project: "".to_string(),
-                    kind,
-                    default_tags: WorkerTag::local_default_tags(),
-                },
-                auth: "".to_string(),
-            })
-            .request(&self.connection)
-            .await?
+            ClientToServerMsg::CreateJobRequest(request)
+                .request(&self.connection)
+                .await?
         else {
             bail!("unexpected response type");
         };
@@ -194,10 +212,6 @@ pub enum ClientChannelMsg {
     Result(ExecuteTargetResult),
     Stats(ExecuteStats),
     Error(String),
-}
-
-fn env_var(key: &str) -> Result<String> {
-    std::env::var(key).map_err(|_| anyhow!("environment variable missing: {key}"))
 }
 
 fn user() -> Result<String> {

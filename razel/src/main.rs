@@ -1,7 +1,7 @@
-use anyhow::{Context, Result};
-use razel::Razel;
+use anyhow::{Context, Result, bail};
 use razel::cli::parse_cli;
 use razel::metadata::JunitWriter;
+use razel::{Razel, RemoteExecArgs};
 use tracing::debug;
 
 #[tokio::main]
@@ -52,6 +52,18 @@ async fn main() -> Result<()> {
     if run_args.no_execution {
         razel.list_targets();
     } else {
+        let remote_exec = if run_args.remote_exec.is_empty() {
+            RemoteExecArgs::default()
+        } else {
+            let Some(token) = run_args.remote_exec_token else {
+                bail!("RAZEL_TOKEN is required for remote execution");
+            };
+            RemoteExecArgs {
+                urls: run_args.remote_exec,
+                token,
+                project: run_args.remote_exec_project,
+            }
+        };
         let stats = razel
             .run(
                 run_args.keep_going,
@@ -60,7 +72,7 @@ async fn main() -> Result<()> {
                 run_args.cache_dir,
                 run_args.remote_cache,
                 run_args.remote_cache_threshold,
-                run_args.remote_exec,
+                remote_exec,
             )
             .await?;
         debug!(
@@ -116,7 +128,7 @@ mod main {
                 razel.add_tag_for_command(name, tag);
             }
             let act_stats = razel
-                .run(false, true, "", None, vec![], None, vec![])
+                .run(false, true, "", None, vec![], None, Default::default())
                 .await
                 .unwrap();
             assert_eq!(act_stats.exec, exp_stats);
@@ -134,7 +146,7 @@ mod main {
                 razel.add_tag_for_command(name, tag);
             }
             let act_stats = razel
-                .run(false, true, "", None, vec![], None, vec![])
+                .run(false, true, "", None, vec![], None, Default::default())
                 .await
                 .unwrap();
             assert_eq!(act_stats.exec, exp_stats);

@@ -1,7 +1,7 @@
 use razel::cli::parse_cli;
 use razel::test_utils::{ChangeDir, TempDir, setup_tracing};
 use razel::types::Tag;
-use razel::{Razel, SchedulerExecStats, config, new_tmp_dir};
+use razel::{Razel, RemoteExecArgs, SchedulerExecStats, config, new_tmp_dir};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::process::{Child, Command};
@@ -53,7 +53,11 @@ async fn run_client(
             None,
             vec![],
             None,
-            vec![Url::parse(&format!("razel://localhost:{PORT}")).unwrap()],
+            RemoteExecArgs {
+                urls: vec![Url::parse(&format!("razel://localhost:{PORT}")).unwrap()],
+                token: "integration-test-token".to_string(),
+                project: Some("razel".to_string()),
+            },
         )
         .await
         .unwrap();

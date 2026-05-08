@@ -1,4 +1,5 @@
 use crate::webui::human_format::{format_bytes, format_secs};
+use crate::webui::utils::*;
 use crate::webui_types::RunningJobStats;
 use leptos::prelude::*;
 
@@ -10,9 +11,9 @@ pub fn RunningJobs(jobs: Signal<Vec<RunningJobStats>>) -> impl IntoView {
             <table>
                 <thead>
                     <tr>
-                        <th>"ID"</th>
+                        <th>"Auth"</th>
                         <th>"Project"</th>
-                        <th>"Node"</th>
+                        <th>"Job"</th>
                         <th>"Status"</th>
                         <th class="num">"Waiting"</th>
                         <th class="num">"Ready"</th>
@@ -31,12 +32,11 @@ pub fn RunningJobs(jobs: Signal<Vec<RunningJobStats>>) -> impl IntoView {
                         jobs.get()
                             .into_iter()
                             .map(|j| {
-                                let cache_hit = format!("{:.0} %", j.cache_hit_rate() * 100.0);
                                 view! {
                                     <tr>
-                                        <td>{j.id.as_simple().to_string()[..8].to_string()}</td>
-                                        <td>{j.job.project}</td>
-                                        <td>{j.node}</td>
+                                        <td>{auth_from_job(&j.job)}</td>
+                                        <td>{j.job.project.clone().unwrap_or_default()}</td>
+                                        <td>{linked_job_name_from_job_kind(&j.job.kind)}</td>
                                         <td>{format!("{:?}", j.status)}</td>
                                         <td class="num">{j.waiting}</td>
                                         <td class="num">{j.ready}</td>
@@ -44,7 +44,7 @@ pub fn RunningJobs(jobs: Signal<Vec<RunningJobStats>>) -> impl IntoView {
                                         <td class="num">{j.succeeded}</td>
                                         <td class="num">{j.failed}</td>
                                         <td class="num">{j.skipped}</td>
-                                        <td class="num">{cache_hit}</td>
+                                        <td class="num">{format!("{:.0} %", j.cache_hit_rate() * 100.0)}</td>
                                         <td class="num">{format_secs(j.exec_cpu_secs as u64)}</td>
                                         <td class="num">{format_secs(j.total_cpu_secs as u64)}</td>
                                         <td class="num">{format_bytes(j.output_size_bytes)}</td>
