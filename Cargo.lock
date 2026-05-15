@@ -337,12 +337,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d27c3610c36aee21ce8ac510e6224498de4228ad772a171ed65643a24693a5a8"
 
 [[package]]
-name = "base16ct"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c7f02d4ea65f2c1853089ffd8d2787bdbc63de2f0d29dedbcf8ccdfa0ccd4cf"
-
-[[package]]
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2974,7 +2968,6 @@ dependencies = [
  "approx",
  "assert2",
  "async-trait",
- "base16ct",
  "bstr",
  "chrono",
  "clap",
@@ -2984,6 +2977,7 @@ dependencies = [
  "dotenv-flow",
  "futures-util",
  "gethostname",
+ "hex",
  "itertools 0.14.0",
  "postcard",
  "procfs",

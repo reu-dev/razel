@@ -57,7 +57,7 @@ impl Digest {
     }
 
     fn hex(input: &[u8]) -> String {
-        base16ct::lower::encode_string(input)
+        hex::encode(input)
     }
 }
 
