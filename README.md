@@ -161,7 +161,7 @@ Razel supports remote caching compatible to
 [Bazel Remote Execution API](https://github.com/bazelbuild/remote-apis/blob/main/build/bazel/remote/execution/v2/remote_execution.proto).
 Remote execution is not yet implemented.
 
-Use `--remote-cache` (env: `RAZEL_REMOTE_CACHE`) to specify a comma seperated list of remote cache URLs.
+Use `--remote-cache` (env: `RAZEL_REMOTE_CACHE`) to specify a comma separated list of remote cache URLs.
 The first available one will be used.
 Optionally `--remote-cache-threshold` (`REMOTE_CACHE_THRESHOLD`) can be set to only cache commands with
 `outputSize / execTime < threshold [kilobyte / s]`. If your remote cache doesn't have unlimited storage capacity,

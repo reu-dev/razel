@@ -98,13 +98,13 @@ pub struct RunArgs {
     /// Local cache directory (use --info to show default value)
     #[clap(long, env = "RAZEL_CACHE_DIR")]
     pub cache_dir: Option<PathBuf>,
-    /// Comma seperated list of remote cache URLs
+    /// Comma separated list of remote cache URLs
     #[clap(long, env = "RAZEL_REMOTE_CACHE", value_delimiter = ',')]
     pub remote_cache: Vec<String>,
     /// Only cache commands with: output size / exec time < threshold [kilobyte / s]
     #[clap(long, env = "RAZEL_REMOTE_CACHE_THRESHOLD")]
     pub remote_cache_threshold: Option<u32>,
-    /// Comma seperated list of remote execution server URLs
+    /// Comma separated list of remote execution server URLs
     #[clap(long, env = "RAZEL_REMOTE_EXEC", value_delimiter = ',')]
     pub remote_exec: Vec<Url>,
     /// Http remote execution configuration
@@ -153,13 +153,13 @@ pub struct FilterArgs {
 enum SystemCommand {
     /// Check availability of remote cache servers
     CheckRemoteCache {
-        /// Comma seperated list of remote cache URLs
+        /// Comma separated list of remote cache URLs
         #[clap(env = "RAZEL_REMOTE_CACHE", value_delimiter = ',', required = true)]
         urls: Vec<String>,
     },
     /// Check availability of remote execution servers
     CheckRemoteExec {
-        /// Comma seperated list of remote execution server URLs
+        /// Comma separated list of remote execution server URLs
         #[clap(env = "RAZEL_REMOTE_EXEC", value_delimiter = ',', required = true)]
         urls: Vec<Url>,
     },

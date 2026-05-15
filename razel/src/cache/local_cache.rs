@@ -86,7 +86,7 @@ impl LocalCache {
             .with_context(|| format!("Error in set_readonly {src:?}"))
     }
 
-    /// Self::prepare_file_for_moving_to_cache() must have been called before
+    /// Self::prepare_file_to_move() must have been called before
     #[instrument(skip_all)]
     pub async fn move_file_into_cache(&self, src: &PathBuf, digest: &Digest) -> Result<PathBuf> {
         let dst = self.cas_path(digest);
