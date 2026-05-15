@@ -107,7 +107,7 @@ pub struct Razel {
 
 impl Razel {
     pub fn new() -> Razel {
-        let worker_threads = num_cpus::get();
+        let worker_threads = std::thread::available_parallelism().unwrap().into();
         assert!(worker_threads > 0);
         let current_dir = env::current_dir().unwrap();
         let out_dir = PathBuf::from(config::OUT_DIR);
