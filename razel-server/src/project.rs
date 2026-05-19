@@ -231,6 +231,8 @@ async fn download_to_cas(
     let tmp_path = tmp_path.clone();
     spawn_blocking(move || {
         set_file_permissions(&std_file, executable, true)?;
+        std_file.sync_all()?;
+        drop(std_file); // avoid ETXTBSY when executing a downloaded binary
         move_file_into_cache(&tmp_path, &cas_path, exp_size)
     })
     .await??;
