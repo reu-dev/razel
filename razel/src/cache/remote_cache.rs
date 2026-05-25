@@ -477,6 +477,7 @@ impl GrpcRemoteCache {
         if is_executable {
             make_file_executable(&file).await?;
         }
+        file.sync_all().await?;
         if total != digest.size_bytes {
             bail!("read {total}, expected {}", digest.size_bytes);
         }
