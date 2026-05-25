@@ -76,6 +76,7 @@ pub struct RemoteExecArgs {
     pub urls: Vec<Url>,
     pub token: String,
     pub project: Option<String>,
+    pub junit_classname: Option<String>,
 }
 
 pub struct Razel {

@@ -377,6 +377,7 @@ impl Server {
         let CreateJobRequest {
             token,
             kind,
+            junit_classname,
             default_tags,
             docker_image,
             docker_pull_credentials,
@@ -427,6 +428,7 @@ impl Server {
             kind,
             user,
             project: job_project,
+            junit_classname,
             default_tags,
             docker_image,
         };

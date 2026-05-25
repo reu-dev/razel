@@ -62,6 +62,7 @@ async fn main() -> Result<()> {
                 urls: run_args.remote_exec,
                 token,
                 project: run_args.remote_exec_project,
+                junit_classname: run_args.junit_classname.clone(),
             }
         };
         let stats = razel

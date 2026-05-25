@@ -118,7 +118,9 @@ impl Razel {
     ) -> Result<Client> {
         let client_handle = tokio::spawn(async move {
             let mut client = Client::new(args.urls).await?;
-            let response = client.create_job(args.token, args.project).await?;
+            let response = client
+                .create_job(args.token, args.project, args.junit_classname)
+                .await?;
             Result::<(Client, CreateJobResponse)>::Ok((client, response))
         });
         let builder = self.targets_builder.as_ref().unwrap();

@@ -78,6 +78,7 @@ impl Client {
         &mut self,
         token: String,
         project: Option<String>,
+        junit_classname: Option<String>,
     ) -> Result<CreateJobResponse> {
         let (kind, docker_image, docker_pull_credentials) = if std::env::var("GITLAB_CI").is_ok() {
             let kind = JobRequestKind::GitLabCi(GitLabJobRequest {
@@ -106,6 +107,7 @@ impl Client {
         let request = CreateJobRequest {
             token,
             kind,
+            junit_classname,
             default_tags: WorkerTag::local_default_tags(),
             docker_image,
             docker_pull_credentials,

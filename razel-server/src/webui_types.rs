@@ -48,6 +48,7 @@ pub struct Job {
     pub kind: JobKind,
     pub user: String,
     pub project: Option<String>,
+    pub junit_classname: Option<String>,
     pub docker_image: Option<String>,
     pub default_tags: Vec<WorkerTag>,
 }

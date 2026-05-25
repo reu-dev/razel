@@ -36,7 +36,7 @@ pub fn RunningJobs(jobs: Signal<Vec<RunningJobStats>>) -> impl IntoView {
                                     <tr>
                                         <td>{auth_from_job(&j.job)}</td>
                                         <td>{j.job.project.clone().unwrap_or_default()}</td>
-                                        <td>{linked_job_name_from_job_kind(&j.job.kind)}</td>
+                                        <td>{linked_job_name(&j.job.kind, j.job.junit_classname.as_deref())}</td>
                                         <td>{format!("{:?}", j.status)}</td>
                                         <td class="num">{j.waiting}</td>
                                         <td class="num">{j.ready}</td>

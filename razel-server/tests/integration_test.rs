@@ -57,6 +57,7 @@ async fn run_client(
                 urls: vec![Url::parse(&format!("razel://localhost:{PORT}")).unwrap()],
                 token: "integration-test-token".to_string(),
                 project: Some("razel".to_string()),
+                junit_classname: None,
             },
         )
         .await

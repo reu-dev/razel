@@ -48,6 +48,7 @@ pub struct CreateJobRequest {
     /// JWT (audience `razel`) for CI jobs, opaque string otherwise.
     pub token: String,
     pub kind: JobRequestKind,
+    pub junit_classname: Option<String>,
     pub default_tags: Vec<WorkerTag>,
     pub docker_image: Option<String>,
     pub docker_pull_credentials: Option<(String, String)>,
