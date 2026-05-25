@@ -103,7 +103,7 @@ impl Scheduler {
         for project in self.projects.values() {
             finished_jobs.extend(project.job_db.jobs.iter().map(|j| j.stats.clone()));
         }
-        finished_jobs.sort_unstable_by(|a, b| b.id.cmp(&a.id));
+        finished_jobs.sort_unstable_by_key(|x| std::cmp::Reverse(x.id));
     }
 
     pub fn handle_client_connection_lost(&mut self, client_id: ClientId) {
