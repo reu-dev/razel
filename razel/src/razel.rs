@@ -561,10 +561,8 @@ impl Razel {
         let cache = (!no_cache_tag).then(|| self.cache.as_ref().unwrap().clone());
         let read_cache = self.read_cache;
         let use_remote_cache = cache.is_some() && !target.tags.contains(&Tag::NoRemoteCache);
-        // make sure output files are written on the same mountpoint as local cache to speed up moving files into cache
-        let use_sandbox = !target.outputs.is_empty();
-        let sandbox = (use_sandbox && !target.tags.contains(&Tag::NoSandbox))
-            .then(|| self.new_sandbox(target));
+        let use_sandbox = !target.tags.contains(&Tag::NoSandbox);
+        let sandbox = use_sandbox.then(|| self.new_sandbox(target));
         let mut output_files = self.collect_output_files(target, &self.dep_graph.files);
         let cwd = self.current_dir.clone();
         tokio::task::spawn(async move {
