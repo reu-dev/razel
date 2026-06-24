@@ -47,6 +47,9 @@ leptos_meta = { version = "0.8" }
 leptos_router = { version = "0.8" }
 wasm-bindgen = { version = "0.2.121", optional = true }
 
+[dev-dependencies]
+serial_test = "3"
+
 [features]
 default = ["server"]
 server = [

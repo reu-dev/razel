@@ -55,7 +55,14 @@ async fn server_main() -> anyhow::Result<()> {
     };
     let config = Config::read(&cli.config)?;
     let (stats_tx, stats_rx) = tokio::sync::watch::channel(Stats::default());
-    tokio::spawn(webui_main(stats_rx));
+    if config
+        .node
+        .get(&cli.name)
+        .and_then(|n| n.scheduler.as_ref())
+        .is_some_and(|s| s.webui)
+    {
+        tokio::spawn(webui_main(stats_rx));
+    }
     Server::new(config, cli.name, stats_tx)?.run().await?;
     Ok(())
 }
