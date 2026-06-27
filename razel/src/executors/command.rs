@@ -204,10 +204,7 @@ impl CommandExecutor {
             "Sandbox is required for response file!"
         );
         let path = sandbox_dir.join(&file_name);
-        let mut file = tokio::fs::File::create(path).await?;
-        file.write_all(self.command.args.join("\n").as_bytes())
-            .await?;
-        file.sync_all().await?;
+        tokio::fs::write(path, self.command.args.join("\n").as_bytes()).await?;
         Ok(Some(RESPONSE_FILE_PREFIX.to_string() + file_name))
     }
 
@@ -257,6 +254,7 @@ impl CommandExecutor {
         if let Some(path) = path {
             let mut file = tokio::fs::File::create(path).await?;
             file.write_all(buf).await?;
+            file.flush().await?;
             file.sync_all().await?;
             buf.clear();
         }

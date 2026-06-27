@@ -4,6 +4,10 @@ use std::path::{Component, Path, PathBuf};
 
 pub const GITIGNORE_FILENAME: &str = ".gitignore";
 
+pub fn env_var(key: &str) -> Result<String> {
+    std::env::var(key).map_err(|_| anyhow!("environment variable missing: {key}"))
+}
+
 pub fn read_json_file<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
     let contents = fs::read(path).map_err(|e| anyhow!("failed to read {path:?}: {e:?}"))?;
     let value = serde_json::from_slice(&contents)

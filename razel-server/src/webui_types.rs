@@ -1,5 +1,9 @@
-use razel::types::{Job, JobId, WorkerTag};
+use chrono::{DateTime, Utc};
+use razel::types::WorkerTag;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+pub type JobId = Uuid;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Node {
@@ -36,6 +40,32 @@ pub enum ServerStatus {
     Unknown,
     Starting,
     Running,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct Job {
+    pub ts: DateTime<Utc>,
+    pub kind: JobKind,
+    pub user: String,
+    pub project: Option<String>,
+    pub junit_classname: Option<String>,
+    pub docker_image: Option<String>,
+    pub default_tags: Vec<WorkerTag>,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub enum JobKind {
+    Interactive,
+    GitLabCi(GitLabCiJob),
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct GitLabCiJob {
+    pub instance: String,
+    pub pipeline_id: u64,
+    pub job_id: u64,
+    pub job_name: String,
+    pub job_url: String,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]

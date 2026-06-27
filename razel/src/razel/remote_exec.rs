@@ -1,4 +1,5 @@
 use super::Razel;
+use crate::RemoteExecArgs;
 use crate::cache::Cache;
 use crate::executors::ExecutionResult;
 use crate::remote_exec::{Client, ClientChannelMsg, CreateJobResponse};
@@ -43,10 +44,10 @@ impl Razel {
         &mut self,
         keep_going: bool,
         cache_dir: Option<PathBuf>,
-        remote_exec: Vec<Url>,
+        args: RemoteExecArgs,
     ) -> Result<SchedulerStats> {
         let preparation_start = Instant::now();
-        let client = self.prepare_run_remotely(cache_dir, remote_exec).await?;
+        let client = self.prepare_run_remotely(cache_dir, args).await?;
         let (tx, mut rx) = mpsc::unbounded_channel();
         let mut interval = tokio::time::interval(self.tui.get_update_interval());
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -113,11 +114,13 @@ impl Razel {
     async fn prepare_run_remotely(
         &mut self,
         cache_dir: Option<PathBuf>,
-        remote_exec: Vec<Url>,
+        args: RemoteExecArgs,
     ) -> Result<Client> {
-        let client_handle = tokio::spawn(async {
-            let mut client = Client::new(remote_exec).await?;
-            let response = client.create_job().await?;
+        let client_handle = tokio::spawn(async move {
+            let mut client = Client::new(args.urls).await?;
+            let response = client
+                .create_job(args.token, args.project, args.junit_classname)
+                .await?;
             Result::<(Client, CreateJobResponse)>::Ok((client, response))
         });
         let builder = self.targets_builder.as_ref().unwrap();

@@ -7,7 +7,7 @@ use razel::executors::{
     CommandExecutor, ExecutionResult, ExecutionStatus, Executor, SharedWasiExecutorState,
     TaskExecutor, WasiExecutor,
 };
-use razel::remote_exec::ExecuteTargetResult;
+use razel::remote_exec::{ExecuteTargetResult, JobId};
 use razel::types::*;
 use razel::{
     BoxedSandbox, CGroup, TmpDirSandbox, WasiSandbox, WorkspaceDirSandbox, bazel_remote_exec,

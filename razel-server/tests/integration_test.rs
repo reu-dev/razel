@@ -1,7 +1,8 @@
 use razel::cli::parse_cli;
 use razel::test_utils::{ChangeDir, TempDir, setup_tracing};
 use razel::types::Tag;
-use razel::{Razel, SchedulerExecStats, config, new_tmp_dir};
+use razel::{Razel, RemoteExecArgs, SchedulerExecStats, config, new_tmp_dir};
+use serial_test::serial;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::process::{Child, Command};
@@ -53,7 +54,12 @@ async fn run_client(
             None,
             vec![],
             None,
-            vec![Url::parse(&format!("razel://localhost:{PORT}")).unwrap()],
+            RemoteExecArgs {
+                urls: vec![Url::parse(&format!("razel://localhost:{PORT}")).unwrap()],
+                token: "integration-test-token".to_string(),
+                project: Some("razel".to_string()),
+                junit_classname: None,
+            },
         )
         .await
         .unwrap();
@@ -86,7 +92,7 @@ async fn spawn_server(config: &str, name: &str) -> (Child, TempDir) {
     let tmp_dir = new_tmp_dir!();
     let child = Command::new(server_path)
         .arg("-c")
-        .arg(PathBuf::from(config).canonicalize().unwrap())
+        .arg(patch_server_config_file(Path::new(config), tmp_dir.dir()))
         .arg("-n")
         .arg(name)
         .current_dir(tmp_dir.dir())
@@ -99,6 +105,16 @@ async fn spawn_server(config: &str, name: &str) -> (Child, TempDir) {
     (child, tmp_dir)
 }
 
+fn patch_server_config_file(input: &Path, dir: &Path) -> PathBuf {
+    let config = std::fs::read_to_string(input)
+        .unwrap()
+        .replace("webui = true", "webui = false");
+    assert!(config.contains("webui = false"));
+    let output = dir.canonicalize().unwrap().join("razel-server.toml");
+    std::fs::write(&output, config).unwrap();
+    output
+}
+
 async fn kill_server(mut child: Child) {
     child.kill().await.unwrap();
     child.wait().await.unwrap();
@@ -108,6 +124,7 @@ const RAZEL_JSONL_EXP_SUCCEEDED: usize = 12;
 const RAZEL_JSONL_EXP_CACHED: usize = 10;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+#[serial]
 async fn razel_jsonl() {
     let _change_dir = prepare();
     let (server, _server_dir) =

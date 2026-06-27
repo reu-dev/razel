@@ -5,6 +5,7 @@ mod nodes;
 mod running_jobs;
 mod stats_ws;
 mod topbar_stats;
+mod utils;
 
 #[cfg(feature = "hydrate")]
 #[wasm_bindgen::prelude::wasm_bindgen]

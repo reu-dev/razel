@@ -129,7 +129,6 @@ pub mod tasks {
 
 pub mod types {
     pub use dependency_graph::*;
-    pub use job::*;
     pub use razel_jsonl::*;
     #[cfg(not(target_arch = "wasm32"))]
     pub use razel_jsonl_io::*;
@@ -140,7 +139,6 @@ pub mod types {
     pub use worker_tags::*;
 
     mod dependency_graph;
-    mod job;
     mod razel_jsonl;
     #[cfg(not(target_arch = "wasm32"))]
     mod razel_jsonl_io;

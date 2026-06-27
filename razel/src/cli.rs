@@ -17,6 +17,7 @@ struct Cli {
     command: CliCommands,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 enum CliCommands {
     /// Execute a custom command
@@ -107,6 +108,12 @@ pub struct RunArgs {
     /// Comma separated list of remote execution server URLs
     #[clap(long, env = "RAZEL_REMOTE_EXEC", value_delimiter = ',')]
     pub remote_exec: Vec<Url>,
+    /// Auth token: JWT (audience `razel`) in CI, otherwise an opaque user-defined secret.
+    #[clap(long, env = "RAZEL_TOKEN", hide_env_values = true)]
+    pub remote_exec_token: Option<String>,
+    /// Project label for interactive remote execution
+    #[clap(long, env = "RAZEL_PROJECT")]
+    pub remote_exec_project: Option<String>,
     /// Http remote execution configuration
     #[clap(long, env = "RAZEL_HTTP_REMOTE_EXEC")]
     pub http_remote_exec: Option<HttpRemoteExecConfig>,
@@ -129,6 +136,8 @@ impl Default for RunArgs {
             remote_cache_threshold: None,
             remote_exec: vec![],
             http_remote_exec: None,
+            remote_exec_token: None,
+            remote_exec_project: None,
         }
     }
 }

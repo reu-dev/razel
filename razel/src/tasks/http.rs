@@ -16,6 +16,7 @@ impl DownloadFileTask {
             let chunk = item?;
             file.write_all(&chunk).await?;
         }
+        file.flush().await?;
         if self.executable {
             make_file_executable(&file).await?;
         }

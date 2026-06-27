@@ -71,6 +71,14 @@ impl SchedulerExecStats {
 
 pub type ExecutionResultChannel = (TargetId, ExecutionResult, Vec<File>);
 
+#[derive(Clone, Default)]
+pub struct RemoteExecArgs {
+    pub urls: Vec<Url>,
+    pub token: String,
+    pub project: Option<String>,
+    pub junit_classname: Option<String>,
+}
+
 pub struct Razel {
     pub read_cache: bool,
     worker_threads: usize,
@@ -223,7 +231,7 @@ impl Razel {
         cache_dir: Option<PathBuf>,
         remote_cache: Vec<String>,
         remote_cache_threshold: Option<u32>,
-        remote_exec: Vec<Url>,
+        remote_exec_args: RemoteExecArgs,
     ) -> Result<SchedulerStats> {
         if self.targets_builder.as_ref().unwrap().targets.is_empty() {
             bail!("No targets added");
@@ -235,9 +243,10 @@ impl Razel {
             group_by_tag,
         )));
         self.tui.verbose = verbose;
-        if !remote_exec.is_empty() {
+        if !remote_exec_args.urls.is_empty() {
             self.remote_exec = true;
-            self.run_remotely(keep_going, cache_dir, remote_exec).await
+            self.run_remotely(keep_going, cache_dir, remote_exec_args)
+                .await
         } else {
             self.run_locally(keep_going, cache_dir, remote_cache, remote_cache_threshold)
                 .await
@@ -249,7 +258,7 @@ impl Razel {
         &mut self,
         _keep_going: bool,
         _cache_dir: Option<PathBuf>,
-        _remote_exec: Vec<Url>,
+        _remote_exec_args: RemoteExecArgs,
     ) -> Result<SchedulerStats> {
         bail!("remote exec feature not enabled");
     }
@@ -887,7 +896,7 @@ mod tests {
                 .unwrap();
         }
         let stats = razel
-            .run(false, true, "", None, vec![], None, vec![])
+            .run(false, true, "", None, vec![], None, Default::default())
             .await
             .unwrap();
         assert_eq!(

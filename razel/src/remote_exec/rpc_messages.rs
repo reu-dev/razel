@@ -2,6 +2,9 @@ use crate::cache::MessageDigest;
 use crate::executors::ExecutionResult;
 use crate::types::*;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+pub type JobId = Uuid;
 
 #[repr(u8)]
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -39,11 +42,34 @@ pub enum ServerToClientMsg {
     UploadFileRequest(FileId),
 }
 
-/// Send by client to server to register a job
+/// Sent by the client to register a job.
 #[derive(Serialize, Deserialize)]
 pub struct CreateJobRequest {
-    pub job: Job,
-    pub auth: String,
+    /// JWT (audience `razel`) for CI jobs, opaque string otherwise.
+    pub token: String,
+    pub kind: JobRequestKind,
+    pub junit_classname: Option<String>,
+    pub default_tags: Vec<WorkerTag>,
+    pub docker_image: Option<String>,
+    pub docker_pull_credentials: Option<(String, String)>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum JobRequestKind {
+    Interactive(InteractiveJobRequest),
+    GitLabCi(GitLabJobRequest),
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct InteractiveJobRequest {
+    pub user: String,
+    pub project: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct GitLabJobRequest {
+    pub job_name: String,
+    pub job_url: String,
 }
 
 #[derive(Serialize, Deserialize)]

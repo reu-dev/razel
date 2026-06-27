@@ -1,14 +1,19 @@
 use super::*;
-use crate::job_database::{FinishedJob, JobDatabase};
+use crate::auth::{AuthId, AuthState};
+use crate::job_database::FinishedJob;
+use crate::project::Project;
 use crate::webui_types::{FinishedJobStats, JobStatus, NodeStats, RunningJobStats};
-use anyhow::{Error, Result, anyhow, ensure};
+use anyhow::{Error, Result, anyhow, bail, ensure};
 use itertools::{Itertools, chain};
 use quinn::SendStream;
 use razel::remote_exec::{
-    CreateJobRequest, CreateJobResponse, ExecuteTargetsRequest, ServerToClientMsg,
+    CreateJobRequest, CreateJobResponse, ExecuteTargetsRequest, GitLabJobRequest,
+    InteractiveJobRequest, JobId, JobRequestKind, ServerToClientMsg,
 };
 use razel::types::*;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::Path;
+use std::sync::Arc;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -21,11 +26,12 @@ pub struct Scheduler {
     targets: usize,
     cpu_slots: CpuSlots,
     locks: HashSet<String>,
-    job_db: JobDatabase,
+    auth: Arc<AuthState>,
+    pub projects: HashMap<AuthId, Project>,
 }
 
 impl Scheduler {
-    pub fn new(max_cpu_slots: usize, node: String, job_db: JobDatabase) -> Self {
+    pub fn new(max_cpu_slots: usize, node: String, auth: Arc<AuthState>) -> Self {
         // reserve one core for server/scheduler tasks
         let max_cpu_slots = max_cpu_slots as CpuSlots - 1.0;
         assert!(max_cpu_slots >= 1.0);
@@ -36,8 +42,51 @@ impl Scheduler {
             jobs: Default::default(),
             targets: 0,
             locks: Default::default(),
-            job_db,
+            auth,
+            projects: Default::default(),
         }
+    }
+
+    pub fn load_existing_projects(&mut self, storage_root: &Path) -> Result<()> {
+        let jwt_root = storage_root.join("jwt");
+        std::fs::create_dir_all(&jwt_root)?;
+        for iss_entry in std::fs::read_dir(&jwt_root)?
+            .flatten()
+            .filter(|x| x.file_type().is_ok_and(|t| t.is_dir()))
+        {
+            let iss = iss_entry.file_name().to_string_lossy().into_owned();
+            self.auth.push_gitlab_ci_instance(&iss);
+            for proj_entry in std::fs::read_dir(iss_entry.path())?
+                .flatten()
+                .filter(|x| x.file_type().is_ok_and(|t| t.is_dir()))
+            {
+                let proj = proj_entry.file_name().to_string_lossy().into_owned();
+                let id: AuthId = format!("jwt/{iss}/{proj}");
+                let mut project = Project::new(storage_root, id.clone())?;
+                project.read()?;
+                self.projects.insert(id, project);
+            }
+        }
+        let user_root = storage_root.join("user");
+        std::fs::create_dir_all(&user_root)?;
+        for user_entry in std::fs::read_dir(&user_root)?
+            .flatten()
+            .filter(|x| x.file_type().is_ok_and(|t| t.is_dir()))
+        {
+            let user = user_entry.file_name().to_string_lossy().into_owned();
+            for hash_entry in std::fs::read_dir(user_entry.path())?
+                .flatten()
+                .filter(|x| x.file_type().is_ok_and(|t| t.is_dir()))
+            {
+                let hash = hash_entry.file_name().to_string_lossy().into_owned();
+                let id: AuthId = format!("user/{user}/{hash}");
+                let mut project = Project::new(storage_root, id.clone())?;
+                project.read()?;
+                self.projects.insert(id, project);
+                self.auth.push_interactive_user(&user, &hash);
+            }
+        }
+        Ok(())
     }
 
     pub fn collect_stats(
@@ -46,12 +95,15 @@ impl Scheduler {
         running_jobs: &mut Vec<RunningJobStats>,
         finished_jobs: &mut Vec<FinishedJobStats>,
     ) {
-        node_stats.storage_used += self.job_db.bytes;
+        node_stats.storage_used = self.projects.values().map(|p| p.bytes()).sum::<u64>();
         node_stats.jobs_running = self.jobs.iter().filter(|j| j.running != 0).count();
         node_stats.jobs_pending = self.jobs.len() - node_stats.jobs_running;
         node_stats.cpu_slots = self.cpu_slots;
         running_jobs.extend(self.jobs.iter().map(|j| j.collect_stats(&self.node)));
-        finished_jobs.extend(self.job_db.jobs.iter().map(|j| j.stats.clone()));
+        for project in self.projects.values() {
+            finished_jobs.extend(project.job_db.jobs.iter().map(|j| j.stats.clone()));
+        }
+        finished_jobs.sort_unstable_by_key(|x| std::cmp::Reverse(x.id));
     }
 
     pub fn handle_client_connection_lost(&mut self, client_id: ClientId) {
@@ -73,7 +125,8 @@ impl Scheduler {
     }
 
     fn finish_job(&mut self, job: JobData) {
-        info!(client_id=job.client_id, job_id=?job.id, "job finished");
+        info!(client_id=job.client_id, job_id=?job.job_id, "job finished");
+        let project = self.projects.get_mut(&job.project_id).unwrap();
         let status = if job.is_finished() {
             if job.failed.is_empty() {
                 JobStatus::Success
@@ -83,9 +136,9 @@ impl Scheduler {
         } else {
             JobStatus::Canceled
         };
-        self.job_db.push(FinishedJob {
+        project.job_db.push(FinishedJob {
             stats: FinishedJobStats {
-                id: job.id,
+                id: job.job_id,
                 job: job.job,
                 node: self.node.clone(),
                 status,
@@ -105,8 +158,11 @@ struct JobData {
     client_id: ClientId,
     connection: Option<quinn::Connection>,
     client_tx: Option<mpsc::UnboundedSender<ServerToClientMsg>>,
-    id: JobId,
+    project_id: AuthId,
+    job_id: JobId,
     job: Job,
+    #[allow(dead_code)]
+    docker_pull_credentials: Option<(String, String)>,
     dep_graph: DependencyGraph,
     targets_for_input_file: HashMap<FileId, Vec<TargetId>>,
     requested_files: HashSet<FileId>,
@@ -128,16 +184,20 @@ impl JobData {
     pub fn new(
         client_id: ClientId,
         connection: quinn::Connection,
-        id: JobId,
+        project_id: AuthId,
+        job_id: JobId,
         job: Job,
         worker: JobWorker,
+        docker_pull_credentials: Option<(String, String)>,
     ) -> Self {
         Self {
             client_id,
             connection: Some(connection),
             client_tx: None,
-            id,
+            project_id,
+            job_id,
             job,
+            docker_pull_credentials,
             dep_graph: Default::default(),
             targets_for_input_file: Default::default(),
             requested_files: Default::default(),
@@ -233,7 +293,7 @@ impl JobData {
 
     pub fn handle_execute_target_result(&mut self, msg: &ExecuteTargetResult) {
         let target_id = msg.target_id;
-        tracing::debug!(job_id=?self.id, target_id, result=?msg.result, output_files=?msg.output_files.iter().map(|x| x.id).collect_vec());
+        tracing::debug!(job_id=?self.job_id, target_id, result=?msg.result, output_files=?msg.output_files.iter().map(|x| x.id).collect_vec());
         let cpus = self.dep_graph.targets[target_id].cpus() as f64;
         if let Some(d) = msg.result.exec_duration {
             self.exec_cpu_secs += d.as_secs_f64() * cpus;
@@ -288,7 +348,7 @@ impl JobData {
             JobStatus::Pending
         };
         RunningJobStats {
-            id: self.id,
+            id: self.job_id,
             job: self.job.clone(),
             node: node.to_string(),
             status,
@@ -307,22 +367,79 @@ impl JobData {
 }
 
 impl Server {
-    pub fn handle_create_job_request(
+    /// TODO drop async - needed to fetch JWKS (only the *first* time a issuer is seen)
+    pub async fn handle_create_job_request(
         &mut self,
         client_id: ClientId,
         send: SendStream,
         request: CreateJobRequest,
     ) -> Result<()> {
+        let CreateJobRequest {
+            token,
+            kind,
+            junit_classname,
+            default_tags,
+            docker_image,
+            docker_pull_credentials,
+        } = request;
         let scheduler = self.scheduler.as_mut().unwrap();
+        let (auth_id, kind, user, job_project) = match kind {
+            JobRequestKind::GitLabCi(GitLabJobRequest { job_name, job_url }) => {
+                let (auth_id, data) = scheduler
+                    .auth
+                    .verify_gitlab_ci_id_token(&token)
+                    .await
+                    .map_err(|e| anyhow!("auth failed: {e}"))?;
+                (
+                    auth_id,
+                    JobKind::GitLabCi(GitLabCiJob {
+                        instance: data.iss,
+                        pipeline_id: data.pipeline_id,
+                        job_id: data.job_id,
+                        job_name,
+                        job_url,
+                    }),
+                    data.user_login,
+                    Some(data.project_path),
+                )
+            }
+            JobRequestKind::Interactive(InteractiveJobRequest { user, project }) => {
+                let auth_id = scheduler
+                    .auth
+                    .verify_interactive_user(&user, &token)
+                    .map_err(|e| anyhow!("auth failed: {e}"))?;
+                (auth_id, JobKind::Interactive, user, project)
+            }
+        };
         let job_id = Uuid::now_v7();
-        info!(client_id, ?job_id, "CreateJobRequest");
-        let worker = JobWorker::new(job_id, &self.storage.path)?;
+        info!(client_id, ?job_id, auth_id, "CreateJobRequest");
+        let storage_path = match scheduler.projects.get(&auth_id) {
+            Some(p) => p.path.clone(),
+            _ => {
+                let project = Project::new(&self.storage_root, auth_id.clone())?;
+                let storage_path = project.path.clone();
+                scheduler.projects.insert(auth_id.clone(), project);
+                storage_path
+            }
+        };
+        let worker = JobWorker::new(job_id, &storage_path)?;
+        let job = Job {
+            ts: chrono::Utc::now(),
+            kind,
+            user,
+            project: job_project,
+            junit_classname,
+            default_tags,
+            docker_image,
+        };
         scheduler.jobs.push(JobData::new(
             client_id,
             self.clients[&client_id].connection.clone(),
+            auth_id,
             job_id,
-            request.job,
+            job,
             worker,
+            docker_pull_credentials,
         ));
         ServerToClientMsg::CreateJobResponse(CreateJobResponse {
             job_id,
@@ -349,13 +466,14 @@ impl Server {
         mut msg: ExecuteTargetsRequest,
     ) -> Result<()> {
         let scheduler = self.scheduler.as_mut().unwrap();
-        let Some(job) = scheduler.jobs.iter_mut().find(|x| x.id == msg.job_id) else {
+        let Some(job) = scheduler.jobs.iter_mut().find(|x| x.job_id == msg.job_id) else {
             return Ok(());
         };
-        if job.connection.is_none() {
+        let Some(connection) = job.connection.as_ref() else {
             return Ok(());
-        }
+        };
         job.client_tx = Some(spawn_server_to_client_msg_sender(send));
+        let project = scheduler.projects.get_mut(&job.project_id).unwrap();
         let mut stored_inputs: Vec<FileId> = Default::default();
         let mut requested_inputs: Vec<FileId> = Default::default();
         for file in &mut msg.files {
@@ -375,11 +493,8 @@ impl Server {
                     "invalid digest for file {:?}: {digest:?}",
                     file.path,
                 );
-                if self.storage.check_if_file_is_cached_or_request_from_client(
-                    job.id,
-                    file,
-                    job.connection.as_ref().unwrap(),
-                    &self.tx,
+                if project.check_if_file_is_cached_or_request_from_client(
+                    job.job_id, file, connection, &self.tx,
                 ) {
                     stored_inputs.push(file.id);
                 } else {
@@ -390,7 +505,7 @@ impl Server {
         job.push_targets(msg.targets, msg.files, stored_inputs, requested_inputs)
             .await;
         job.keep_going = msg.keep_going;
-        debug!(job_id=?job.id, ready=job.dep_graph.ready.len(), waiting=job.dep_graph.waiting.len(), "ExecuteTargetsRequest");
+        debug!(job_id=?job.job_id, ready=job.dep_graph.ready.len(), waiting=job.dep_graph.waiting.len(), "ExecuteTargetsRequest");
         self.start_ready_targets();
         Ok(())
     }
@@ -398,7 +513,7 @@ impl Server {
     #[instrument(skip_all)]
     pub fn handle_execute_target_result(&mut self, msg: ExecuteTargetResult) {
         let scheduler = self.scheduler.as_mut().unwrap();
-        let Some(job) = scheduler.jobs.iter_mut().find(|x| x.id == msg.job_id) else {
+        let Some(job) = scheduler.jobs.iter_mut().find(|x| x.job_id == msg.job_id) else {
             tracing::error!(job_id=?msg.job_id, target_id=msg.target_id, "Job not found in handle_execute_target_result()");
             return;
         };
@@ -421,7 +536,7 @@ impl Server {
             let pos = scheduler
                 .jobs
                 .iter()
-                .position(|x| x.id == msg.job_id)
+                .position(|x| x.job_id == msg.job_id)
                 .unwrap();
             let job = scheduler.jobs.remove(pos);
             scheduler.finish_job(job);
@@ -466,10 +581,11 @@ impl Server {
         format!("http://{host}:{port}/job/{job_id}")
     }
 
-    pub async fn handle_request_file_finished(&mut self, digest: Digest) {
+    pub async fn handle_request_file_finished(&mut self, project_id: &AuthId, digest: Digest) {
         let scheduler = self.scheduler.as_mut().unwrap();
-        for (job_id, file) in self.storage.handle_request_file_finished(digest.clone()) {
-            let Some(job) = scheduler.jobs.iter_mut().find(|x| x.id == job_id) else {
+        let project = scheduler.projects.get_mut(project_id).unwrap();
+        for (job_id, file) in project.handle_request_file_finished(&digest) {
+            let Some(job) = scheduler.jobs.iter_mut().find(|x| x.job_id == job_id) else {
                 continue;
             };
             job.set_file_received(file, &digest).await;
@@ -477,17 +593,21 @@ impl Server {
         self.start_ready_targets();
     }
 
-    pub fn handle_request_file_failed(&mut self, digest: Digest, error: Error) {
-        let failed = self
-            .storage
-            .handle_request_file_failed(digest.hash, &self.tx);
+    pub fn handle_request_file_failed(
+        &mut self,
+        project_id: &AuthId,
+        digest: Digest,
+        error: Error,
+    ) {
+        let scheduler = self.scheduler.as_mut().unwrap();
+        let project = scheduler.projects.get_mut(project_id).unwrap();
+        let failed = project.handle_request_file_failed(&digest.hash, &self.tx);
         if failed.is_empty() {
             return; // retry already in flight
         }
         let error = format!("{error:?}");
-        let scheduler = self.scheduler.as_mut().unwrap();
         for (job_id, _file_id) in failed {
-            let Some(job) = scheduler.jobs.iter_mut().find(|x| x.id == job_id) else {
+            let Some(job) = scheduler.jobs.iter_mut().find(|x| x.job_id == job_id) else {
                 continue;
             };
             if let Some(c) = job.connection.take() {

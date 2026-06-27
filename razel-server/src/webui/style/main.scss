@@ -29,6 +29,11 @@ body {
 	line-height: 1.5;
 }
 
+a,
+a:visited {
+	color: inherit;
+}
+
 // ── Top bar ──────────────────────────────────────────────────────────────────
 
 .topbar {
