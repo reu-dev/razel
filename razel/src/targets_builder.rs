@@ -12,7 +12,6 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 use tracing::debug;
-use which::which;
 
 mod filter;
 
@@ -130,7 +129,7 @@ impl TargetsBuilder {
             })
             .collect::<Result<Vec<_>>>()?;
         let command_target = CommandTarget {
-            executable: self.files[executable_id].path.to_str().unwrap().into(),
+            executable: self.executable_argv0(executable_id),
             args,
             env: command.env,
             stdout_file,
@@ -298,20 +297,18 @@ impl TargetsBuilder {
 
     fn push_executable_file(&mut self, arg: &str) -> Result<FileId> {
         let path = Path::new(&arg);
-        if path.is_relative() {
-            let cwd_path = self.rel_path(arg)?;
-            if let Some(id) = self.file_by_path.get(&cwd_path) {
-                return Ok(*id);
-            }
-        }
         let Some(file_name) = path.file_name().and_then(|x| x.to_str()) else {
             bail!(format!("executable is not a valid filename: {arg:?}"));
         };
+        // A bare name (no path component) is resolved by name: razel, or a system executable looked
+        // up on PATH and deduped via system_executable_by_name. It deliberately bypasses
+        // file_by_path so it neither hijacks nor is hijacked by a workspace binary of the same name.
+        // Path references are deduped by the file_by_path lookup at the end of this function.
         let (executable_type, abs_path) = if file_name == arg {
             if arg == "razel" || arg == "razel.exe" {
                 (ExecutableType::RazelExecutable, path.to_path_buf())
             } else {
-                return self.executable_which(arg);
+                return self.push_system_executable(arg);
             }
         } else if path.iter().contains(&OsStr::new("..")) {
             let canonicalized = path
@@ -351,16 +348,31 @@ impl TargetsBuilder {
         Ok(id)
     }
 
-    fn executable_which(&mut self, arg: &str) -> Result<FileId> {
+    fn push_system_executable(&mut self, arg: &str) -> Result<FileId> {
         if let Some(id) = self.system_executable_by_name.get(arg) {
             return Ok(*id);
         }
-        let path = which(arg).map_err(|e| anyhow!("executable {arg:?} not found: {e:?}"))?;
-        debug!("which({arg}) => {path:?}");
-        let id = self.push_file(path, Some(ExecutableType::SystemExecutable));
-        let old = self.system_executable_by_name.insert(arg.to_string(), id);
-        assert!(old.is_none());
+        let id = self.files.len();
+        self.files.push(File::new(
+            id,
+            PathBuf::from(arg),
+            Some(ExecutableType::SystemExecutable),
+        ));
+        self.system_executable_by_name.insert(arg.to_string(), id);
         Ok(id)
+    }
+
+    /// Prefixes `./` if needed.
+    fn executable_argv0(&self, executable_id: FileId) -> String {
+        let file = &self.files[executable_id];
+        let path = file.path.to_str().unwrap();
+        if file.executable == Some(ExecutableType::ExecutableInWorkspace)
+            && file.path.components().count() == 1
+        {
+            format!("./{path}")
+        } else {
+            path.into()
+        }
     }
 
     fn push_input_file(&mut self, arg: &mut String, args: &mut [String]) -> Result<FileId> {
@@ -500,5 +512,65 @@ mod tests {
             }
             _ => panic!(),
         }
+    }
+
+    fn command(name: &str, executable: &str) -> RazelJsonCommand {
+        RazelJsonCommand {
+            name: name.to_string(),
+            executable: executable.to_string(),
+            args: vec![],
+            env: Default::default(),
+            inputs: vec![],
+            outputs: vec![],
+            stdout: None,
+            stderr: None,
+            deps: vec![],
+            tags: vec![],
+            worker: vec![],
+        }
+    }
+
+    #[test]
+    fn system_executable_vs_executable_in_workspace() {
+        let mut b = TargetsBuilder::new();
+        // bare name -> system executable, kept out of file_by_path
+        let system = b.push_json_command(command("system", "diff")).unwrap();
+        let system_file = b.targets[system].executables[0];
+        assert_eq!(b.system_executable_by_name.get("diff"), Some(&system_file));
+        assert_eq!(b.file_by_path.get(Path::new("diff")), None);
+
+        // a `diff` binary in the workspace root (referenced with a path) is a distinct workspace
+        // file - it does NOT resolve to the system tool defined above
+        let local = b.push_json_command(command("local", "./diff")).unwrap();
+        let local_file = b.targets[local].executables[0];
+        assert_ne!(system_file, local_file);
+        assert_eq!(
+            b.files[system_file].executable,
+            Some(ExecutableType::SystemExecutable)
+        );
+        assert_eq!(
+            b.files[local_file].executable,
+            Some(ExecutableType::ExecutableInWorkspace)
+        );
+        // the workspace binary owns the `diff` path mapping
+        assert_eq!(b.file_by_path.get(Path::new("diff")), Some(&local_file));
+
+        // another bare-name `diff` still dedups to the system tool by name - even though the
+        // workspace binary now owns file_by_path["diff"], system lookup goes through
+        // system_executable_by_name and is unaffected
+        let system2 = b.push_json_command(command("system2", "diff")).unwrap();
+        assert_eq!(b.targets[system2].executables[0], system_file);
+
+        // both invoke `diff`, but via different mechanisms: the system tool stays a bare name so
+        // `resolve_program` looks it up on PATH, while the workspace binary is `./diff` so it is
+        // resolved relative to the sandbox cwd (where it is symlinked) instead of PATH
+        let TargetKind::Command(system_cmd) = &b.targets[system].kind else {
+            panic!()
+        };
+        let TargetKind::Command(local_cmd) = &b.targets[local].kind else {
+            panic!()
+        };
+        assert_eq!(system_cmd.executable, "diff");
+        assert_eq!(local_cmd.executable, "./diff");
     }
 }

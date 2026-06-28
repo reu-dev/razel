@@ -21,6 +21,7 @@ pub enum ExecutableType {
     ExecutableInWorkspace,
     ExecutableOutsideWorkspace,
     WasiModule,
+    /// bare name, resolved from PATH at exec time, not part of input root / cache key
     SystemExecutable,
     RazelExecutable,
 }

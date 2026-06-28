@@ -3,12 +3,36 @@ use crate::executors::{ExecutionResult, ExecutionStatus};
 use crate::types::CommandTarget;
 use crate::{CGroup, SandboxDir};
 use anyhow::{Result, ensure};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Output, Stdio};
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::task::JoinHandle;
 use tracing::instrument;
+
+static SYSTEM_EXECUTABLE_CACHE: LazyLock<Mutex<HashMap<String, Option<PathBuf>>>> =
+    LazyLock::new(Default::default);
+
+/// Resolve `executable` to the program to spawn. A bare name is looked up on `PATH`; anything else is used as-is.
+async fn resolve_program(executable: &str) -> Option<PathBuf> {
+    if Path::new(executable).components().count() != 1 {
+        return Some(PathBuf::from(executable));
+    }
+    if let Some(hit) = SYSTEM_EXECUTABLE_CACHE.lock().unwrap().get(executable) {
+        return hit.clone();
+    }
+    let name = executable.to_string();
+    let resolved = tokio::task::spawn_blocking(move || which::which(&name).ok())
+        .await
+        .unwrap();
+    SYSTEM_EXECUTABLE_CACHE
+        .lock()
+        .unwrap()
+        .insert(executable.to_string(), resolved.clone());
+    resolved
+}
 
 pub struct CommandExecutor {
     command: CommandTarget,
@@ -45,7 +69,15 @@ impl CommandExecutor {
         let cwd = sandbox_dir.dir.clone().unwrap_or_else(|| ".".into());
         tracing::trace!(?sandbox_dir, ?args, ?cwd);
         let execution_start = Instant::now();
-        let child = match tokio::process::Command::new(&self.command.executable)
+        let Some(program) = resolve_program(&self.command.executable).await else {
+            result.status = ExecutionStatus::FailedToStart;
+            result.error = Some(format!(
+                "executable not found: {:?}",
+                self.command.executable
+            ));
+            return result;
+        };
+        let child = match tokio::process::Command::new(&program)
             .env_clear()
             .envs(&self.command.env)
             .args(args)

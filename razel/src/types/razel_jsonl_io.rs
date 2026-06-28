@@ -1,5 +1,5 @@
 use crate::types::{
-    ExecutableType, File, RazelJson, RazelJsonCommand, RazelJsonTask, Target, TargetId, TargetKind,
+    File, RazelJson, RazelJsonCommand, RazelJsonTask, Target, TargetId, TargetKind,
 };
 use anyhow::{Context, Result, anyhow};
 use std::fs;
@@ -40,21 +40,9 @@ impl RazelJson {
         for target in targets.iter() {
             let json = match &target.kind {
                 TargetKind::Command(c) | TargetKind::Wasi(c) => {
-                    let executable = if files[target.executables[0]].executable
-                        == Some(ExecutableType::SystemExecutable)
-                    {
-                        files[target.executables[0]]
-                            .path
-                            .file_name()
-                            .unwrap()
-                            .to_string_lossy()
-                            .to_string()
-                    } else {
-                        c.executable.clone()
-                    };
                     RazelJson::Command(RazelJsonCommand {
                         name: target.name.clone(),
-                        executable,
+                        executable: c.executable.clone(),
                         args: args_wo_out_dir(out_dir, c.args.iter()),
                         env: c.env.clone(),
                         inputs: target

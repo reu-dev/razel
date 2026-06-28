@@ -1,15 +1,16 @@
 #![allow(clippy::all, dead_code)]
 
 use crate::cache::DigestData;
-use crate::types::{Digest, Target};
+use crate::types::{Digest, ExecutableType, Target, TargetKind};
 use anyhow::Result;
 pub use build::bazel::remote::execution::v2::{
     Action, ActionResult, BatchReadBlobsRequest, BatchUpdateBlobsRequest, Command, Directory,
     ExecutedActionMetadata, FileNode, GetActionResultRequest, GetCapabilitiesRequest, OutputFile,
-    ServerCapabilities, UpdateActionResultRequest, action_cache_client::ActionCacheClient,
-    batch_update_blobs_request, capabilities_client::CapabilitiesClient,
-    command::EnvironmentVariable,
+    Platform, ServerCapabilities, UpdateActionResultRequest,
+    action_cache_client::ActionCacheClient, batch_update_blobs_request,
+    capabilities_client::CapabilitiesClient, command::EnvironmentVariable,
     content_addressable_storage_client::ContentAddressableStorageClient, digest_function,
+    platform::Property,
 };
 pub use google::bytestream::{ReadRequest, WriteRequest, byte_stream_client::ByteStreamClient};
 use itertools::{Itertools, chain};
@@ -119,9 +120,13 @@ pub fn bzl_action_for_target(
         working_directory: "".to_string(),
         ..Default::default()
     };
+    let executables = target
+        .executables
+        .iter()
+        .filter(|x| files[**x].executable != Some(ExecutableType::SystemExecutable));
     // TODO properly build bazel_remote_exec::Directory tree
     let bzl_input_root = Directory {
-        files: chain(target.executables.iter(), target.inputs.iter())
+        files: chain(executables, target.inputs.iter())
             .map(|x| {
                 let file = &files[*x];
                 assert!(
@@ -150,6 +155,28 @@ pub fn bzl_action_for_target(
         node_properties: None,
     };
     (bzl_command, bzl_input_root)
+}
+
+pub fn bzl_platform_for_target(kind: &TargetKind) -> Option<Platform> {
+    match kind {
+        TargetKind::Command(_) => {
+            let properties = [
+                ("ISA", std::env::consts::ARCH),
+                ("OSFamily", std::env::consts::OS),
+            ]
+            .into_iter()
+            .map(|(name, value)| Property {
+                name: name.to_string(),
+                value: value.to_string(),
+            })
+            .collect();
+            Some(Platform { properties })
+        }
+        TargetKind::Wasi(_) | TargetKind::Task(_) | TargetKind::HttpRemoteExecTask(_) => {
+            // environment-independent
+            None
+        }
+    }
 }
 
 mod google {

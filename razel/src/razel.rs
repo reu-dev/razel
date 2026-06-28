@@ -453,6 +453,9 @@ impl Razel {
             let Some(file) = self.dep_graph.files.get(id) else {
                 break;
             };
+            if file.executable == Some(ExecutableType::SystemExecutable) {
+                continue;
+            }
             if !self.dep_graph.creator_for_file.contains_key(&file.id) {
                 let id = file.id;
                 let path = file.path.clone();
@@ -527,7 +530,9 @@ impl Razel {
 
     fn new_tmp_dir_sandbox(&self, target: &Target) -> BoxedSandbox {
         let inputs = chain(target.executables.iter(), target.inputs.iter())
-            .map(|x| self.dep_graph.files[*x].path.clone())
+            .map(|x| &self.dep_graph.files[*x])
+            .filter(|x| x.executable != Some(ExecutableType::SystemExecutable))
+            .map(|x| x.path.clone())
             .filter(|x| x.is_relative())
             .collect();
         Box::new(TmpDirSandbox::new(
@@ -574,10 +579,12 @@ impl Razel {
         let sandbox = use_sandbox.then(|| self.new_sandbox(target));
         let mut output_files = self.collect_output_files(target, &self.dep_graph.files);
         let cwd = self.current_dir.clone();
+        let platform = bazel_remote_exec::bzl_platform_for_target(&target.kind);
         tokio::task::spawn(async move {
             let action = bazel_remote_exec::Action {
                 command_digest: Some(BazelDigest::for_message(&bzl_command)),
                 input_root_digest: Some(BazelDigest::for_message(&bzl_input_root)),
+                platform,
                 ..Default::default()
             };
             let action_digest = Digest::for_message(&action);

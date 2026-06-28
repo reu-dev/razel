@@ -91,12 +91,14 @@ impl JobWorker {
         let sandbox = self.new_sandbox(target, files);
         let mut output_files = self.collect_output_files(target, files);
         let cwd = self.ws_dir.clone();
+        let platform = bazel_remote_exec::bzl_platform_for_target(&target.kind);
         tokio::task::spawn(async move {
             let action = bazel_remote_exec::Action {
                 command_digest: Some(bazel_remote_exec::BazelDigest::for_message(&bzl_command)),
                 input_root_digest: Some(bazel_remote_exec::BazelDigest::for_message(
                     &bzl_input_root,
                 )),
+                platform,
                 ..Default::default()
             };
             let action_digest = Digest::for_message(&action);
@@ -147,7 +149,9 @@ impl JobWorker {
 
     fn new_tmp_dir_sandbox(&self, target: &Target, files: &[File]) -> BoxedSandbox {
         let inputs = chain(target.executables.iter(), target.inputs.iter())
-            .map(|x| &files[*x].path)
+            .map(|x| &files[*x])
+            .filter(|x| x.executable != Some(ExecutableType::SystemExecutable))
+            .map(|x| &x.path)
             .filter(|x| x.is_relative())
             .cloned()
             .collect();

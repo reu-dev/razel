@@ -477,12 +477,15 @@ impl Server {
         let mut stored_inputs: Vec<FileId> = Default::default();
         let mut requested_inputs: Vec<FileId> = Default::default();
         for file in &mut msg.files {
-            if file
-                .executable
-                .is_some_and(|x| x == ExecutableType::SystemExecutable)
-            {
-                file.path = file.path.file_name().unwrap().into();
-                file.executable = Some(ExecutableType::ExecutableInWorkspace);
+            match file.executable {
+                Some(ExecutableType::SystemExecutable) => continue,
+                Some(ExecutableType::ExecutableOutsideWorkspace) => {
+                    bail!(
+                        "ExecutableOutsideWorkspace is not supported for remote exec: {:?}",
+                        file.path
+                    );
+                }
+                _ => {}
             }
             if file.path.is_absolute() || file.path.starts_with("..") {
                 bail!("file has scary path: {file:?}");
