@@ -151,6 +151,7 @@ impl Scheduler {
                 output_size_bytes: job.output_size_bytes,
             },
         });
+        job.worker.spawn_rm_job_dir();
     }
 }
 

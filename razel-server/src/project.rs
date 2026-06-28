@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 use tokio::task::spawn_blocking;
+use tracing::warn;
 use uuid::Uuid;
 
 struct PendingFileRequest {
@@ -70,7 +71,37 @@ impl Project {
         }
         self.cache_bytes = bytes;
         self.job_db.read_jobs()?;
+        self.rm_leftover_dirs();
         Ok(())
+    }
+
+    fn rm_leftover_dirs(&self) {
+        let entries = match std::fs::read_dir(&self.path) {
+            Ok(entries) => entries,
+            Err(e) => {
+                warn!(path=?self.path, "failed to list project dir: {e}");
+                return;
+            }
+        };
+        for entry in entries.flatten() {
+            if !entry.file_name().to_string_lossy().starts_with("job-") {
+                continue;
+            }
+            let path = entry.path();
+            if let Err(e) = std::fs::remove_dir_all(&path) {
+                warn!(?path, "failed to remove orphaned job dir: {e}");
+            }
+        }
+        for entry in std::fs::read_dir(&self.download_dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            let path = entry.path();
+            if let Err(e) = std::fs::remove_file(&path) {
+                warn!(?path, "failed to remove stale download: {e}");
+            }
+        }
     }
 
     pub fn bytes(&self) -> u64 {
@@ -166,7 +197,7 @@ impl Project {
                     ))
                     .ok(),
                 Err(e) => {
-                    tracing::warn!(?job_id, path=?file.path, "download file from client failed: {e}");
+                    warn!(?job_id, path=?file.path, "download file from client failed: {e}");
                     tx.send(QueueMsg::RequestFileFailed(
                         project_id,
                         file.digest.unwrap(),
@@ -264,7 +295,7 @@ fn is_blob_cached(path: &PathBuf, exp_size: u64) -> bool {
     }
     let act_size = metadata.len();
     if act_size != exp_size {
-        tracing::warn!("OutputFile has wrong size (act: {act_size}, exp:{exp_size}): {path:?}");
+        warn!("OutputFile has wrong size (act: {act_size}, exp:{exp_size}): {path:?}");
         force_remove_file_std(path).ok();
         return false;
     }

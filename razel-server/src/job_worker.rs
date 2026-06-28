@@ -16,12 +16,13 @@ use razel::{
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use tracing::{debug, instrument};
+use tracing::{debug, instrument, warn};
 
 /// Worker running within the server process
 pub struct JobWorker {
     job_id: JobId,
     cache: Cache,
+    job_dir: PathBuf,
     ws_dir: PathBuf,
     sandbox_dir: PathBuf,
     created_dirs: HashSet<PathBuf>,
@@ -46,6 +47,7 @@ impl JobWorker {
         Ok(Self {
             job_id,
             cache,
+            job_dir,
             ws_dir,
             sandbox_dir,
             created_dirs: Default::default(),
@@ -297,5 +299,16 @@ impl JobWorker {
                 .context("link_output_files_into_out_dir()")?;
         }
         Ok(execution_result)
+    }
+
+    pub fn spawn_rm_job_dir(&self) {
+        let job_dir = self.job_dir.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Err(e) = std::fs::remove_dir_all(&job_dir)
+                && e.kind() != std::io::ErrorKind::NotFound
+            {
+                warn!(?job_dir, "failed to remove job dir: {e}");
+            }
+        });
     }
 }
