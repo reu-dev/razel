@@ -86,12 +86,11 @@ impl Cache {
         let (action_result, mut cache_hit) =
             if let Some(x) = self.local_cache.get_action_result(digest).await {
                 (x, CacheHit::Local)
-            } else if let Some(remote_cache) = remote_cache {
+            } else {
+                let remote_cache = remote_cache?;
                 let x = remote_cache.get_action_result(digest.clone()).await?;
                 self.local_cache.push_action_result(digest, &x).await.ok()?;
                 (x, CacheHit::Remote)
-            } else {
-                return None;
             };
         if action_result.output_files.is_empty() {
             return Some((action_result, cache_hit));

@@ -226,7 +226,7 @@ async fn download_file(
         .send(&mut send)
         .await?;
     send.finish()?;
-    let tmp_path = download_dir.join(format!("{}-{}", &digest.hash, Uuid::now_v7()));
+    let tmp_path = download_dir.join(format!("{}-{}", digest.hash, Uuid::now_v7()));
     let result = download_to_cas(&mut recv, file, digest, &tmp_path, cas_path).await;
     if result.is_err() {
         force_remove_file(&tmp_path).await.ok();
