@@ -418,6 +418,7 @@ mod tests {
             &["out1", "out2"],
         );
         rules.test("clang -O3 -o out.a src.c", &["src.c"], &["out.a"]);
+        rules.test("clang src.c", &["src.c"], &[]);
     }
 
     #[test]
