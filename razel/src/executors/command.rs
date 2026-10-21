@@ -77,16 +77,15 @@ impl CommandExecutor {
             ));
             return result;
         };
-        let child = match tokio::process::Command::new(&program)
-            .env_clear()
+        let mut cmd = tokio::process::Command::new(&program);
+        cmd.env_clear()
             .envs(&self.command.env)
             .args(args)
             .current_dir(&cwd)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-        {
+            .kill_on_drop(true);
+        let child = match Self::spawn_with_retry(&mut cmd).await {
             Ok(child) => child,
             Err(e) => {
                 result.status = ExecutionStatus::FailedToStart;
@@ -122,6 +121,39 @@ impl CommandExecutor {
         result.exec_duration = Some(execution_start.elapsed());
         self.write_redirect_files(&cwd, &mut result).await;
         result
+    }
+
+    /// Retries transient spawn errors.
+    ///
+    /// `ETXTBSY` on Linux: spawning copies the fd table and a child closes its close-on-exec fds only when
+    /// it reaches `execve`. A child cloned while an executable was still open for writing (e.g. being
+    /// downloaded) therefore keeps the file busy for a short time after the writer closed it.
+    /// Sharing violations on Windows are typically caused by virus scanners opening fresh files.
+    async fn spawn_with_retry(
+        cmd: &mut tokio::process::Command,
+    ) -> std::io::Result<tokio::process::Child> {
+        const MAX_ATTEMPTS: u32 = 200;
+        const RETRY_INTERVAL: Duration = Duration::from_millis(5);
+        for attempt in 1..=MAX_ATTEMPTS {
+            match cmd.spawn() {
+                Err(e) if Self::is_transient_spawn_error(&e) && attempt < MAX_ATTEMPTS => {
+                    tokio::time::sleep(RETRY_INTERVAL).await;
+                }
+                result => return result,
+            }
+        }
+        unreachable!()
+    }
+
+    fn is_transient_spawn_error(e: &std::io::Error) -> bool {
+        const TRANSIENT_OS_ERROR: Option<i32> = if cfg!(unix) {
+            Some(26) // ETXTBSY
+        } else if cfg!(windows) {
+            Some(32) // ERROR_SHARING_VIOLATION
+        } else {
+            None
+        };
+        TRANSIENT_OS_ERROR.is_some_and(|x| e.raw_os_error() == Some(x))
     }
 
     async fn wait_with_timeout(
@@ -327,6 +359,29 @@ mod tests {
     async fn exec_ok() {
         let cmake = which("cmake").unwrap().to_str().unwrap().to_string();
         let result = exec_basic(&cmake, vec!["-E".into(), "true".into()]).await;
+        result.assert_success();
+    }
+
+    /// The executable is kept open for writing by this process, which makes execve fail with ETXTBSY
+    /// until the file is closed.
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn exec_retries_etxtbsy() {
+        use crate::new_tmp_dir;
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        let dir = new_tmp_dir!();
+        let path = dir.join("exe");
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.write_all(&std::fs::read("/bin/true").unwrap())
+            .unwrap();
+        file.set_permissions(std::fs::Permissions::from_mode(0o700))
+            .unwrap();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            drop(file);
+        });
+        let result = exec_basic(path.to_str().unwrap(), vec![]).await;
         result.assert_success();
     }
 

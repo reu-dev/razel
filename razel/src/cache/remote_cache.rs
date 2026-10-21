@@ -478,6 +478,7 @@ impl GrpcRemoteCache {
             make_file_executable(&file).await?;
         }
         file.sync_all().await?;
+        drop(file.into_std().await); // close now instead of deferred in background
         if total != digest.size_bytes {
             bail!("read {total}, expected {}", digest.size_bytes);
         }

@@ -11,7 +11,8 @@ impl DownloadFileTask {
             .await?
             .error_for_status()?
             .bytes_stream();
-        let mut file = fs::File::create(sandbox_dir.join(&self.output)).await?;
+        let path = sandbox_dir.join(&self.output);
+        let mut file = fs::File::create(&path).await?;
         while let Some(item) = stream.next().await {
             let chunk = item?;
             file.write_all(&chunk).await?;
@@ -21,6 +22,7 @@ impl DownloadFileTask {
             make_file_executable(&file).await?;
         }
         file.sync_all().await?;
+        drop(file.into_std().await); // close now instead of deferred in background
         Ok(())
     }
 }
