@@ -38,6 +38,9 @@ impl SharedWasiExecutorState {
     fn new_engine() -> Result<Engine> {
         let mut config = Config::new();
         config.async_support(true);
+        // Use Unix signals instead of Mach ports on macOS: wasmtime <50 aborts the process
+        // when a caught signal (e.g. SIGCHLD) interrupts its Mach exception handler thread.
+        config.macos_use_mach_ports(false);
         config.cranelift_nan_canonicalization(true);
         let engine = Engine::new(&config).context("create WASM engine")?;
         Ok(engine)
