@@ -1,11 +1,12 @@
+use crate::replace_path_in_args;
 use crate::types::{
     File, RazelJson, RazelJsonCommand, RazelJsonTask, Target, TargetId, TargetKind,
 };
 use anyhow::{Context, Result, anyhow};
+use itertools::chain;
 use std::fs;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
-use std::slice::Iter;
 
 pub trait RazelJsonHandler {
     /// Set the directory to resolve relative paths of input/output files
@@ -43,7 +44,7 @@ impl RazelJson {
                     RazelJson::Command(RazelJsonCommand {
                         name: target.name.clone(),
                         executable: c.executable.clone(),
-                        args: args_wo_out_dir(out_dir, c.args.iter()),
+                        args: args_wo_out_dir(&c.args, target, files, out_dir),
                         env: c.env.clone(),
                         inputs: target
                             .inputs
@@ -67,13 +68,11 @@ impl RazelJson {
                     })
                 }
                 TargetKind::Task(t) | TargetKind::HttpRemoteExecTask(t) => {
-                    let mut i = t.args.iter();
-                    i.next(); // "task"
-                    let task = i.next().unwrap().to_string();
+                    // args: ["task", <task>, <args>...]
                     RazelJson::Task(RazelJsonTask {
                         name: target.name.clone(),
-                        task,
-                        args: args_wo_out_dir(out_dir, i),
+                        task: t.args[1].clone(),
+                        args: args_wo_out_dir(&t.args[2..], target, files, out_dir),
                         tags: target.tags.clone(),
                     })
                 }
@@ -100,13 +99,22 @@ fn maybe_strip_prefix(path: &Path, prefix: &Path) -> String {
         .to_string()
 }
 
-fn args_wo_out_dir(out_dir: &Path, i: Iter<String>) -> Vec<String> {
-    i.into_iter()
-        .map(|x| {
-            Path::new(x)
-                .strip_prefix(out_dir)
-                .ok()
-                .map_or_else(|| x.into(), |x| x.to_str().unwrap().into())
-        })
-        .collect()
+/// Reverts the out_dir prefix of file paths in args.
+fn args_wo_out_dir(
+    args: &[String],
+    target: &Target,
+    files: &[File],
+    out_dir: &Path,
+) -> Vec<String> {
+    let mut args = args.to_vec();
+    for file in chain!(&target.inputs, &target.outputs).map(|x| &files[*x]) {
+        if let Ok(path) = file.path.strip_prefix(out_dir) {
+            replace_path_in_args(
+                &mut args,
+                file.path.to_str().unwrap(),
+                path.to_str().unwrap(),
+            );
+        }
+    }
+    args
 }

@@ -1,8 +1,8 @@
-use crate::config;
 use crate::types::{
     CommandTarget, ExecutableType, File, FileId, RazelJson, RazelJsonCommand, RazelJsonHandler,
     RazelJsonTask, Tag, Target, TargetId, TargetKind, Task, TaskTarget,
 };
+use crate::{config, replace_path_in_args};
 use anyhow::{Context, Result, anyhow, bail};
 use clap::Parser;
 use itertools::{Itertools, chain};
@@ -379,9 +379,7 @@ impl TargetsBuilder {
         let id = self.push_input_file_with_relative_path(arg)?;
         let file = &self.files[id];
         let path = file.path.to_str().unwrap().to_string();
-        for x in args.iter_mut().filter(|x| *x == arg) {
-            *x = path.clone();
-        }
+        replace_path_in_args(args, arg, &path);
         *arg = path;
         Ok(file.id)
     }
@@ -402,9 +400,7 @@ impl TargetsBuilder {
             );
         }
         let path = file.path.to_str().unwrap().to_string();
-        for x in args.iter_mut().filter(|x| *x == arg) {
-            *x = path.clone();
-        }
+        replace_path_in_args(args, arg, &path);
         *arg = path;
         Ok(file.id)
     }
