@@ -12,7 +12,7 @@ use razel::remote_exec::{
 };
 use razel::types::*;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::Path;
+use std::path::{Component, Path};
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -224,7 +224,7 @@ impl JobData {
         files: Vec<File>,
         stored_inputs: Vec<FileId>,
         requested_files: Vec<FileId>,
-    ) {
+    ) -> Result<()> {
         for target in &targets {
             for file in chain!(&target.executables, &target.inputs).copied() {
                 self.targets_for_input_file
@@ -236,20 +236,19 @@ impl JobData {
         for file in stored_inputs.into_iter().map(|id| &files[id]) {
             self.worker
                 .link_input_file_into_ws_dir(file.digest.as_ref().unwrap(), &file.path)
-                .await
-                .unwrap();
+                .await?;
         }
         self.dep_graph.push_targets(targets, files);
         self.requested_files.extend(&requested_files);
         let ready = self.dep_graph.ready.clone();
         self.push_ready_from_dep_graph(ready);
+        Ok(())
     }
 
-    pub async fn set_file_received(&mut self, file: FileId, digest: &Digest) {
+    pub async fn set_file_received(&mut self, file: FileId, digest: &Digest) -> Result<()> {
         self.worker
             .link_input_file_into_ws_dir(digest, &self.dep_graph.files[file].path)
-            .await
-            .unwrap();
+            .await?;
         self.requested_files.remove(&file);
         for target_id in self.targets_for_input_file[&file].iter().copied() {
             let Some(requested_files) = self.requested_files_for_ready_target.get_mut(&target_id)
@@ -263,6 +262,7 @@ impl JobData {
                 Self::push_ready(&self.dep_graph.targets[target_id], &mut self.ready);
             }
         }
+        Ok(())
     }
 
     fn push_ready_from_dep_graph(&mut self, targets: Vec<TargetId>) {
@@ -363,6 +363,18 @@ impl JobData {
             exec_cpu_secs: self.exec_cpu_secs,
             total_cpu_secs: self.total_cpu_secs,
             output_size_bytes: self.output_size_bytes,
+        }
+    }
+
+    /// Closes the client connection and stops scheduling further targets.
+    /// The job is finished once running targets are done, see `handle_client_connection_lost()`.
+    fn fail_and_close_connection(&mut self, error: Error) {
+        tracing::error!(job_id=?self.job_id, ?error, "job failed");
+        self.ready.clear();
+        self.requested_files_for_ready_target.clear();
+        if let Some(c) = self.connection.take() {
+            self.client_tx.take();
+            close_connection_on_error(c, ConnectionCloseCode::JobError, error);
         }
     }
 }
@@ -488,7 +500,8 @@ impl Server {
                 }
                 _ => {}
             }
-            if file.path.is_absolute() || file.path.starts_with("..") {
+            if file.path.is_absolute() || file.path.components().any(|x| x == Component::ParentDir)
+            {
                 bail!("file has scary path: {file:?}");
             }
             if let Some(digest) = &file.digest {
@@ -507,7 +520,7 @@ impl Server {
             }
         }
         job.push_targets(msg.targets, msg.files, stored_inputs, requested_inputs)
-            .await;
+            .await?;
         job.keep_going = msg.keep_going;
         debug!(job_id=?job.job_id, ready=job.dep_graph.ready.len(), waiting=job.dep_graph.waiting.len(), "ExecuteTargetsRequest");
         self.start_ready_targets();
@@ -592,7 +605,9 @@ impl Server {
             let Some(job) = scheduler.jobs.iter_mut().find(|x| x.job_id == job_id) else {
                 continue;
             };
-            job.set_file_received(file, &digest).await;
+            if let Err(e) = job.set_file_received(file, &digest).await {
+                job.fail_and_close_connection(e);
+            }
         }
         self.start_ready_targets();
     }
@@ -614,10 +629,7 @@ impl Server {
             let Some(job) = scheduler.jobs.iter_mut().find(|x| x.job_id == job_id) else {
                 continue;
             };
-            if let Some(c) = job.connection.take() {
-                job.client_tx.take();
-                close_connection_on_error(c, ConnectionCloseCode::JobError, anyhow!(error.clone()));
-            }
+            job.fail_and_close_connection(anyhow!(error.clone()));
         }
     }
 }
