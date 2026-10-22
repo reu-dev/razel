@@ -2,7 +2,7 @@ use crate::types::{
     CommandTarget, ExecutableType, File, FileId, RazelJson, RazelJsonCommand, RazelJsonHandler,
     RazelJsonTask, Tag, Target, TargetId, TargetKind, Task, TaskTarget,
 };
-use crate::{config, replace_path_in_args};
+use crate::{config, normalize_path, replace_path_in_args};
 use anyhow::{Context, Result, anyhow, bail};
 use clap::Parser;
 use itertools::{Itertools, chain};
@@ -385,7 +385,7 @@ impl TargetsBuilder {
     }
 
     fn push_input_file_with_relative_path(&mut self, arg: &str) -> Result<FileId> {
-        let path = self.rel_path(arg)?;
+        let path = self.rel_path(arg);
         Ok(self.push_file(path, None))
     }
 
@@ -406,7 +406,7 @@ impl TargetsBuilder {
     }
 
     fn push_output_file_with_relative_path(&mut self, arg: &str) -> Result<FileId> {
-        let path = self.rel_path(arg)?;
+        let path = self.rel_path(arg);
         if let Some(id) = self.file_by_path.get(&path) {
             if !self.files[*id].path.starts_with(&self.out_dir) {
                 bail!(
@@ -435,24 +435,13 @@ impl TargetsBuilder {
         id
     }
 
-    /// Maps a relative path from workspace dir to cwd, allow absolute path
-    fn rel_path(&self, arg: &str) -> Result<PathBuf> {
-        let path = Path::new(arg);
-        if path.is_absolute() {
-            Ok(PathBuf::from(
-                path.strip_prefix(&self.current_dir).unwrap_or(path),
-            ))
-        } else {
-            let abs_path = self.workspace_dir.join(path);
-            abs_path
-                .strip_prefix(&self.current_dir)
-                .map(PathBuf::from)
-                .with_context(|| {
-                    format!(
-                        "File is not within cwd ({:?}): {abs_path:?}",
-                        self.current_dir
-                    )
-                })
+    /// Maps a path relative to workspace dir to a normalized path relative to cwd.
+    /// Paths outside of cwd are kept absolute.
+    fn rel_path(&self, arg: &str) -> PathBuf {
+        let abs_path = normalize_path(&self.workspace_dir.join(arg));
+        match abs_path.strip_prefix(&self.current_dir) {
+            Ok(x) => x.into(),
+            Err(_) => abs_path,
         }
     }
 }
@@ -568,5 +557,24 @@ mod tests {
         };
         assert_eq!(system_cmd.executable, "diff");
         assert_eq!(local_cmd.executable, "./diff");
+    }
+
+    #[test]
+    fn input_file_paths_are_normalized() {
+        let mut b = TargetsBuilder::new();
+        let mut c = command("a", "diff");
+        c.inputs = vec!["b/file".into(), "a/../b/file".into(), "./b/file".into()];
+        let a = b.push_json_command(c).unwrap();
+        let inputs = &b.targets[a].inputs;
+        assert!(inputs.iter().all_equal());
+        assert_eq!(b.files[inputs[0]].path, Path::new("b").join("file"));
+    }
+
+    #[test]
+    fn file_paths_outside_cwd_are_kept_absolute() {
+        let b = TargetsBuilder::new();
+        let exp = b.current_dir.parent().unwrap().join("file");
+        assert_eq!(b.rel_path("../file"), exp);
+        assert_eq!(b.rel_path(exp.to_str().unwrap()), exp);
     }
 }

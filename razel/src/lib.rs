@@ -4,7 +4,7 @@
 pub use crate::razel::*;
 #[cfg(feature = "full")]
 pub use parse_batch::*;
-pub use replace_args::*;
+pub use path_utils::*;
 pub use rules::*;
 #[cfg(feature = "full")]
 pub use sandbox::*;
@@ -20,9 +20,9 @@ pub mod cli;
 pub mod config;
 #[cfg(feature = "full")]
 mod parse_batch;
+mod path_utils;
 #[cfg(feature = "full")]
 mod razel;
-mod replace_args;
 mod rules;
 #[cfg(feature = "full")]
 mod sandbox;
