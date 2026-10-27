@@ -10,6 +10,7 @@ use rand::seq::SliceRandom;
 use std::collections::HashMap;
 use std::net::ToSocketAddrs;
 use std::path::PathBuf;
+use std::time::Duration;
 use tokio::spawn;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, instrument};
@@ -112,11 +113,14 @@ impl Client {
             docker_image,
             docker_pull_credentials,
         };
-        let ServerToClientMsg::CreateJobResponse(response) =
-            ClientToServerMsg::CreateJobRequest(request)
-                .request(&self.connection)
-                .await?
-        else {
+        let response = match ClientToServerMsg::CreateJobRequest(request)
+            .request(&self.connection)
+            .await
+        {
+            Ok(x) => x,
+            Err(e) => return Err(with_close_reason(&self.connection, e).await),
+        };
+        let ServerToClientMsg::CreateJobResponse(response) = response else {
             bail!("unexpected response type");
         };
         self.job_id = Some(response.job_id);
@@ -147,14 +151,8 @@ impl Client {
                 Ok(()) => {}
                 Err(_) if tx.is_closed() => {}
                 Err(e) => {
-                    let error = match connection.close_reason() {
-                        None => e.to_string(),
-                        Some(ConnectionError::ApplicationClosed(a)) => {
-                            String::from_utf8_lossy(&a.reason).to_string()
-                        }
-                        Some(x) => x.to_string(),
-                    };
-                    tx.send(ClientChannelMsg::Error(error)).ok();
+                    let error = with_close_reason(&connection, e).await;
+                    tx.send(ClientChannelMsg::Error(error.to_string())).ok();
                 }
             }
         });
@@ -214,6 +212,22 @@ pub enum ClientChannelMsg {
     Result(ExecuteTargetResult),
     Stats(ExecuteStats),
     Error(String),
+}
+
+/// Replaces `error` with the reason why the server closed the connection.
+///
+/// When failing a job, the server closes the connection with a reason. Pending reads might fail
+/// before that reason arrives, e.g. with `unexpected end of file` for a finished stream.
+/// Therefore, this waits a moment for the connection to be closed.
+async fn with_close_reason(connection: &Connection, error: anyhow::Error) -> anyhow::Error {
+    match tokio::time::timeout(Duration::from_secs(1), connection.closed()).await {
+        Ok(ConnectionError::ApplicationClosed(close)) => anyhow!(
+            "remote executor closed connection: {}",
+            String::from_utf8_lossy(&close.reason)
+        ),
+        Ok(ConnectionError::LocallyClosed) | Err(_) => error,
+        Ok(reason) => anyhow!("lost connection to remote executor: {reason}"),
+    }
 }
 
 fn user() -> Result<String> {

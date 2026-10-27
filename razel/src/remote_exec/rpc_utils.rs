@@ -166,6 +166,7 @@ pub fn strip_ipv6_brackets(host: &str) -> &str {
 }
 
 #[derive(Copy, Clone, Debug)]
+#[repr(u32)]
 pub enum ConnectionCloseCode {
     JobFinished = 1,
     JobCanceled = 2,
@@ -190,5 +191,5 @@ pub fn close_connection_on_error(
     error: anyhow::Error,
 ) {
     tracing::info!(?code, ?error, "close connection");
-    connection.close(code.into(), format!("{error:?}").as_bytes());
+    connection.close(code.into(), format!("{code:?}: {error:?}").as_bytes());
 }

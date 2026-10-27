@@ -373,8 +373,8 @@ impl JobData {
         self.ready.clear();
         self.requested_files_for_ready_target.clear();
         if let Some(c) = self.connection.take() {
-            self.client_tx.take();
             close_connection_on_error(c, ConnectionCloseCode::JobError, error);
+            self.client_tx.take();
         }
     }
 }
