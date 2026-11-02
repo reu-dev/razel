@@ -238,9 +238,8 @@ impl TargetsBuilder {
                 tags.extend_from_slice(&[Tag::NoCache, Tag::NoSandbox]);
             }
         }
-        let id = self.targets.len();
         let target = Target {
-            id,
+            id: Default::default(),
             name,
             kind: match task {
                 Task::HttpRemoteExec(_) => {
@@ -260,10 +259,11 @@ impl TargetsBuilder {
 
     fn push_target(&mut self, mut target: Target) -> Result<TargetId> {
         Self::check_tags(&mut target)?;
-        let old = self.target_by_name.insert(target.name.clone(), target.id);
-        assert!(old.is_none());
+        assert_eq!(target.id, 0);
         let id = self.targets.len();
         target.id = id;
+        let old = self.target_by_name.insert(target.name.clone(), target.id);
+        assert!(old.is_none());
         target.inputs = target.inputs.into_iter().sorted().dedup().collect();
         target.outputs = target.outputs.into_iter().sorted().dedup().collect();
         for output in target.outputs.iter().cloned() {
