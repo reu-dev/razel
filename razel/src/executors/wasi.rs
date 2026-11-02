@@ -188,6 +188,9 @@ impl WasiExecutor {
         }
         if self.write_dir {
             preopen_dir_for_write(&mut builder, &sandbox_dir.join(OUT_DIR), OUT_DIR)?;
+        } else if self.read_dirs.iter().any(|x| x.starts_with(OUT_DIR)) {
+            // input files in OUT_DIR are linked into the sandbox
+            preopen_dir_for_read(&mut builder, &sandbox_dir.join(OUT_DIR), OUT_DIR)?;
         }
         let ctx = builder.build_p1();
         Ok((ctx, stdout, stderr))
@@ -331,6 +334,85 @@ mod tests {
                 .unwrap()
                 .contains("error opening input file")
         );
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum InputLocation {
+        Workspace,
+        OutDir,
+        OutDirSubdir,
+        OutDirAndWorkspace,
+    }
+
+    /// Input files in workspace and OUT_DIR must be readable with and without declared output files.
+    #[tokio::test]
+    async fn cp_input_output() {
+        use InputLocation::*;
+        for input_location in [Workspace, OutDir, OutDirSubdir, OutDirAndWorkspace] {
+            for write_dir in [true, false] {
+                test_cp_input_output(input_location, write_dir).await;
+            }
+        }
+    }
+
+    async fn test_cp_input_output(input_location: InputLocation, write_dir: bool) {
+        let case = format!("input_location: {input_location:?}, write_dir: {write_dir}");
+        let workspace_dir = new_tmp_dir!();
+        let sandbox_dir = new_tmp_dir!();
+        let out_file = format!("{OUT_DIR}/{DST_PATH}");
+        let (in_file, read_dirs): (String, Vec<PathBuf>) = match input_location {
+            InputLocation::Workspace => {
+                workspace_dir.join_and_write_file(SRC_PATH, SOURCE_CONTENTS);
+                (SRC_PATH.into(), vec![".".into()])
+            }
+            InputLocation::OutDir => {
+                let in_file = format!("{OUT_DIR}/{SRC_PATH}");
+                sandbox_dir.join_and_write_file(&in_file, SOURCE_CONTENTS);
+                (in_file, vec![OUT_DIR.into()])
+            }
+            InputLocation::OutDirSubdir => {
+                let in_file = format!("{OUT_DIR}/sub/{SRC_PATH}");
+                sandbox_dir.join_and_write_file(&in_file, SOURCE_CONTENTS);
+                (in_file, vec![format!("{OUT_DIR}/sub").into()])
+            }
+            InputLocation::OutDirAndWorkspace => {
+                let in_file = format!("{OUT_DIR}/{SRC_PATH}");
+                if write_dir {
+                    // output content proves that the sandbox file was read
+                    workspace_dir.join_and_write_file(&in_file, "STALE_WORKSPACE_CONTENTS");
+                }
+                // else reading via workspace preopen must fail because the file is missing there
+                sandbox_dir.join_and_write_file(&in_file, SOURCE_CONTENTS);
+                (in_file, vec![".".into(), OUT_DIR.into()])
+            }
+        };
+        let dst = sandbox_dir.join_and_create_parent(&out_file);
+        let executor = WasiExecutor {
+            state: SharedWasiExecutorState::new(),
+            command: CommandTarget {
+                executable: CP_MODULE_PATH.clone(),
+                args: vec![in_file, out_file],
+                ..Default::default()
+            },
+            read_dirs,
+            write_dir,
+        };
+        let result = executor
+            .exec(workspace_dir.dir(), &sandbox_dir.dir().into())
+            .await;
+        println!("{case}: {result:?}");
+        if write_dir {
+            assert!(result.success(), "{case}: {result:?}");
+            assert_eq!(fs::read_to_string(&dst).unwrap(), SOURCE_CONTENTS, "{case}");
+        } else {
+            // reading input succeeds, writing output fails because OUT_DIR is not writable
+            assert!(!result.success(), "{case}");
+            let stderr = std::str::from_utf8(&result.stderr).unwrap();
+            assert!(
+                stderr.contains("error opening output file"),
+                "{case}: {stderr}"
+            );
+        }
     }
 
     #[tokio::test]
