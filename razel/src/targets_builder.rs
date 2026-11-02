@@ -304,7 +304,8 @@ impl TargetsBuilder {
         // up on PATH and deduped via system_executable_by_name. It deliberately bypasses
         // file_by_path so it neither hijacks nor is hijacked by a workspace binary of the same name.
         // Path references are deduped by the file_by_path lookup at the end of this function.
-        let (executable_type, abs_path) = if file_name == arg {
+        // WASI modules are never looked up on PATH, a bare name is a file in the workspace.
+        let (executable_type, abs_path) = if file_name == arg && !arg.ends_with(".wasm") {
             if arg == "razel" || arg == "razel.exe" {
                 (ExecutableType::RazelExecutable, path.to_path_buf())
             } else {
