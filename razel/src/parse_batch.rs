@@ -39,10 +39,10 @@ pub fn parse_batch_file(razel: &mut Razel, file_name: &String) -> Result<()> {
             let name = next_name
                 .take()
                 .unwrap_or_else(|| format!("{}:{}", file_name, line_number + 1));
-            let command_line: Vec<String> =
-                line.split_whitespace().map(|x| x.to_string()).collect();
-            create_command(razel, &rules, name.clone(), command_line.clone())
-                .with_context(|| command_line.join(" "))
+            shlex::split(line_trimmed)
+                .context("Invalid quoting")
+                .and_then(|command_line| create_command(razel, &rules, name.clone(), command_line))
+                .with_context(|| line_trimmed.to_string())
                 .with_context(|| format!("Failed to add command: {name}"))?;
             len += 1;
         }
