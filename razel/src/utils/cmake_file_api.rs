@@ -147,16 +147,32 @@ impl CodemodelTarget {
     }
 }
 
+#[allow(nonstandard_style)]
 #[derive(Deserialize)]
 pub struct Target {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
     #[serde(default)]
     pub artifacts: Vec<Artifact>,
     #[serde(default)]
     pub imported: bool,
+    #[serde(default)]
     pub sources: Vec<Source>,
     /// MODULE_LIBRARY, SHARED_LIBRARY
     #[serde(rename = "type")]
     pub r_type: String,
+    #[serde(default)]
+    pub dependencies: Vec<TargetRef>,
+    #[serde(default)]
+    pub linkLibraries: Vec<TargetRef>,
+    #[serde(default)]
+    pub interfaceLinkLibraries: Vec<TargetRef>,
+}
+
+#[derive(Deserialize)]
+pub struct TargetRef {
+    pub id: Option<String>,
 }
 
 #[derive(Deserialize)]
