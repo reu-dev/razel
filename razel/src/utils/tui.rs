@@ -235,15 +235,9 @@ impl TUI {
     }
 
     pub fn format_command_line(&self, args_with_executable: &[String]) -> String {
-        let mut iter = args_with_executable.iter().map(|x| {
-            if x.is_empty() {
-                "\"\"".to_string()
-            } else if x.contains(' ') {
-                format!("\"{x}\"")
-            } else {
-                x.to_string()
-            }
-        });
+        let mut iter = args_with_executable
+            .iter()
+            .map(|x| shlex::try_quote(x).map_or_else(|_| format!("{x:?}"), |x| x.into()));
         let max_len = config::UI_COMMAND_ARGS_LIMIT
             .map(|x| x + 1) // + 1 for the executable
             .unwrap_or(usize::MAX);

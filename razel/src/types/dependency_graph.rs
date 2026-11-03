@@ -82,16 +82,9 @@ impl DependencyGraph {
         self.get_target_with_deps(name).map(|t| {
             t.into_iter()
                 .map(|id| {
-                    self.get_command_line_for_target(id)
-                        .iter()
-                        .map(|x| {
-                            if x.contains(" ") {
-                                format!("{x:?}")
-                            } else {
-                                x.clone()
-                            }
-                        })
-                        .join(" ")
+                    let command_line = self.get_command_line_for_target(id);
+                    shlex::try_join(command_line.iter().map(String::as_str))
+                        .unwrap_or_else(|_| command_line.join(" "))
                 })
                 .collect()
         })
