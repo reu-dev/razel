@@ -1,5 +1,5 @@
 use crate::types::{RazelJson, Tag, Task};
-use crate::{Razel, parse_batch_file, parse_command};
+use crate::{Razel, Rules, parse_batch_file, parse_command};
 use anyhow::{Result, bail};
 use clap::{Args, Parser, Subcommand};
 use std::ffi::OsStr;
@@ -22,8 +22,12 @@ struct Cli {
 enum CliCommands {
     /// Execute a custom command
     Command {
-        #[clap(last = true, required = true)]
-        command: Vec<String>,
+        #[clap(flatten)]
+        command: CommandArgs,
+        #[clap(flatten)]
+        cache_args: CacheArgs,
+        #[clap(flatten)]
+        remote_exec_args: RemoteExecCliArgs,
     },
     /// Execute a single task
     #[clap(subcommand)]
@@ -54,6 +58,21 @@ enum CliCommands {
     System(SystemCommand),
     // TODO add Debug subcommand
     // TODO add upgrade subcommand
+}
+
+#[derive(Args, Debug)]
+pub struct CommandArgs {
+    /// Rule to parse input/output files from the command line, e.g. "cp <in> <out>"
+    #[clap(short, long, conflicts_with_all = ["inputs", "outputs"])]
+    pub rule: Option<String>,
+    /// Input file
+    #[clap(short = 'i', long = "input")]
+    pub inputs: Vec<String>,
+    /// Output file
+    #[clap(short = 'o', long = "output")]
+    pub outputs: Vec<String>,
+    #[clap(last = true, required = true)]
+    pub command: Vec<String>,
 }
 
 #[derive(Args, Debug)]
@@ -96,24 +115,10 @@ pub struct RunArgs {
     /// Max stdout/stderr bytes per passed testcase in JUnit report (0 = omit)
     #[clap(long, env = "RAZEL_JUNIT_PASSED_BYTES", default_value = "0")]
     pub junit_passed_output_bytes: usize,
-    /// Local cache directory (use --info to show default value)
-    #[clap(long, env = "RAZEL_CACHE_DIR")]
-    pub cache_dir: Option<PathBuf>,
-    /// Comma separated list of remote cache URLs
-    #[clap(long, env = "RAZEL_REMOTE_CACHE", value_delimiter = ',')]
-    pub remote_cache: Vec<String>,
-    /// Only cache commands with: output size / exec time < threshold [kilobyte / s]
-    #[clap(long, env = "RAZEL_REMOTE_CACHE_THRESHOLD")]
-    pub remote_cache_threshold: Option<u32>,
-    /// Comma separated list of remote execution server URLs
-    #[clap(long, env = "RAZEL_REMOTE_EXEC", value_delimiter = ',')]
-    pub remote_exec: Vec<Url>,
-    /// Auth token: JWT (audience `razel`) in CI, otherwise an opaque user-defined secret.
-    #[clap(long, env = "RAZEL_TOKEN", hide_env_values = true)]
-    pub remote_exec_token: Option<String>,
-    /// Project label for interactive remote execution
-    #[clap(long, env = "RAZEL_PROJECT")]
-    pub remote_exec_project: Option<String>,
+    #[clap(flatten)]
+    pub cache_args: CacheArgs,
+    #[clap(flatten)]
+    pub remote_exec_args: RemoteExecCliArgs,
     /// Http remote execution configuration
     #[clap(long, env = "RAZEL_HTTP_REMOTE_EXEC")]
     pub http_remote_exec: Option<HttpRemoteExecConfig>,
@@ -131,15 +136,37 @@ impl Default for RunArgs {
             junit_classname: None,
             junit_failed_output_bytes: 4096,
             junit_passed_output_bytes: 0,
-            cache_dir: None,
-            remote_cache: vec![],
-            remote_cache_threshold: None,
-            remote_exec: vec![],
+            cache_args: Default::default(),
+            remote_exec_args: Default::default(),
             http_remote_exec: None,
-            remote_exec_token: None,
-            remote_exec_project: None,
         }
     }
+}
+
+#[derive(Args, Debug, Default)]
+pub struct CacheArgs {
+    /// Local cache directory (use `razel exec --info` to show default value)
+    #[clap(long, env = "RAZEL_CACHE_DIR")]
+    pub cache_dir: Option<PathBuf>,
+    /// Comma separated list of remote cache URLs
+    #[clap(long, env = "RAZEL_REMOTE_CACHE", value_delimiter = ',')]
+    pub remote_cache: Vec<String>,
+    /// Only cache commands with: output size / exec time < threshold [kilobyte / s]
+    #[clap(long, env = "RAZEL_REMOTE_CACHE_THRESHOLD")]
+    pub remote_cache_threshold: Option<u32>,
+}
+
+#[derive(Args, Debug, Default)]
+pub struct RemoteExecCliArgs {
+    /// Comma separated list of remote execution server URLs
+    #[clap(long, env = "RAZEL_REMOTE_EXEC", value_delimiter = ',')]
+    pub remote_exec: Vec<Url>,
+    /// Auth token: JWT (audience `razel`) in CI, otherwise an opaque user-defined secret.
+    #[clap(long, env = "RAZEL_TOKEN", hide_env_values = true)]
+    pub remote_exec_token: Option<String>,
+    /// Project label for interactive remote execution
+    #[clap(long, env = "RAZEL_PROJECT")]
+    pub remote_exec_project: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -177,13 +204,27 @@ enum SystemCommand {
 pub async fn parse_cli(args: Vec<String>, razel: &mut Razel) -> Result<Option<RunArgs>> {
     let cli = Cli::parse_from(args.iter());
     Ok(match cli.command {
-        CliCommands::Command { command } => {
-            parse_command(razel, command)?;
-            Some(Default::default())
+        CliCommands::Command {
+            command,
+            cache_args,
+            remote_exec_args,
+        } => {
+            razel.single_target = true;
+            parse_command(razel, &Rules::new(), "command".into(), command)?;
+            Some(RunArgs {
+                verbose: true,
+                cache_args,
+                remote_exec_args,
+                ..Default::default()
+            })
         }
         CliCommands::Task(task) => {
+            razel.single_target = true;
             razel.push_task("task".to_string(), args, task, vec![])?;
-            Some(Default::default())
+            Some(RunArgs {
+                verbose: true,
+                ..Default::default()
+            })
         }
         CliCommands::Exec(exec) => {
             if let Some(x) = &exec.run_args.http_remote_exec {
@@ -221,14 +262,15 @@ pub async fn parse_cli(args: Vec<String>, razel: &mut Razel) -> Result<Option<Ru
 
 pub fn parse_cli_within_file(
     razel: &mut Razel,
+    rules: &Rules,
     args: Vec<String>,
     name: String,
     tags: Vec<Tag>,
 ) -> Result<()> {
     let cli = Cli::try_parse_from(args.iter())?;
     match cli.command {
-        CliCommands::Command { command } => {
-            parse_command(razel, command)?;
+        CliCommands::Command { command, .. } => {
+            parse_command(razel, rules, name, command)?;
         }
         CliCommands::Task(task) => {
             razel.push_task(name, args, task, tags)?;

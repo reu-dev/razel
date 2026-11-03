@@ -81,6 +81,8 @@ pub struct RemoteExecArgs {
 
 pub struct Razel {
     pub read_cache: bool,
+    /// Run a single target, e.g. to rerun a target of a previous build without affecting it
+    pub single_target: bool,
     worker_threads: usize,
     /// current working directory, read-only, used to execute commands
     current_dir: PathBuf,
@@ -122,6 +124,7 @@ impl Razel {
         let targets_builder = TargetsBuilder::new();
         Razel {
             read_cache: true,
+            single_target: false,
             worker_threads,
             current_dir,
             out_dir,
@@ -197,8 +200,9 @@ impl Razel {
             println!("# {}", target.name);
             println!(
                 "{}",
-                self.tui
-                    .format_command_line(&target.kind.command_line_with_redirects())
+                self.tui.format_command_line(
+                    &target.command_line_with_redirects(&self.dep_graph.files)
+                )
             );
             self.dep_graph.set_succeeded(id);
         }
@@ -236,12 +240,14 @@ impl Razel {
         if self.targets_builder.as_ref().unwrap().targets.is_empty() {
             bail!("No targets added");
         }
-        let metadata_dir = self.out_dir.join("razel-metadata");
-        self.add_log_writer(Box::new(LogFile::new(metadata_dir.join("log.json"))));
-        self.add_log_writer(Box::new(ReportWriter::new(
-            metadata_dir.join("report.json"),
-            group_by_tag,
-        )));
+        if !self.single_target {
+            let metadata_dir = self.out_dir.join("razel-metadata");
+            self.add_log_writer(Box::new(LogFile::new(metadata_dir.join("log.json"))));
+            self.add_log_writer(Box::new(ReportWriter::new(
+                metadata_dir.join("report.json"),
+                group_by_tag,
+            )));
+        }
         self.tui.verbose = verbose;
         if !remote_exec_args.urls.is_empty() {
             self.remote_exec = true;
@@ -309,7 +315,9 @@ impl Razel {
             preparation_duration: execution_start.duration_since(preparation_start),
             execution_duration: execution_start.elapsed(),
         };
-        self.tui.finished(&stats);
+        if !self.single_target {
+            self.tui.finished(&stats);
+        }
         self.write_metadata().context("Failed to write metadata")?;
         Ok(stats)
     }
@@ -373,6 +381,9 @@ impl Razel {
     }
 
     fn remove_unknown_or_excluded_files_from_out_dir(&self, dir: &Path) -> Result<()> {
+        if self.single_target {
+            return Ok(());
+        }
         for entry in fs::read_dir(dir)? {
             if let Ok(path) = entry.map(|x| x.path()) {
                 if path.is_dir() {
@@ -793,19 +804,22 @@ impl Razel {
 
     fn on_command_retry(&mut self, id: TargetId, execution_result: &ExecutionResult) {
         let target = &self.dep_graph.targets[id];
-        self.tui.target_retry(target, execution_result);
+        self.tui
+            .target_retry(target, &self.dep_graph.files, execution_result);
     }
 
     fn on_command_failed(&mut self, id: TargetId, execution_result: &ExecutionResult) {
         self.failed.push(id);
         let target = &self.dep_graph.targets[id];
-        self.tui.target_failed(target, execution_result);
+        self.tui
+            .target_failed(target, &self.dep_graph.files, execution_result);
         self.dep_graph.set_failed(id);
     }
 
     fn on_condition_failed(&mut self, id: TargetId, execution_result: &ExecutionResult) {
         let target = &self.dep_graph.targets[id];
-        self.tui.target_failed(target, execution_result);
+        self.tui
+            .target_failed(target, &self.dep_graph.files, execution_result);
         for skipped_id in self.dep_graph.set_failed(id) {
             let skipped = &self.dep_graph.targets[skipped_id];
             for log in &mut self.log_writers {
@@ -830,6 +844,10 @@ impl Razel {
     }
 
     fn write_metadata(&self) -> Result<()> {
+        if self.single_target {
+            assert!(self.log_writers.is_empty());
+            return Ok(());
+        }
         let dir = self.out_dir.join("razel-metadata");
         fs::create_dir_all(&dir)
             .with_context(|| format!("Failed to create metadata directory: {dir:?}"))?;

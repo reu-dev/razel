@@ -106,7 +106,9 @@ impl Razel {
             preparation_duration: execution_start.duration_since(preparation_start),
             execution_duration: execution_start.elapsed(),
         };
-        self.tui.finished(&stats);
+        if !self.single_target {
+            self.tui.finished(&stats);
+        }
         self.write_metadata().context("Failed to write metadata")?;
         Ok(stats)
     }

@@ -46,22 +46,23 @@ async fn main() -> Result<()> {
         )));
     }
     if run_args.info {
-        razel.show_info(run_args.cache_dir)?;
+        razel.show_info(run_args.cache_args.cache_dir)?;
         return Ok(());
     }
     if run_args.no_execution {
         razel.list_targets();
     } else {
-        let remote_exec = if run_args.remote_exec.is_empty() {
+        let remote_exec_args = run_args.remote_exec_args;
+        let remote_exec = if remote_exec_args.remote_exec.is_empty() {
             RemoteExecArgs::default()
         } else {
-            let Some(token) = run_args.remote_exec_token else {
+            let Some(token) = remote_exec_args.remote_exec_token else {
                 bail!("RAZEL_TOKEN is required for remote execution");
             };
             RemoteExecArgs {
-                urls: run_args.remote_exec,
+                urls: remote_exec_args.remote_exec,
                 token,
-                project: run_args.remote_exec_project,
+                project: remote_exec_args.remote_exec_project,
                 junit_classname: run_args.junit_classname.clone(),
             }
         };
@@ -70,9 +71,9 @@ async fn main() -> Result<()> {
                 run_args.keep_going,
                 run_args.verbose,
                 &run_args.group_by_tag,
-                run_args.cache_dir,
-                run_args.remote_cache,
-                run_args.remote_cache_threshold,
+                run_args.cache_args.cache_dir,
+                run_args.cache_args.remote_cache,
+                run_args.cache_args.remote_cache_threshold,
                 remote_exec,
             )
             .await?;
@@ -183,6 +184,81 @@ mod main {
             None,
         )
         .await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+    #[serial]
+    async fn command_with_rule() {
+        // without declared files, nothing is preopened and the module can't open its input
+        test_main(
+            vec![
+                config::EXECUTABLE,
+                "command",
+                "-r",
+                "cp <> <>",
+                "--",
+                "examples/bin/wasm32-wasi/cp.wasm",
+                "examples/data/a.csv",
+                "a.csv",
+            ],
+            SchedulerExecStats {
+                failed: 1,
+                ..Default::default()
+            },
+            0,
+            None,
+        )
+        .await;
+    }
+
+    /// Rerun a WASI target with the command line shown by razel
+    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+    #[serial]
+    async fn command_keeps_out_dir() {
+        razel::test_utils::setup_tracing();
+        let cargo_workspace_dir = Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap())
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        let _change_dir = ChangeDir::new(&cargo_workspace_dir);
+        let out_dir = Path::new(config::OUT_DIR);
+        let unknown_file = out_dir.join("unknown-file");
+        let input_file = out_dir.join("input-file");
+        let output_file = out_dir.join("output-file");
+        Razel::new().clean();
+        std::fs::create_dir_all(out_dir).unwrap();
+        std::fs::write(&unknown_file, "unknown").unwrap();
+        std::fs::write(&input_file, "input").unwrap();
+        let mut razel = Razel::new();
+        razel.read_cache = false;
+        parse_cli(
+            [
+                config::EXECUTABLE,
+                "command",
+                "-i",
+                "razel-out/input-file",
+                "-o",
+                "razel-out/output-file",
+                "--",
+                "examples/bin/wasm32-wasi/cp.wasm",
+                "razel-out/input-file",
+                "razel-out/output-file",
+            ]
+            .map(Into::into)
+            .into(),
+            &mut razel,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let stats = razel
+            .run(false, true, "", None, vec![], None, Default::default())
+            .await
+            .unwrap();
+        assert_eq!(stats.exec.succeeded, 1);
+        assert_eq!(std::fs::read_to_string(&output_file).unwrap(), "input");
+        assert!(unknown_file.exists());
+        assert!(!out_dir.join("razel-metadata").exists());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 8)]

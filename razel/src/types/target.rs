@@ -67,6 +67,34 @@ impl Target {
             .unwrap_or(1.0)
     }
 
+    pub fn command_line_with_redirects(&self, files: &[File]) -> Vec<String> {
+        match &self.kind {
+            TargetKind::Command(x) => x.command_line_with_redirects(),
+            TargetKind::Wasi(x) => {
+                let redirects = [&x.stdout_file, &x.stderr_file];
+                let outputs = self
+                    .outputs
+                    .iter()
+                    .map(|x| &files[*x].path)
+                    .filter(|x| !redirects.iter().any(|r| r.as_ref() == Some(*x)));
+                [config::EXECUTABLE.to_string(), "command".into()]
+                    .into_iter()
+                    .chain(
+                        self.inputs
+                            .iter()
+                            .flat_map(|x| ["-i".into(), files[*x].path.to_str().unwrap().into()]),
+                    )
+                    .chain(outputs.flat_map(|x| ["-o".into(), x.to_str().unwrap().into()]))
+                    .chain(once("--".into()))
+                    .chain(x.command_line_with_redirects())
+                    .collect()
+            }
+            TargetKind::Task(x) | TargetKind::HttpRemoteExecTask(x) => {
+                x.command_line_with_redirects()
+            }
+        }
+    }
+
     pub fn locks(&self) -> impl Iterator<Item = &str> + '_ {
         self.tags.iter().filter_map(|t| {
             if let Tag::Lock(x) = t {
@@ -97,23 +125,6 @@ impl TargetKind {
             ]
             .into_iter()
             .chain(x.args_with_executable())
-            .collect(),
-            TargetKind::Task(x) | TargetKind::HttpRemoteExecTask(x) => {
-                x.command_line_with_redirects()
-            }
-        }
-    }
-
-    pub fn command_line_with_redirects(&self) -> Vec<String> {
-        match self {
-            TargetKind::Command(x) => x.command_line_with_redirects(),
-            TargetKind::Wasi(x) => [
-                config::EXECUTABLE.to_string(),
-                "command".into(),
-                "--".into(),
-            ]
-            .into_iter()
-            .chain(x.command_line_with_redirects())
             .collect(),
             TargetKind::Task(x) | TargetKind::HttpRemoteExecTask(x) => {
                 x.command_line_with_redirects()

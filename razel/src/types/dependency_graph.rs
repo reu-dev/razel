@@ -75,7 +75,7 @@ impl DependencyGraph {
 
     pub fn get_command_line_for_target(&self, target_id: TargetId) -> Vec<String> {
         let target = &self.targets[target_id];
-        target.kind.command_line_with_redirects()
+        target.command_line_with_redirects(&self.files)
     }
 
     pub fn get_command_lines_for_target_with_deps(&self, name: &str) -> Result<Vec<String>> {

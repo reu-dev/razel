@@ -1,5 +1,5 @@
 use crate::executors::ExecutionResult;
-use crate::types::{Tag, Target};
+use crate::types::{File, Tag, Target};
 use crate::{SchedulerStats, config};
 use bstr::ByteSlice;
 use crossterm::cursor::{RestorePosition, SavePosition};
@@ -59,17 +59,17 @@ impl TUI {
             return;
         }
         self.clear_status();
+        let mut details = target.name.clone();
+        if let Some(duration) = execution_result.exec_duration {
+            details += &format!(" {A_BOLD}{C_BLUE}{duration:?}{C_RESET}{A_RESET}");
+        }
+        if let Some(cache_hit) = &execution_result.cache_hit {
+            details += &format!(" ({} cache)", format!("{cache_hit:?}").to_lowercase());
+        }
         Self::field(
             format!("{:?} ", execution_result.status).as_str(),
             Color::Green,
-            if let Some(duration) = execution_result.exec_duration {
-                format!(
-                    "{} {A_BOLD}{C_BLUE}{:?}{C_RESET}{A_RESET}",
-                    target.name, duration,
-                )
-            } else {
-                target.name.clone()
-            },
+            details,
         );
         let print_stream_name = !stdout.is_empty() && !stderr.is_empty();
         Self::field(
@@ -84,17 +84,28 @@ impl TUI {
         );
     }
 
-    pub fn target_failed(&mut self, target: &Target, execution_result: &ExecutionResult) {
-        self.target_failed_impl(target, execution_result, false);
+    pub fn target_failed(
+        &mut self,
+        target: &Target,
+        files: &[File],
+        execution_result: &ExecutionResult,
+    ) {
+        self.target_failed_impl(target, files, execution_result, false);
     }
 
-    pub fn target_retry(&mut self, target: &Target, execution_result: &ExecutionResult) {
-        self.target_failed_impl(target, execution_result, true);
+    pub fn target_retry(
+        &mut self,
+        target: &Target,
+        files: &[File],
+        execution_result: &ExecutionResult,
+    ) {
+        self.target_failed_impl(target, files, execution_result, true);
     }
 
     fn target_failed_impl(
         &mut self,
         target: &Target,
+        files: &[File],
         execution_result: &ExecutionResult,
         will_retry: bool,
     ) {
@@ -129,7 +140,7 @@ impl TUI {
         Self::field(
             "command:   ",
             Color::Blue,
-            self.format_command_line(&target.kind.command_line_with_redirects())
+            self.format_command_line(&target.command_line_with_redirects(files))
                 .as_str(),
         );
         if let Some(env) = target.kind.env() {
@@ -291,5 +302,19 @@ impl TUI {
 impl Default for TUI {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_command_line_quotes_args() {
+        let args = ["cp", "a b", "", "out", ">", "stdout"].map(String::from);
+        assert_eq!(
+            TUI::new().format_command_line(&args),
+            "cp 'a b' '' out '>' stdout"
+        );
     }
 }

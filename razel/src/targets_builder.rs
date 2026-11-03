@@ -407,7 +407,11 @@ impl TargetsBuilder {
     }
 
     fn push_output_file_with_relative_path(&mut self, arg: &str) -> Result<FileId> {
-        let path = self.rel_path(arg);
+        let mut path = self.rel_path(arg);
+        // accept paths with out_dir prefix, e.g. from a command line shown by razel
+        if let Ok(x) = path.strip_prefix(&self.out_dir) {
+            path = x.into();
+        }
         if let Some(id) = self.file_by_path.get(&path) {
             if !self.files[*id].path.starts_with(&self.out_dir) {
                 bail!(
@@ -569,6 +573,24 @@ mod tests {
         let inputs = &b.targets[a].inputs;
         assert!(inputs.iter().all_equal());
         assert_eq!(b.files[inputs[0]].path, Path::new("b").join("file"));
+    }
+
+    #[test]
+    fn output_file_paths_with_out_dir_prefix() {
+        let mut b = TargetsBuilder::new();
+        let mut c = command("a", "diff");
+        c.outputs = vec!["file".into(), "razel-out/file2".into()];
+        c.stdout = Some("razel-out/stdout".into());
+        let a = b.push_json_command(c).unwrap();
+        let paths = b.targets[a]
+            .outputs
+            .iter()
+            .map(|x| b.files[*x].path.clone())
+            .collect_vec();
+        assert_eq!(
+            paths,
+            ["file", "file2", "stdout"].map(|x| b.out_dir.join(x))
+        );
     }
 
     #[test]

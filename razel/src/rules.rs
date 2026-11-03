@@ -18,6 +18,7 @@ use tracing::warn;
 /// * then named arguments are parsed
 /// * other arguments are ignored
 /// * stdout/stderr redirects should be handled beforehand
+#[derive(Clone)]
 pub struct Rules {
     rules: HashMap<String, Rule>,
 }
@@ -210,6 +211,7 @@ impl Default for Rules {
     }
 }
 
+#[derive(Clone)]
 struct Rule {
     executable: String,
     options: HashMap<String, Arg>,
@@ -340,6 +342,7 @@ impl Rule {
     }
 }
 
+#[derive(Clone)]
 struct Arg {
     file_type: ArgFileType,
     multiple: bool,
