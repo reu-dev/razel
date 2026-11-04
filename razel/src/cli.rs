@@ -334,7 +334,11 @@ mod tests {
             "razel".to_string(),
             "task".into(),
             "write-file".into(),
-            format!("razel-out/{output}"),
+            Path::new(crate::config::OUT_DIR)
+                .join(&output)
+                .to_str()
+                .unwrap()
+                .into(),
             "a".into(),
         ];
         for argv0 in ["razel", "razel.exe", "/path/to/razel"] {
