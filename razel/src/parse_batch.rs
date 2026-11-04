@@ -188,9 +188,15 @@ mod tests {
             .unwrap();
         let builder = razel.targets_builder.as_ref().unwrap();
         let command_line = builder.targets[0].command_line_with_redirects(&builder.files);
+        let out = |x: &str| builder.out_dir.join(x).to_str().unwrap().to_string();
         assert_eq!(
             command_line.join(" "),
-            "razel command -i in -o razel-out/out -- ./x.wasm -i in razel-out/out > razel-out/stdout"
+            format!(
+                "razel command -i in -o {} -- ./x.wasm -i in {} > {}",
+                out("out"),
+                out("out"),
+                out("stdout")
+            )
         );
         let mut reparsed = Razel::new();
         parse_cli_within_file(
