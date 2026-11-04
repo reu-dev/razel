@@ -82,7 +82,7 @@ jobs:
 
       - run: cargo run -- exec --info -f examples/razel.jsonl
 
-      - run: cargo test -- --nocapture --skip real_time_test --skip grpc_server
+      - run: cargo test --no-fail-fast -- --nocapture --skip real_time_test --skip grpc_server
 
       # install binary, to be used by following API tests
       - run: cargo install --force --locked --path razel
