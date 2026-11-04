@@ -309,7 +309,11 @@ fn import(razel: &mut Razel, output: &Path, files: Vec<String>) -> Result<()> {
     for file in files {
         apply_file(razel, &file)?;
     }
-    razel.write_jsonl(output)
+    razel
+        .targets_builder
+        .as_ref()
+        .unwrap()
+        .write_jsonl_file(output)
 }
 
 #[cfg(test)]

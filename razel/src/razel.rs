@@ -881,7 +881,6 @@ impl RazelJsonHandler for Razel {
     }
 }
 
-mod import;
 #[cfg(feature = "remote_exec")]
 mod remote_exec;
 mod system;
