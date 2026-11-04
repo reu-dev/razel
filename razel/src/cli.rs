@@ -219,7 +219,7 @@ pub async fn parse_cli(args: Vec<String>, razel: &mut Razel) -> Result<Option<Ru
         }
         CliCommands::Task(task) => {
             razel.single_target = true;
-            razel.push_task("task".to_string(), args, task, vec![])?;
+            razel.push_task("task".to_string(), task_args(args), task, vec![])?;
             Some(RunArgs {
                 verbose: true,
                 ..Default::default()
@@ -272,11 +272,18 @@ pub fn parse_cli_within_file(
             parse_command(razel, rules, name, command)?;
         }
         CliCommands::Task(task) => {
-            razel.push_task(name, args, task, tags)?;
+            razel.push_task(name, task_args(args), task, tags)?;
         }
         _ => bail!("Razel subcommand not allowed within files"),
     }
     Ok(())
+}
+
+/// Returns the args of a task in the razel.jsonl form `["task", <task>, <args>...]`.
+///
+/// They are used for the cache key, therefore must not depend on argv[0].
+fn task_args(args: Vec<String>) -> Vec<String> {
+    args.into_iter().skip(1).collect()
 }
 
 fn apply_file(razel: &mut Razel, file: &String) -> Result<()> {
@@ -303,4 +310,47 @@ fn import(razel: &mut Razel, output: &Path, files: Vec<String>) -> Result<()> {
         apply_file(razel, &file)?;
     }
     razel.write_jsonl(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::new_tmp_dir;
+
+    fn args_with_executable(razel: &Razel) -> Vec<String> {
+        let builder = razel.targets_builder.as_ref().unwrap();
+        builder.targets[0].kind.args_with_executable()
+    }
+
+    #[tokio::test]
+    async fn task_args_are_independent_of_source() {
+        let dir = new_tmp_dir!();
+        let output = dir.join("out.txt").to_str().unwrap().to_string();
+        let expected = [
+            "razel".to_string(),
+            "task".into(),
+            "write-file".into(),
+            format!("razel-out/{output}"),
+            "a".into(),
+        ];
+        for argv0 in ["razel", "razel.exe", "/path/to/razel"] {
+            let mut razel = Razel::new();
+            let args = [argv0, "task", "write-file", &output, "a"];
+            parse_cli(args.map(String::from).to_vec(), &mut razel)
+                .await
+                .unwrap();
+            assert_eq!(args_with_executable(&razel), expected, "{argv0}");
+        }
+        let file = dir.join_and_write_file("batch.sh", "razel task write-file out.txt a");
+        let mut razel = Razel::new();
+        apply_file(&mut razel, &file.to_str().unwrap().to_string()).unwrap();
+        assert_eq!(args_with_executable(&razel), expected);
+        let file = dir.join_and_write_file(
+            "razel.jsonl",
+            r#"{"name":"a","task":"write-file","args":["out.txt","a"]}"#,
+        );
+        let mut razel = Razel::new();
+        apply_file(&mut razel, &file.to_str().unwrap().to_string()).unwrap();
+        assert_eq!(args_with_executable(&razel), expected);
+    }
 }

@@ -126,9 +126,7 @@ impl TargetKind {
             .into_iter()
             .chain(x.args_with_executable())
             .collect(),
-            TargetKind::Task(x) | TargetKind::HttpRemoteExecTask(x) => {
-                x.command_line_with_redirects()
-            }
+            TargetKind::Task(x) | TargetKind::HttpRemoteExecTask(x) => x.args_with_executable(),
         }
     }
 
@@ -182,16 +180,19 @@ impl CommandTarget {
 /// A razel builtin task, see `razel task`
 #[derive(Clone, Serialize, Deserialize)]
 pub struct TaskTarget {
+    /// `["task", <task>, <args>...]`
     pub args: Vec<String>,
     pub task: Task,
 }
 
 impl TaskTarget {
     pub fn args_with_executable(&self) -> Vec<String> {
-        self.args.clone()
+        once(config::EXECUTABLE.to_string())
+            .chain(self.args.iter().cloned())
+            .collect()
     }
 
     pub fn command_line_with_redirects(&self) -> Vec<String> {
-        self.args.clone()
+        self.args_with_executable()
     }
 }

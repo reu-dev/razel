@@ -134,6 +134,6 @@ flowchart LR
 fn executable(target: &Target) -> String {
     match &target.kind {
         TargetKind::Command(x) | TargetKind::Wasi(x) => x.executable.clone(),
-        TargetKind::Task(x) | TargetKind::HttpRemoteExecTask(x) => x.args.iter().take(3).join(" "),
+        TargetKind::Task(x) | TargetKind::HttpRemoteExecTask(x) => x.args.iter().take(2).join(" "),
     }
 }

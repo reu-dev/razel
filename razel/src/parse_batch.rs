@@ -80,7 +80,8 @@ fn create_command(
     mut command_line: Vec<String>,
     files: Option<ParseCommandResult>,
 ) -> Result<()> {
-    if command_line.first().unwrap() == config::EXECUTABLE {
+    let executable = command_line.first().unwrap();
+    if executable.strip_suffix(".exe").unwrap_or(executable) == config::EXECUTABLE {
         if files.is_some() {
             bail!("input/output files can't be specified for nested razel command");
         }
