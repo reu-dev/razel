@@ -91,12 +91,10 @@ impl Rules {
     }
 
     /// Hardcoded parser for sox, whose general form is:
-    ///   sox [global-opts] [format-opts] infile... outfile [effect [effect-opts]...]
+    ///   sox [global-opts] [format-opts] infile... [format-opts] outfile [effect [effect-opts]...]
     ///
-    /// Strategy:
-    /// - Walk args left-to-right, skipping flags and their values.
-    /// - Collect plain positional items until the first recognised effect keyword.
-    /// - Everything collected is a file: all but the last are inputs, the last is output.
+    /// Format options might be interleaved with the files and effects follow the output file,
+    /// therefore the generic rules can't be used.
     fn eval_sox(args: &[String]) -> Result<ParseCommandResult> {
         /// Options that consume the next token as their value.
         const VALUE_FLAGS: &[&str] = &[
@@ -110,14 +108,23 @@ impl Rules {
             "--rate",
             "-c",
             "--channels",
-            "-L",
-            "-B",
-            "-x", // endianness (no value, but harmless to list here)
             "--combine",
             "-v",
             "--volume",
-            "--ignore-length",
+            "--buffer",
+            "--input-buffer",
+            "--play-rate-arg",
+            "--plot",
+            "--replay-gain",
+            "--temp",
+            "--endian",
+            "--add-comment",
+            "--comment",
+            "-C",
+            "--compression",
         ];
+        /// Options taking an input file.
+        const INPUT_OPTIONS: &[&str] = &["--effects-file", "--comment-file"];
         /// Known effect names; seeing one of these ends the file-argument section.
         const EFFECTS: &[&str] = &[
             "trim",
@@ -158,38 +165,68 @@ impl Rules {
             "synth",
             "newfile",
             "restart",
+            "band",
+            "bend",
+            "biquad",
+            "chorus",
+            "contrast",
+            "dcshift",
+            "deemph",
+            "delay",
+            "divide",
+            "downsample",
+            "earwax",
+            "echos",
+            "fir",
+            "firfit",
+            "hilbert",
+            "ladspa",
+            "loudness",
+            "mcompand",
+            "oops",
+            "riaa",
+            "sinc",
+            "splice",
+            "stretch",
+            "tempo",
+            "tremolo",
+            "upsample",
+            "vad",
         ];
-        let mut files: Vec<String> = Vec::new();
-        let mut skip_next = false;
-        for arg in args {
-            if skip_next {
-                skip_next = false;
-                continue;
-            }
+        /// Special file names: null file, audio device, stdin/stdout and sox pipe.
+        const NO_FILES: &[&str] = &[
+            "-n",
+            "--null",
+            "-d",
+            "--default-device",
+            "-",
+            "-p",
+            "--sox-pipe",
+        ];
+        let mut inputs = vec![];
+        let mut files = vec![];
+        let mut args = args.iter();
+        while let Some(arg) = args.next() {
             if VALUE_FLAGS.contains(&arg.as_str()) {
-                skip_next = true;
-                continue;
-            }
-            // Any remaining flag (starts with '-') is a boolean global option — skip it.
-            if arg.starts_with('-') {
-                continue;
-            }
-            // First recognised effect keyword ends the file section.
-            if EFFECTS.contains(&arg.as_str()) {
+                args.next();
+            } else if INPUT_OPTIONS.contains(&arg.as_str()) {
+                inputs.extend(args.next().cloned());
+            } else if EFFECTS.contains(&arg.as_str()) {
                 break;
+            } else if NO_FILES.contains(&arg.as_str()) || !arg.starts_with('-') {
+                files.push(arg);
             }
-            files.push(arg.clone());
+            // other options are flags without value
         }
         if files.len() < 2 {
-            bail!(
-                "sox: expected at least one input and one output file, got {:?}",
-                files
-            );
+            bail!("sox: expected at least one input and one output file, got {files:?}");
         }
-        let output = files.pop().unwrap();
+        let is_file = |x: &&String| !NO_FILES.contains(&x.as_str());
+        let output = files.pop().filter(is_file);
+        inputs.extend(files.into_iter().filter(is_file).cloned());
         Ok(ParseCommandResult {
-            inputs: files,
-            outputs: vec![output],
+            inputs,
+            outputs: output.into_iter().cloned().collect(),
         })
     }
 
@@ -503,5 +540,49 @@ mod tests {
             &["in1.wav", "in2.wav"],
             &["out.wav"],
         );
+        rules.test("sox -L in.raw out.wav", &["in.raw"], &["out.wav"]);
+        rules.test("sox -B -x in.raw out.wav", &["in.raw"], &["out.wav"]);
+        rules.test(
+            "sox -L in1.raw -L in2.raw out.wav",
+            &["in1.raw", "in2.raw"],
+            &["out.wav"],
+        );
+        rules.test(
+            "sox --ignore-length in.wav out.wav",
+            &["in.wav"],
+            &["out.wav"],
+        );
+        rules.test("sox in.wav -r 22050 out.wav", &["in.wav"], &["out.wav"]);
+        rules.test(
+            "sox -t raw -r 8000 -c 1 in.raw -t wav -r 22050 out.wav",
+            &["in.raw"],
+            &["out.wav"],
+        );
+        rules.test("sox in.wav -C 5 out.flac", &["in.wav"], &["out.flac"]);
+        rules.test(
+            "sox -v 0.5 in1.wav -v 2 in2.wav -m out.wav",
+            &["in1.wav", "in2.wav"],
+            &["out.wav"],
+        );
+        rules.test(
+            "sox --effects-file fx.txt in.wav out.wav",
+            &["fx.txt", "in.wav"],
+            &["out.wav"],
+        );
+        rules.test("sox in.wav out.wav tempo 1.5", &["in.wav"], &["out.wav"]);
+        rules.test(
+            "sox in.wav out.wav highpass 100 gain -3 fade 0.1 0 0.1",
+            &["in.wav"],
+            &["out.wav"],
+        );
+        rules.test("sox -n out.wav synth 1 sine 440", &[], &["out.wav"]);
+        rules.test("sox in.wav -n stats", &["in.wav"], &[]);
+        rules.test("sox in.wav -n noiseprof noise.prof", &["in.wav"], &[]);
+        rules.test("sox in.wav -t wav - trim 0 1", &["in.wav"], &[]);
+        rules.test("sox - out.wav", &[], &["out.wav"]);
+        rules.test("sox in.wav -d", &["in.wav"], &[]);
+        rules.test("sox in.wav -p", &["in.wav"], &[]);
+        rules.test_fail("sox in.wav");
+        rules.test_fail("sox in.wav trim 0 1");
     }
 }
