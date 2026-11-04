@@ -11,12 +11,15 @@ use tracing::warn;
 /// * first word is the program
 /// * only input (<in>) and output (<out>) file arguments need to be specified, other arguments (<>) will be ignored
 /// * multiple file arguments are marked with ...
+/// * options taking a value which is no file should be specified with <>, e.g. `-x <>`,
+///   otherwise the value might be parsed as positional argument, e.g. `clang -x c src.c`
 ///
 /// Parsing commands using the rules:
 /// * the first command line argument (program) selects the rule(s)
-/// * positional arguments are parsed backwards from the command line
-/// * then named arguments are parsed
-/// * other arguments are ignored
+/// * named arguments are parsed with their values, they might appear anywhere
+/// * other arguments starting with '-' are assumed to be flags without value and ignored
+/// * the remaining arguments are positional, they are assigned backwards from the command line
+/// * a positional argument taking multiple values only takes consecutive arguments, not interrupted by options
 /// * stdout/stderr redirects should be handled beforehand
 #[derive(Clone)]
 pub struct Rules {
@@ -284,51 +287,54 @@ impl Rule {
 
     pub fn eval_args(&self, items: &[String]) -> Result<ParseCommandResult> {
         let mut files: ParseCommandResult = Default::default();
+        // positional arguments with the index of their group of consecutive arguments
+        let mut positionals: Vec<(usize, &String)> = Default::default();
+        let mut group = 0;
         let mut prev_option: Option<&Arg> = None;
-        let mut positionals_missing = self.positional_args.len();
-        let mut first_positional = 0;
-        for (i, item) in items
-            .iter()
-            .enumerate()
-            .take(items.len().saturating_sub(positionals_missing))
-        {
-            let mut is_option = true;
-            let curr_option = self.options.get(item);
-            match (prev_option, curr_option) {
-                (None, None) => is_option = item.starts_with('-'),
-                (None, Some(arg)) => prev_option = Some(arg),
-                (Some(arg), None) => {
+        for (i, item) in items.iter().enumerate() {
+            if let Some(arg) = prev_option.filter(|x| x.multiple) {
+                // values of multiple named args end with the next option and
+                // must leave enough arguments for the positional args
+                let positionals_missing =
+                    self.positional_args.len().saturating_sub(positionals.len());
+                if item.starts_with('-') || items.len() - i <= positionals_missing {
+                    prev_option = None;
+                } else if !self.options.contains_key(item) {
                     files.push(arg.file_type, item.clone());
-                    if !arg.multiple {
-                        prev_option = None;
-                    }
-                }
-                (Some(_), Some(arg)) => {
-                    prev_option = Some(arg);
+                    continue;
                 }
             }
-            if is_option {
-                first_positional = i + 1;
+            if let Some(arg) = self.options.get(item) {
+                prev_option = Some(arg);
+                group += 1;
+            } else if let Some(arg) = prev_option.take() {
+                files.push(arg.file_type, item.clone());
+            } else if item.starts_with('-') {
+                group += 1;
+            } else {
+                positionals.push((group, item));
             }
         }
-        if items.len().saturating_sub(first_positional) < positionals_missing {
+        let mut positionals_missing = self.positional_args.len();
+        if positionals.len() < positionals_missing {
             bail!(
                 "expected {positionals_missing} positional arguments, found only {}",
-                items.len().saturating_sub(first_positional)
+                positionals.len()
             );
         }
         let mut positional_files: ParseCommandResult = Default::default();
-        let mut len = items.len();
+        let mut len = positionals.len();
         for arg in self.positional_args.iter().rev() {
             positionals_missing -= 1;
             if arg.multiple {
-                while len - positionals_missing > first_positional {
+                let group = positionals[len - 1].0;
+                while len > positionals_missing && positionals[len - 1].0 == group {
                     len -= 1;
-                    positional_files.push(arg.file_type, items[len].clone());
+                    positional_files.push(arg.file_type, positionals[len].1.clone());
                 }
             } else {
                 len -= 1;
-                positional_files.push(arg.file_type, items[len].clone());
+                positional_files.push(arg.file_type, positionals[len].1.clone());
             }
         }
         assert_eq!(positionals_missing, 0);
@@ -422,6 +428,45 @@ mod tests {
         );
         rules.test("clang -O3 -o out.a src.c", &["src.c"], &["out.a"]);
         rules.test("clang src.c", &["src.c"], &[]);
+        rules.test("clang src.c -o out", &["src.c"], &["out"]);
+        rules.test("clang -c src.c -o out.o", &["src.c"], &["out.o"]);
+        rules.test("clang -c a.c b.c -o out", &["a.c", "b.c"], &["out"]);
+        rules.test("clang -I include -o out src.c", &["src.c"], &["out"]);
+        rules.test("clang -x c -o out src.c", &["src.c"], &["out"]);
+        rules.test(
+            "c++ -target arm64-apple-macos -arch arm64 -o out a.cpp",
+            &["a.cpp"],
+            &["out"],
+        );
+        rules.test(
+            "cc -isystem /usr/include/x -MD -MT obj/a.c.o -MF obj/a.c.o.d -o obj/a.c.o -c a.c",
+            &["a.c"],
+            &["obj/a.c.o.d", "obj/a.c.o"],
+        );
+        rules.test(
+            "c++ -o out a.cpp b.cpp -MF out.d",
+            &["a.cpp", "b.cpp"],
+            &["out", "out.d"],
+        );
+        // only the last group of consecutive positional arguments is used
+        rules.test("c++ -o out a.cpp -DX=1 b.cpp", &["b.cpp"], &["out"]);
+        rules.test("cp a b c", &["b"], &["c"]);
+    }
+
+    #[test]
+    fn rules_custom() {
+        let mut rules = Rules::new();
+        rules.add("tool -i <in>... -v <> <out>").unwrap();
+        rules.test("tool -i a b out", &["a", "b"], &["out"]);
+        rules.test("tool -i a b -f out", &["a", "b"], &["out"]);
+        rules.test("tool out -i a b", &["a", "b"], &["out"]);
+        rules.test("tool -v 1 -i a -v 2 out", &["a"], &["out"]);
+        rules.test("tool -v 1 out", &[], &["out"]);
+        rules.test("tool -i a", &[], &["a"]);
+        rules.test_fail("tool -i");
+        rules.add("gen <> <out>...").unwrap();
+        rules.test("gen x a b", &[], &["a", "b"]);
+        rules.test("gen -f x -g a", &[], &["a"]);
     }
 
     #[test]
