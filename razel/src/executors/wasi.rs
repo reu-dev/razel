@@ -146,7 +146,12 @@ impl WasiExecutor {
             }
             Err(error) => {
                 if let Some(exit_code) = error.downcast_ref::<I32Exit>() {
-                    execution_result.status = ExecutionStatus::Failed;
+                    // proc_exit() is reported as error, even for exit code 0
+                    execution_result.status = if exit_code.0 == 0 {
+                        ExecutionStatus::Success
+                    } else {
+                        ExecutionStatus::Failed
+                    };
                     execution_result.exit_code = Some(exit_code.0);
                 } else {
                     execution_result.status = ExecutionStatus::Crashed;
