@@ -11,7 +11,6 @@ pub use http_remote_exec_config::*;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
-#[clap(infer_subcommands = true)]
 struct Cli {
     #[clap(subcommand)]
     command: CliCommands,
