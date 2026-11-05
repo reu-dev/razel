@@ -31,8 +31,8 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: denoland/setup-deno@v1
+      - uses: actions/checkout@v7
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
       - name: Configure git
         run: |
           git config user.email "${{github.actor}}@users.noreply.github.com"
@@ -66,18 +66,19 @@ jobs:
             target: x86_64-pc-windows-msvc
     steps:
       - run: echo ${{needs.bump-version-and-create-tag.outputs.TAG}}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           lfs: true
           ref: refs/tags/${{needs.bump-version-and-create-tag.outputs.TAG}}
-      - uses: arduino/setup-protoc@v3
+      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
         with:
-          repo-token: ${{secrets.GITHUB_TOKEN}}
-      - uses: Swatinem/rust-cache@v2
+          tool: protoc
+          fallback: none
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: rustup show
       - run: rustup target add ${{matrix.target}}
       - run: cargo build --release --target ${{matrix.target}} --bin razel
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: razel-${{matrix.target}}
           path: |
@@ -94,7 +95,7 @@ jobs:
       contents: write
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
       - run: ls -al
       - run: ls -al razel-*/
       - name: Zip binaries
@@ -105,7 +106,7 @@ jobs:
           done
         shell: bash
       - run: ls -al
-      - uses: softprops/action-gh-release@v1
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           generate_release_notes: true
           tag_name: ${{needs.bump-version-and-create-tag.outputs.TAG}}
@@ -119,12 +120,13 @@ jobs:
       - publish-github
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: refs/tags/${{needs.bump-version-and-create-tag.outputs.TAG}}
-      - uses: arduino/setup-protoc@v3
+      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
         with:
-          repo-token: ${{secrets.GITHUB_TOKEN}}
+          tool: protoc
+          fallback: none
       - run: cargo publish --package razel
         env:
           CARGO_REGISTRY_TOKEN: ${{secrets.CARGO_REGISTRY_TOKEN}}
@@ -135,7 +137,7 @@ jobs:
       - publish-github
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: refs/tags/${{needs.bump-version-and-create-tag.outputs.TAG}}
       - run: .dist/publish-pypi.sh ${{needs.bump-version-and-create-tag.outputs.VERSION}}

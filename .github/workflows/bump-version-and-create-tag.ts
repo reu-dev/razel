@@ -53,7 +53,11 @@ function appendToOutputFile(path: string, version: string, tag: string) {
 
 async function exec(cmd: string[]) {
     console.log(cmd.join(" "));
-    const status = await Deno.run({cmd}).status();
+    const status = await new Deno.Command(cmd[0], {
+        args: cmd.slice(1),
+        stdout: "inherit",
+        stderr: "inherit",
+    }).spawn().status;
     assert(status.success);
 }
 

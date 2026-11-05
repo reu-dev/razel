@@ -11,14 +11,15 @@ jobs:
   code-style:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: 3.8
-      - uses: arduino/setup-protoc@v3
+      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: Swatinem/rust-cache@v2
+          tool: protoc
+          fallback: none
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo fmt --check
       - run: cargo clippy --bins --tests
       - run: pip install mypy
@@ -45,25 +46,24 @@ jobs:
     env:
       CARGO_BUILD_TARGET: ${{matrix.target}}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           lfs: true
 
-      - uses: denoland/setup-deno@v1
-        with:
-          deno-version: v1.x
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
 
-      - uses: arduino/setup-protoc@v3
+      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          tool: protoc
+          fallback: none
 
       - name: cache deno
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .deno-cache/deps
           key: ${{ runner.os }}-deno-${{ hashFiles('apis/deno/razel.ts', 'examples/deno.ts') }}
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - run: cmake --version
       - run: deno info
@@ -93,7 +93,7 @@ jobs:
 
       # test local version of Python API
       - name: Set up python3.8
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: 3.8
       - run: python3 examples/python.py
@@ -101,7 +101,7 @@ jobs:
           PYTHONPATH: apis/python
       - run: git diff --exit-code examples/razel.jsonl
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: razel-${{github.ref_name}}-${{matrix.target}}
           path: |
