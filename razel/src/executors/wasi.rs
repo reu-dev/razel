@@ -36,9 +36,7 @@ impl SharedWasiExecutorState {
     }
 
     fn new_engine() -> Result<Engine> {
-        let mut config = Config::new();
-        config.cranelift_nan_canonicalization(true);
-        let engine = Engine::new(&config)
+        let engine = Engine::new(&Config::new())
             .map_err(anyhow::Error::from)
             .context("create WASM engine")?;
         Ok(engine)
