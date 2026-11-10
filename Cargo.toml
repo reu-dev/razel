@@ -5,7 +5,7 @@ resolver = "3"
 [workspace.package]
 version = "0.5.7"
 edition = "2024"
-rust-version = "1.93"
+rust-version = "1.97"
 authors = ["Stefan Reuschl <stefan@reu-dev.de>"]
 description = "a command executor with caching for data processing pipelines"
 categories = ["caching", "concurrency", "command-line-utilities", "development-tools::testing", "filesystem"]
@@ -31,8 +31,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "local-time"] }
 uuid = { version = "1", features = ["serde", "v7", "js"] }
 url = { version = "2", features = ["serde"] }
-wasmtime = { version = "31", default-features = false, features = ["async", "cranelift", "pooling-allocator", "runtime"] }
-wasmtime-wasi = { version = "31" }
+wasmtime = { version = "50", default-features = false, features = ["anyhow", "async", "cranelift", "pooling-allocator", "runtime"] }
+wasmtime-wasi = { version = "50" }
 
 # optimize some dependencies also for dev profile
 [profile.dev.package.sha2]

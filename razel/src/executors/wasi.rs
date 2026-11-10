@@ -9,9 +9,9 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Mutex;
 use wasmtime::{Config, Engine, Linker, Module, Store};
-use wasmtime_wasi::pipe::MemoryOutputPipe;
-use wasmtime_wasi::preview1::{WasiP1Ctx, add_to_linker_async};
-use wasmtime_wasi::{DirPerms, FilePerms, I32Exit, WasiCtxBuilder};
+use wasmtime_wasi::p1::{WasiP1Ctx, add_to_linker_async};
+use wasmtime_wasi::p2::pipe::MemoryOutputPipe;
+use wasmtime_wasi::{FsPerms, I32Exit, WasiCtxBuilder};
 
 struct WasiExecutorState {
     engine: Option<Engine>,
@@ -37,12 +37,10 @@ impl SharedWasiExecutorState {
 
     fn new_engine() -> Result<Engine> {
         let mut config = Config::new();
-        config.async_support(true);
-        // Use Unix signals instead of Mach ports on macOS: wasmtime <50 aborts the process
-        // when a caught signal (e.g. SIGCHLD) interrupts its Mach exception handler thread.
-        config.macos_use_mach_ports(false);
         config.cranelift_nan_canonicalization(true);
-        let engine = Engine::new(&config).context("create WASM engine")?;
+        let engine = Engine::new(&config)
+            .map_err(anyhow::Error::from)
+            .context("create WASM engine")?;
         Ok(engine)
     }
 
@@ -132,9 +130,11 @@ impl WasiExecutor {
         let instance = linker
             .instantiate_async(&mut store, &module)
             .await
+            .map_err(anyhow::Error::from)
             .context("linker.instantiate()")?;
         let func = instance
             .get_typed_func::<(), ()>(&mut store, "_start")
+            .map_err(anyhow::Error::from)
             .context("instance.get_typed_func(_start)")?;
 
         let mut execution_result: ExecutionResult = Default::default();
@@ -219,7 +219,8 @@ fn preopen_dir_for_read(
 ) -> Result<()> {
     tracing::debug!("preopen_dir_for_read() host: {host_dir:?}, guest: {guest_dir:?}");
     builder
-        .preopened_dir(host_dir, guest_dir, DirPerms::READ, FilePerms::READ)
+        .preopened_dir(host_dir, guest_dir, FsPerms::ReadOnly)
+        .map_err(anyhow::Error::from)
         .with_context(|| {
             format!("preopen_dir_for_read() host: {host_dir:?}, guest: {guest_dir:?}")
         })?;
@@ -233,7 +234,8 @@ fn preopen_dir_for_write(
 ) -> Result<()> {
     tracing::debug!("preopen_dir_for_write() host: {host_dir:?}, guest: {guest_dir:?}");
     builder
-        .preopened_dir(host_dir, guest_dir, DirPerms::all(), FilePerms::all())
+        .preopened_dir(host_dir, guest_dir, FsPerms::ReadWrite)
+        .map_err(anyhow::Error::from)
         .with_context(|| {
             format!("preopen_dir_for_write() host: {host_dir:?}, guest: {guest_dir:?}")
         })?;

@@ -158,7 +158,7 @@ impl TargetsBuilder {
             ["task".to_string(), json.task.clone()],
             json.args.into_iter()
         )
-        .collect();
+        .collect_vec();
         let task = TaskParser::try_parse_from(&args)?.task;
         self.push_task(json.name, args, task, json.tags)
     }
