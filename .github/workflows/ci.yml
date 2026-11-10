@@ -21,7 +21,7 @@ jobs:
           fallback: none
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo fmt --check
-      - run: cargo clippy --bins --tests
+      - run: cargo clippy --locked --bins --tests
       - run: pip install mypy
       - run: mypy apis/python/razel.py
 
@@ -75,14 +75,14 @@ jobs:
       - run: rustup target add wasm32-unknown-unknown
       - run: rustup run stable rustc --version
 
-      - run: cargo check
-      - run: cargo check -p razel --no-default-features
-      - run: cargo check -p razel-server --lib --target=wasm32-unknown-unknown --no-default-features -F hydrate
-      - run: cargo check -p razel-server --no-default-features -F ssr
+      - run: cargo check --locked
+      - run: cargo check --locked -p razel --no-default-features
+      - run: cargo check --locked -p razel-server --lib --target=wasm32-unknown-unknown --no-default-features -F hydrate
+      - run: cargo check --locked -p razel-server --no-default-features -F ssr
 
-      - run: cargo run -- exec --info -f examples/razel.jsonl
+      - run: cargo run --locked -- exec --info -f examples/razel.jsonl
 
-      - run: cargo test --no-fail-fast -- --nocapture --skip real_time_test --skip grpc_server
+      - run: cargo test --locked --no-fail-fast -- --nocapture --skip real_time_test --skip grpc_server
 
       # install binary, to be used by following API tests
       - run: cargo install --force --locked --path razel
